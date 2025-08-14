@@ -1,0 +1,28 @@
+## Interface: 50500
+## Title: Purity
+## Notes: An addon for WoW Classic leveling challenges.
+## Author: HoliestWoW
+## Version: 9.1.0 (MoP)
+## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
+
+# Libraries
+Libs/LibStub/LibStub.lua
+Libs/AceGUI-3.0/AceGUI-3.0.xml
+
+# Addon Core
+Purity.lua
+Purity_Mage.lua
+Purity_Priest.lua
+Purity_Paladin.lua
+Purity_Warlock.lua
+Purity_Warrior.lua
+Purity_Shaman.lua
+Purity_Druid.lua
+Purity_Rogue.lua
+Purity_Hunter.lua
+Purity_Fishing.lua
+Purity_Ascetic.lua
+PurityCharacterStatus.lua
+Purity_Drunk.lua
+Purity_Monk.lua
+Purity_DK.lua
