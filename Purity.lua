@@ -7,7 +7,7 @@ if not Purity then
     Purity = {}
 end
 
-Purity.Version = "9.1.0"
+Purity.Version = "9.1.2"
 
 Purity.ADDON_PREFIX = "PURITYCOMMS"
 Purity.roster = {}

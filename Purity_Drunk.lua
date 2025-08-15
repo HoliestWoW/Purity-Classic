@@ -8,6 +8,7 @@ local playerGUID = UnitGUID("player")
 local drunkStateOnCombatStart = "Sober" 
 
 local DrunkModule = {
+    id = "DRUNK",
     challengeName = "The Drunken Master",
     description = "The Way of the Staggering Fist. Years spent as the town drunk were not wasted. Countless barroom brawls have honed your clumsy stumbles into an unpredictable martial art. Your enemies see a swaying fool, but you are a master of chaotic grace, turning staggering into evasion and slurred shouts into battle cries. To fight with a clear head would be to forget your training; only in the haze of ale can you find true focus.",
     isGlobalChallenge = true,
