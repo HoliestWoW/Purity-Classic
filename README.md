@@ -1,6 +1,6 @@
 # Purity Challenge AddOn for World of Warcraft
 
-Purity is a hardcore challenge addon for World of Warcraft that allows players to opt into strict, class-specific and global challenges. These challenges are designed to be completed from level 1 to 60 (or the current level cap), testing your knowledge of the game and forcing you to play in new and interesting ways.
+Purity is a hardcore challenge addon for World of Warcraft that allows players to opt into strict, class-specific and global challenges. These challenges are designed to be completed from level 1 to 90 (or the current level cap), testing your knowledge of the game and forcing you to play in new and interesting ways.
 
 The addon is lightweight, modular, and designed to provide a verifiable path for proving your accomplishment.
 
