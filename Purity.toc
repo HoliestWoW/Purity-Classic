@@ -2,7 +2,7 @@
 ## Title: Purity
 ## Notes: An addon for WoW Classic leveling challenges.
 ## Author: HoliestWoW
-## Version: 9.1.0 (MoP)
+## Version: 9.1.2 (MoP)
 ## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
 
 # Libraries
