@@ -63,13 +63,19 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 * **Ashes of Purity**
     * **Description:** The tangible remains of the Death Knight's past life, symbolizing their vow to start with nothing.
     * **Criteria:**
-        * After activating the challenge, you must unequip all starting Acherus Knight's gear.
+        * You may not equip the gear you started with. This includes the starting armor, jewelry, and bags.
 
 * **Sigil of Purity**
-    * **Description:** A pledge to wield only a weapon worthy of the Lich King's image.
+    * **Description:** This sigil marks a berserker's vow. The Knight focuses only on destruction, refusing to use any magic or item to heal their own wounds, relying only on natural recovery.
     * **Criteria:**
+        * You may not use ANY ability or item to heal yourself. This includes Death Strike, Rune Tap, potions, bandages, and food.
         * You may only equip two-handed axes, maces, or swords.
-        * You may not use Frost Presence.
+
+* **Phylactery of Purity**
+    * **Description:** The soul of a sacrificed Shadow Council Warlock is bound into this phylactery. It grants you power, but binds you to their dark legacy, forcing you to reject the Lich King's chilling frost magic entirely.
+    * **Criteria:**
+        * You may NOT learn or use any Frost spells or abilities.
+        * You may NOT allocate any points in the Frost talent tree.
 
 ### Druid
 
@@ -116,7 +122,7 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 * **Bindings of Purity**
     * **Description:** A pledge to be a mountain—unmoving, patient, and resolute. You meet foes head-on and do not use high-mobility skills.
     * **Criteria:**
-        * You may not use Roll, Chi Torpedo, or Flying Serpent Kick.
+        * You may not use Roll, Chi Torpedo, Flying Serpent Kick, or Transcendence.
 
 * **Gauntlets of Purity**
     * **Description:** A vow to never use a crafted weapon in combat. You may carry a weapon for its stats, but all attacks must be made unarmed.
