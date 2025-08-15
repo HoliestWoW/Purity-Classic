@@ -5,32 +5,7 @@ local currentDrunkState = "Sober"
 local DrunkModuleEventHandlerFrame = CreateFrame("Frame")
 local LOGOUT_BUFFER_TIME = 900
 local playerGUID = UnitGUID("player")
-
-local DRINK_LIST = {
-    ["Bottle of Dalaran Noir"] = true,
-    ["Cheap Beer"] = true,
-	["Holiday Spirits"] = true,
-	["Rhapsody Malt"] = true,
-	["Thunder Ale"] = true,
-	["Moonglow"] = true,
-	["Evermurky"] = true,
-	["Flask of Stormwind Tawny"] = true,
-	["Skin of Dwarven Stout"] = true,
-	["Southshore Stout"] = true,
-	["Steamwheedle Fizzy Spirits"] = true,
-	["Wizbang's Special Brew"] = true,
-	["Cherry Grog"] = true,
-	["Cuergo's Gold"] = true,
-	["Flagon of Dwarven Honeymead"] = true,
-	["Greatfather's Winter Ale"] = true,
-	["Jug of Badlands Bourbon"] = true,
-	["Junglevine Wine"] = true,
-	["Molasses Firewater"] = true,
-	["Volatile Rum"] = true,
-	["Cuergo's Gold with Worm"] = true,
-	["Dark Dwarven Lager"] = true,
-	["Darkmoon Special Reserve"] = true,
-}
+local drunkStateOnCombatStart = "Sober" 
 
 local DrunkModule = {
     challengeName = "The Drunken Master",
@@ -67,16 +42,13 @@ end
 
 function DrunkModule:GetRulesText()
     return {
-        "|cffffd100Rule:|r",
-        "|cff261A0D• You must be 'Drunk' or 'Smashed' to |cffffff00enter|r combat.",
-        "|cff261A0D• Attacking an enemy while 'Tipsy' or 'Sober' will fail the challenge.",
-        "|cff261A0D• If your status drops to 'Tipsy' |cffffff00during|r an existing fight, you may finish that fight without penalty.",
+        "|cffffd100The Path of the Citizen (Levels 1-20):|r",
+        "|cff261A0D• Before level 21, you must prove yourself as a productive citizen.",
+        "|cff261A0D• You must achieve a skill of |cffffff00150|r in at least |cffffff00TWO|r primary professions.",
         " ",
-        "|cffffd100Challenge Conditions:|r",
-        "|cff261A0D  • Must be started on a level 1 character of ANY class.|r",
-        "|cff261A0D  • Must be accepted before leveling to 2.|r",
-        "|cff261A0D  • The challenge activates at level 10. Prior to level 10, you are allowed to fight without penalty.|r",
-        "|cff261A0D  • An uptime of at least 96.0% must be maintained.|r",
+        "|cffffd100The Drunken Master (Level 21+):|r",
+        "|cff261A0D• At level 21, your professions are checked. If you fail, the challenge ends.",
+        "|cff261A0D• From level 21 on, you must be 'Drunk' or 'Smashed' to initiate combat.",
     }
 end
 
@@ -95,61 +67,88 @@ local function DrunkModule_EventHandler(event, ...)
 
     if event == "PLAYER_LEVEL_UP" then
         local newLevel = ...
-        if newLevel == 10 then
-            Purity:ShowWarningBanner("The Drunken Master challenge is now active!", 20, 1)
-            if DrunkenMasterStatusFrame and not DrunkenMasterStatusFrame:IsShown() then
-                DrunkenMasterStatusFrame:Show()
-                local db = Purity:GetDB()
-                if not db.drunkFrame then db.drunkFrame = {} end
-                db.drunkFrame.shown = true
+        if newLevel == 21 then
+            -- This is the profession audit.
+            local professionsAtGoal = 0
+            for i = 1, GetNumSkillLines() do
+                local skillName, isHeader, skillRank, _, _, _, _, _, _, _, _, _, skillMax = GetSkillLineInfo(i)
+                -- We check for isHeader == false to ignore categories, and skillMax > 0 to filter out secondary professions like Riding.
+                if not isHeader and skillMax and skillMax > 0 then
+                    if skillRank >= 150 then
+                        professionsAtGoal = professionsAtGoal + 1
+                    end
+                end
+            end
+
+            if professionsAtGoal < 2 then
+                Purity:Violation("Failed the profession audit at level 21. Required: 2 professions at 150 skill. Found: " .. professionsAtGoal)
+                return
+            else
+                Purity:ShowWarningBanner("Profession audit passed! The Drunken Master challenge is now active!", 20, 1)
+                if DrunkenMasterStatusFrame and not DrunkenMasterStatusFrame:IsShown() then
+                    DrunkenMasterStatusFrame:Show()
+                    local db = Purity:GetDB()
+                    if not db.drunkFrame then db.drunkFrame = {} end
+                    db.drunkFrame.shown = true
+                end
             end
         end
+		
+        elseif newLevel == 20 then
+            -- This is the new warning pre-check.
+            local professionsAtGoal = 0
+            for i = 1, GetNumSkillLines() do
+                local skillName, isHeader, skillRank, _, _, _, _, _, _, _, _, _, skillMax = GetSkillLineInfo(i)
+                if not isHeader and skillMax and skillMax > 0 then
+                    if skillRank >= 150 then
+                        professionsAtGoal = professionsAtGoal + 1
+                    end
+                end
+            end
+
+            if professionsAtGoal < 2 then
+                local message = "Warning: You must have two primary professions at 150 skill before you reach level 21 or you will fail this challenge!"
+                -- The '2' at the end makes the banner red and more urgent.
+                Purity:ShowWarningBanner(message, 30, 2)
+            end
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        local timestamp, subevent, hideCaster, sourceGUID, sourceName, sourceFlags, sourceFlags2, destGUID, destName, destFlags, destFlags2 = CombatLogGetCurrentEventInfo()
+        local timestamp, subevent, _, sourceGUID = CombatLogGetCurrentEventInfo()
         
         if sourceGUID == playerGUID then
-            if subevent == "SWING_DAMAGE" or subevent == "SPELL_DAMAGE" or subevent == "SPELL_MISSED" then
-                if UnitLevel("player") >= 10 then
-                    if currentDrunkState == "Tipsy" or currentDrunkState == "Sober" then
-                        Purity:Violation("Attacked an enemy while " .. currentDrunkState .. ".")
-                    end
+            if subevent == "SWING_DAMAGE" or subevent == "SPELL_DAMAGE" or subevent == "RANGE_DAMAGE" or subevent == "SPELL_MISSED" or subevent == "RANGE_MISSED" or subevent == "SWING_MISSED" then
+                if UnitLevel("player") >= 21 and (drunkStateOnCombatStart == "Tipsy" or drunkStateOnCombatStart == "Sober") then
+                    Purity:Violation("Attacked an enemy while " .. drunkStateOnCombatStart .. ".")
+                    drunkStateOnCombatStart = "Drunk" 
                 end
             end
         end
 
     elseif event == "PLAYER_REGEN_DISABLED" then
         isPlayerInCombat = true
+        drunkStateOnCombatStart = currentDrunkState
         DrunkModule:UpdateStatusDisplay()
 
     elseif event == "PLAYER_REGEN_ENABLED" then
         isPlayerInCombat = false
+        drunkStateOnCombatStart = "Sober"
         DrunkModule:UpdateStatusDisplay()
 
     elseif event == "CHAT_MSG_SYSTEM" then
         local message = ...
         
-        local drunkLevels = {
-            ["Smashed"] = 4,
-            ["Drunk"] = 3,
-            ["Tipsy"] = 2,
-            ["Sober"] = 1
-        }
-        
+        local drunkLevels = { ["Smashed"] = 4, ["Drunk"] = 3, ["Tipsy"] = 2, ["Sober"] = 1 }
         local previousLevel = drunkLevels[currentDrunkState] or 1
 
         if string.find(message, "You feel drunk.") then
             local newLevel = drunkLevels["Drunk"]
             local eventType = (newLevel > previousLevel) and "BECAME_DRUNK" or "DECAY_TO_DRUNK"
             DrunkModule:SetDrunkState("Drunk", eventType)
-
         elseif string.find(message, "You feel tipsy.") then
             local newLevel = drunkLevels["Tipsy"]
             local eventType = (newLevel > previousLevel) and "BECAME_TIPSY" or "DECAY_TO_TIPSY"
             DrunkModule:SetDrunkState("Tipsy", eventType)
-            
         elseif string.find(message, "You feel completely smashed.") then
             DrunkModule:SetDrunkState("Smashed", "BECAME_SMASHED")
-            
         elseif string.find(message, "You feel sober again.") then
             DrunkModule:SetDrunkState("Sober", "BECAME_SOBER")
         end
@@ -157,6 +156,9 @@ local function DrunkModule_EventHandler(event, ...)
 end
 
 DrunkModuleEventHandlerFrame:SetScript("OnEvent", DrunkModule_EventHandler)
+
+-- NOTE: All other functions (CreateStatusFrame, ToggleStatusFrame, etc.) remain unchanged.
+-- They are included below for completeness.
 
 function DrunkModule:CreateStatusFrame()
     if DrunkenMasterStatusFrame then return end
@@ -172,11 +174,9 @@ function DrunkModule:CreateStatusFrame()
         db.drunkFrame.point, _, db.drunkFrame.relativePoint, db.drunkFrame.x, db.drunkFrame.y = self:GetPoint()
     end)
     local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal"); title:SetPoint("TOP", 0, -12); title:SetText("Drunken Master Status")
-    frame.currentText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge"); frame.currentText:SetPoint("CENTER", 0, 0); -- Adjusted position up
-    
+    frame.currentText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge"); frame.currentText:SetPoint("CENTER", 0, 0);
     frame.combatAllowedText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     frame.combatAllowedText:SetPoint("TOP", frame.currentText, "BOTTOM", 0, -5)
-    
     local closeButton = CreateFrame("Button", nil, frame, "UIPanelCloseButton"); closeButton:SetPoint("TOPRIGHT", -5, -5)
     closeButton:SetScript("OnClick", function()
         frame:Hide()
@@ -204,12 +204,9 @@ end
 function DrunkModule:InitializeOnPlayerEnterWorld()
     self:CreateStatusFrame()
     local db = Purity:GetDB()
-
     currentDrunkState = "Sober"
-
     if db and db.drunkData and db.drunkData.lastState then
         local timeElapsed = GetTime() - (db.drunkData.logoutTimestamp or GetTime())
-        
         if timeElapsed < LOGOUT_BUFFER_TIME then
             currentDrunkState = db.drunkData.lastState
         else
@@ -218,7 +215,6 @@ function DrunkModule:InitializeOnPlayerEnterWorld()
     else
         currentDrunkState = "Sober"
     end
-    
     if db and db.drunkFrame then
         local point = db.drunkFrame.point or "CENTER"
         local relativePoint = db.drunkFrame.relativePoint or "CENTER"
@@ -232,14 +228,12 @@ function DrunkModule:InitializeOnPlayerEnterWorld()
     else
         DrunkenMasterStatusFrame:SetPoint("CENTER", 0, 200)
     end
-    
     self:UpdateStatusDisplay()
     DrunkModuleEventHandlerFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     DrunkModuleEventHandlerFrame:RegisterEvent("CHAT_MSG_SYSTEM")
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_LEVEL_UP")
-    -- We'll also register for CHAT_MSG_LOOT here to track drinks consumed.
     DrunkModuleEventHandlerFrame:RegisterEvent("CHAT_MSG_LOOT")
 end
 

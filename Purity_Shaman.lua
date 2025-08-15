@@ -41,8 +41,11 @@ ShamanModule.challenges.COMMUNION = {
 
     isWeaponAllowed = function(self, itemLink)
         if not itemLink then return true end
-        local _, _, _, _, _, itemType = GetItemInfo(itemLink)
-        return itemType ~= "Weapon"
+        local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
+        if itemType == "Weapon" and itemSubType ~= "Fishing Pole" then
+            return false
+        end
+        return true
     end,
 
     IsItemForbidden = function(self, itemLink)

@@ -178,7 +178,7 @@ HunterModule.challenges.quiver = {
         if not itemLink then return false end
         local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
         if itemType == "Weapon" then
-            return not (itemSubType == "Bows" or itemSubType == "Guns" or itemSubType == "Crossbows" or itemSubType == "Thrown")
+            return not (itemSubType == "Bows" or itemSubType == "Guns" or itemSubType == "Crossbows" or itemSubType == "Thrown" or itemSubType == "Fishing Pole")
         end
         return false
     end,
