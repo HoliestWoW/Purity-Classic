@@ -414,7 +414,24 @@ ManageBloodRegen = function(self)
                             hps_found_on_line = regenAmount / tonumber(duration)
                         end
                     end
-                    
+					
+                    if hps_found_on_line == 0 then
+                        local percent, duration = lineText:match("[Rr]egenerates (%d+)%% of your [Hh]ealth and [Mm]ana per second.")
+                        if percent and duration and tonumber(duration) > 0 then
+                            local totalHealth = UnitHealthMax("player")
+                            local regenAmount = totalHealth * (tonumber(percent) / 100)
+                            hps_found_on_line = regenAmount / tonumber(duration)
+                        end
+                    end
+					
+                    if hps_found_on_line == 0 then
+                        local percent, duration = lineText:match("[Rr]estores (%d+)%% of your [Hh]ealth per second.")
+                        if percent and duration and tonumber(duration) > 0 then
+                            local totalHealth = UnitHealthMax("player")
+                            local regenAmount = totalHealth * (tonumber(percent) / 100)
+                            hps_found_on_line = regenAmount / tonumber(duration)
+                        end
+                    end
 
                     if hps_found_on_line > 0 then
                         totalHPS = totalHPS + hps_found_on_line
