@@ -1419,6 +1419,8 @@ local coefficientText = ""
 	end)
 end
 
+-- In Purity.lua, replace this entire function
+
 function Purity:selectTab(tabToShow)
     if not self.mainInterfaceFrame then self:CreateCoreUI() end
 
@@ -1445,7 +1447,27 @@ function Purity:selectTab(tabToShow)
             self:UpdateAndGetStatusStrings()
         elseif tabToShow == "roster" then
             self.rosterPane:Show()
+			
             
+            -- *** FIX PART 1: Manually add self to the roster ***
+			local db = Purity:GetDB()
+            local _, classToken = UnitClass("player")
+            local realTimeData = self:GetRawStatusData()
+            local totalCoeff = self:CalculateTotalCoefficient()
+            local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
+            local playerName = UnitName("player") .. "-" .. GetRealmName() -- Use full name as the key
+
+            Purity.roster[playerName] = {
+                challenge = db.challengeTitle or "N/A",
+                level = UnitLevel("player"),
+                class = classToken,
+                status = realTimeData.status,
+                coefficient = string.format("%.2f", totalCoeff),
+                uptime = string.format("%.1f%%", uptimePercent),
+                lastSeen = GetTime() 
+            }
+            
+            -- *** FIX PART 2: Restore the missing channel check ***
             local foundID
             local returned_id_as_string, _ = GetChannelName("PurityUsers")
             local numericID = tonumber(returned_id_as_string)
@@ -1456,11 +1478,13 @@ function Purity:selectTab(tabToShow)
             if foundID then
                 Purity.purityChannelID = foundID
                 SendChatMessage("!purity_ping", "CHANNEL", nil, foundID)
+			else
             end
-            self:UpdateRosterWindow()
+            
+            self:UpdateRosterWindow() -- <-- THIS IS THE CORRECTED LINE
         elseif tabToShow == "verify" then
             self.verifyPane:Show()
-            local db = self:GetDB()
+            local db = Purity:GetDB()
             if db.status == "Passed" then
                 self.verifyPane.editBox:SetText(self:GenerateWebVerificationString())
                 self.verifyPane.editBox:HighlightText()
@@ -2930,7 +2954,6 @@ local function OnAddonMessage(prefix, message, channel, sender)
         end
     elseif command == "ROSTER_REQUEST" then
         Purity:SendStatusToPlayer(sender)
-        C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "ROSTER_REQUEST", "WHISPER", sender)
     end
     if Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
         Purity.GlobalModules.BLOOD_MAGE_BARGAIN:RefreshGroupFrames()
@@ -2974,11 +2997,29 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "CHAT_MSG_CHANNEL" then
         local msg = select(1, ...)
         local sender = select(2, ...)
-        local channelName = select(9, ...)
+        local channelName, channelID = select(9, ...) -- GRAB THE CHANNEL ID HERE
 
         if channelName == "PurityUsers" then
-            if (msg == "!purity_ping" or msg == "joins channel") and sender and sender ~= (UnitName("player") .. "-" .. GetRealmName()) then
+            Purity.purityChannelID = channelID -- SAVE THE CHANNEL ID
+            
+            if msg == "!purity_ping" then
+            end
+
+            local selfName = UnitName("player")
+            local isSelf = false
+            if sender then
+                if sender == selfName then
+                    isSelf = true
+                elseif sender:find(selfName .. "-", 1, true) == 1 then
+                    isSelf = true
+                end
+            end
+
+            if (msg == "!purity_ping" or msg == "joins channel") and sender and not isSelf then
                 C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "ROSTER_REQUEST", "WHISPER", sender)
+            else
+                if msg == "!purity_ping" then
+                end
             end
         end
         return
