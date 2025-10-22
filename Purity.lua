@@ -4,6 +4,7 @@ BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
 Purity.Version = "10.0.3"
+if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
     ["PALADIN"] = { name = "Oath Breaker", colorHex = "FF0000" }
@@ -1419,8 +1420,6 @@ local coefficientText = ""
 	end)
 end
 
--- In Purity.lua, replace this entire function
-
 function Purity:selectTab(tabToShow)
     if not self.mainInterfaceFrame then self:CreateCoreUI() end
 
@@ -1431,6 +1430,7 @@ function Purity:selectTab(tabToShow)
     if self.rankingsPane then self.rankingsPane:Hide() end
     if self.contentFrame then self.contentFrame:Hide() end
     if self.wideContentFrame then self.wideContentFrame:Hide() end
+	if self.optionsPane then self.optionsPane:Hide() end
 
     if tabToShow == "rankings" then
         self.wideContentFrame:Show()
@@ -1500,6 +1500,163 @@ function Purity:selectTab(tabToShow)
             end
             self.verifyPane.websiteText:SetText("Verify at: |cff00FFFFhttps://purity.pythonanywhere.com/|r")
             self.verifyPane.websiteText:Show()
+		elseif tabToShow == "options" then
+            self.optionsPane:Show()
+            self:BuildOptionsMenu()
+        end
+    end
+end
+
+function Purity:BuildOptionsMenu()
+    if not self.optionsPane then return end
+
+    -- Clear any old options
+    if self.optionsPane.controls then
+        for _, control in ipairs(self.optionsPane.controls) do
+            control:Hide()
+        end
+    end
+    self.optionsPane.controls = {}
+
+    local db = Purity:GetDB()
+    local globalSettings = Purity_GlobalSettings
+    local yOffset = -40
+    local xOffset = 50
+
+    -- Add a title
+    if not self.optionsPane.title then
+         self.optionsPane.title = self.optionsPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+         self.optionsPane.title:SetPoint("TOP", self.optionsPane, "TOP", 0, -15)
+         self.optionsPane.title:SetTextColor(1, 0.82, 0)
+         table.insert(self.optionsPane.controls, self.optionsPane.title)
+    end
+    self.optionsPane.title:SetText("Purity Options")
+    self.optionsPane.title:Show()
+
+    -- Checkbox for Minimap Icon Visibility
+    local minimapCheck = CreateFrame("CheckButton", "PurityMinimapIconCheck", Purity.optionsPane, "UICheckButtonTemplate")
+    minimapCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+    local minimapCheckText = _G[minimapCheck:GetName() .. "Text"]
+    if minimapCheckText then
+        minimapCheckText:SetText("Show Minimap Button")
+        minimapCheckText:SetTextColor(1, 0.82, 0) -- Ensure standard color
+        minimapCheckText:SetFontObject(GameFontNormalSmall) -- <<<< ENSURE FONT
+        minimapCheckText:ClearAllPoints() -- <<<< ENSURE ANCHOR
+        minimapCheckText:SetPoint("LEFT", minimapCheck, "RIGHT", 2, 0) -- <<<< ENSURE ANCHOR
+        minimapCheckText:Show() -- <<<< ENSURE SHOWN
+    end
+    minimapCheck:SetChecked(globalSettings.showMinimapIcon == nil or globalSettings.showMinimapIcon)
+    minimapCheck:SetScript("OnClick", function(self)
+        local showIcon = self:GetChecked()
+        Purity_GlobalSettings.showMinimapIcon = showIcon
+        Purity:UpdateMinimapIconVisibility()
+    end)
+    table.insert(self.optionsPane.controls, minimapCheck)
+    yOffset = yOffset - 30
+
+    -- Blood Mage Options Section
+    local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    if bloodMageModule then
+        -- Checkbox for Blood Bar Mode
+        local bloodBarCheck = CreateFrame("CheckButton", "PurityBloodBarModeCheck", Purity.optionsPane, "UICheckButtonTemplate")
+        bloodBarCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+        local bloodBarCheckText = _G[bloodBarCheck:GetName() .. "Text"]
+        if bloodBarCheckText then
+             bloodBarCheckText:SetText("Separate Blood Bar Frame")
+             bloodBarCheckText:SetFontObject(GameFontNormalSmall) -- <<<< ENSURE FONT
+             bloodBarCheckText:ClearAllPoints() -- <<<< ENSURE ANCHOR
+             bloodBarCheckText:SetPoint("LEFT", bloodBarCheck, "RIGHT", 2, 0) -- <<<< ENSURE ANCHOR
+             bloodBarCheckText:Show() -- <<<< ENSURE SHOWN
+        end
+        bloodBarCheck:SetChecked(db.bloodBarIsSeparate or false)
+
+        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
+            bloodBarCheck:Enable()
+            if bloodBarCheckText then bloodBarCheckText:SetTextColor(1, 0.82, 0) end
+			bloodBarCheck:SetScript("OnClick", function(self)
+                local db = Purity:GetDB()
+                local newState = self:GetChecked()
+                local status = newState and "Separate" or "Overlay"
+                print("|cffFFFF00Purity:|r Blood Bar mode set to: |cff00FF00" .. status .. "|r")
+                if bloodMageModule.ApplyBarMode then
+                    bloodMageModule:ApplyBarMode(newState, true)
+                end
+            end)
+        else
+            bloodBarCheck:Disable()
+            if bloodBarCheckText then bloodBarCheckText:SetTextColor(0.5, 0.5, 0.5) end
+        end
+        table.insert(self.optionsPane.controls, bloodBarCheck)
+        yOffset = yOffset - 30
+
+        -- Checkbox for Blood Log Visibility
+        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
+            local bloodLogCheck = CreateFrame("CheckButton", "PurityBloodLogVisibleCheck", Purity.optionsPane, "UICheckButtonTemplate")
+            bloodLogCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+            local bloodLogCheckText = _G[bloodLogCheck:GetName() .. "Text"]
+            if bloodLogCheckText then
+                 bloodLogCheckText:SetText("Show Blood Log")
+                 bloodLogCheckText:SetFontObject(GameFontNormalSmall) -- <<<< ENSURE FONT
+                 bloodLogCheckText:ClearAllPoints() -- <<<< ENSURE ANCHOR
+                 bloodLogCheckText:SetPoint("LEFT", bloodLogCheck, "RIGHT", 2, 0) -- <<<< ENSURE ANCHOR
+                 bloodLogCheckText:SetTextColor(1, 0.82, 0)
+                 bloodLogCheckText:Show() -- <<<< ENSURE SHOWN
+            end
+            bloodLogCheck:SetChecked(db.bloodLogVisible or false)
+
+            bloodLogCheck:SetScript("OnClick", function(self)
+                local db = Purity:GetDB()
+                local makeVisible = self:GetChecked()
+                db.bloodLogVisible = makeVisible
+
+                if not bloodMageModule.bloodLogFrame then
+                    bloodMageModule:CreateBloodLogFrame()
+                end
+
+                if bloodMageModule.bloodLogFrame then
+                    if makeVisible then
+                        bloodMageModule.bloodLogFrame:Show()
+                    else
+                        bloodMageModule.bloodLogFrame:Hide()
+                    end
+                end
+            end)
+            table.insert(self.optionsPane.controls, bloodLogCheck)
+            yOffset = yOffset - 30
+        end
+    else
+        local noBMAvailText = Purity.optionsPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        noBMAvailText:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+        noBMAvailText:SetTextColor(0.6, 0.6, 0.6)
+        noBMAvailText:SetText("Blood Mage options require the challenge.")
+        table.insert(self.optionsPane.controls, noBMAvailText)
+        yOffset = yOffset - 30
+    end
+
+    -- Fallback message if needed
+    if #self.optionsPane.controls == 2 then
+         local noOptionsText = Purity.optionsPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+         noOptionsText:SetPoint("TOP", Purity.optionsPane, "TOP", 0, yOffset)
+         noOptionsText:SetText("No other options currently available.")
+         table.insert(self.optionsPane.controls, noOptionsText)
+    end
+end
+
+function Purity:UpdateMinimapIconVisibility()
+    local showIcon = Purity_GlobalSettings.showMinimapIcon == nil or Purity_GlobalSettings.showMinimapIcon
+    local LDBIcon = LibStub:GetLibrary("LibDBIcon-1.0", true)
+
+    if LDBIcon then
+        if showIcon then
+            LDBIcon:Show("Purity")
+        else
+            LDBIcon:Hide("Purity")
+        end
+    elseif Purity.minimapIcon then
+        if showIcon then
+            Purity.minimapIcon:Show()
+        else
+            Purity.minimapIcon:Hide()
         end
     end
 end
@@ -1508,6 +1665,71 @@ function Purity.CreateCoreUI()
     if Purity.hasUIBeenCreated then return end
     Purity.hasUIBeenCreated = true
 	
+    local LDB = LibStub:GetLibrary("LibDataBroker-1.1", true)
+    local LDBIcon = LibStub:GetLibrary("LibDBIcon-1.0", true)
+    local showIcon = Purity_GlobalSettings.showMinimapIcon == nil or Purity_GlobalSettings.showMinimapIcon -- Read setting first
+
+    local ICON_PATH = "Interface\\AddOns\\Purity\\Media\\PurityLogoShort.tga"
+
+    if LDB and LDBIcon then
+        local ldbObject = LDB:NewDataObject("Purity", {
+            type = "launcher",
+            label = "Purity",
+            icon = ICON_PATH,
+            OnClick = function(self, button) Purity_TogglePanel() end,
+            OnTooltipShow = function(tooltip)
+                if not tooltip or not tooltip.AddLine then return end
+                tooltip:AddLine("Purity")
+                tooltip:AddLine("Click to open the Purity menu.")
+            end
+        })
+
+        if not Purity_MinimapIconDB then Purity_MinimapIconDB = {} end
+        LDBIcon:Register("Purity", ldbObject, Purity_MinimapIconDB)
+
+        if not showIcon then
+            LDBIcon:Hide("Purity")
+        else
+             LDBIcon:Show("Purity")
+        end
+
+    elseif showIcon then
+        local iconFrame = CreateFrame("Button", "PurityMinimapButton", Minimap)
+        iconFrame:SetSize(32, 32)
+        iconFrame:SetPoint("TOPRIGHT", Minimap, "TOPRIGHT", -30, -10)
+        iconFrame:SetFrameStrata("MEDIUM")
+
+        local iconTexture = iconFrame:CreateTexture(nil, "ARTWORK")
+        iconTexture:SetTexture(ICON_PATH)
+        iconTexture:SetSize(28, 28)
+        iconTexture:SetPoint("CENTER")
+
+        local mask = iconFrame:CreateMaskTexture()
+        mask:SetTexture("Interface\\CharacterFrame\\TempFrame-Mask")
+        mask:SetAllPoints(iconTexture)
+        iconTexture:AddMaskTexture(mask)
+
+        local overlay = iconFrame:CreateTexture(nil, "OVERLAY")
+        overlay:SetTexture("Interface\\Minimap\\Minimap-TrackingBorder")
+        overlay:SetAllPoints()
+
+        iconFrame:SetScript("OnClick", Purity_TogglePanel)
+        iconFrame:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText("Purity")
+            GameTooltip:AddLine("Click to open the Purity menu.")
+            GameTooltip:AddLine("|cffb0b0b0(Drag to move)|r"); GameTooltip:Show()
+        end)
+        iconFrame:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+        iconFrame:RegisterForDrag("LeftButton")
+        iconFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        iconFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        Purity.minimapIcon = iconFrame
+    else
+        if Purity.minimapIcon then
+             Purity.minimapIcon:Hide()
+        end
+    end
+
     if not Purity.TooltipOverlay then
         Purity.TooltipOverlay = GameTooltip:CreateFontString("PurityTooltipOverlay", "OVERLAY", "GameFontNormal")
         Purity.TooltipOverlay:Hide()
@@ -1884,6 +2106,11 @@ function Purity.CreateCoreUI()
 	verifyTab:SetSize(tabWidth, 22)
 	verifyTab:SetPoint("LEFT", rankingsTab, "RIGHT", tabSpacing, 0)
 	verifyTab:SetText("Verify")
+	
+	local optionsTab = CreateFrame("Button", "Purity_OptionsTab", Purity.mainInterfaceFrame, "UIPanelButtonTemplate")
+	optionsTab:SetSize(tabWidth, 22)
+	optionsTab:SetPoint("LEFT", verifyTab, "RIGHT", tabSpacing, 0)
+	optionsTab:SetText("Options")
 
     local contentFrame = CreateFrame("Frame", nil, Purity.mainInterfaceFrame)
     contentFrame:SetPoint("TOP", rulesTab, "BOTTOM", 0, -45)
@@ -1907,6 +2134,9 @@ function Purity.CreateCoreUI()
 	Purity.rosterPane:SetAllPoints(contentFrame)
 	Purity.verifyPane = CreateFrame("Frame", nil, contentFrame)
 	Purity.verifyPane:SetAllPoints(contentFrame)
+	
+	Purity.optionsPane = CreateFrame("Frame", nil, contentFrame)
+	Purity.optionsPane:SetAllPoints(contentFrame)
 	
 	Purity.rankingsPane = CreateFrame("Frame", nil, Purity.wideContentFrame)
 	Purity.rankingsPane:SetAllPoints(Purity.wideContentFrame)
@@ -1980,12 +2210,14 @@ function Purity.CreateCoreUI()
 	rosterTab:SetScript("OnClick", function() Purity:selectTab("roster") end)
 	rankingsTab:SetScript("OnClick", function() Purity:selectTab("rankings") end)
     verifyTab:SetScript("OnClick", function() Purity:selectTab("verify") end)
+	optionsTab:SetScript("OnClick", function() Purity:selectTab("options") end)
 
     local closeButton = CreateFrame("Button", "Purity_InterfaceCloseButton", Purity.mainInterfaceFrame, "UIPanelButtonTemplate")
     closeButton:SetSize(100, 25)
     closeButton:SetPoint("BOTTOM", Purity.mainInterfaceFrame, "BOTTOM", 0, 20)
     closeButton:SetText("Close")
     closeButton:SetScript("OnClick", function() Purity.mainInterfaceFrame:Hide() end)
+	Purity:UpdateMinimapIconVisibility()
 end
 
 function Purity:ShowRuleUpdate(message)
@@ -2673,16 +2905,16 @@ SlashCmdList["PURITY"] = function(msg)
 	
 	if command == "bloodbar" then
         local db = Purity:GetDB()
-        db.bloodBarIsSeparate = not db.bloodBarIsSeparate
-        local status = db.bloodBarIsSeparate and "Separate and Movable" or "Overlay on Health Bar"
+        local newState = not db.bloodBarIsSeparate
+        local status = newState and "Separate and Movable" or "Overlay on Health Bar"
         print("|cffFFFF00Purity:|r Blood Mage Bar mode set to: |cff00FF00" .. status .. "|r")
-        
+
         if Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.ApplyBarMode then
-            Purity.GlobalModules.BLOOD_MAGE_BARGAIN:ApplyBarMode(db.bloodBarIsSeparate, true)
+            Purity.GlobalModules.BLOOD_MAGE_BARGAIN:ApplyBarMode(newState, true) -- This is correct
         end
         return
 		
-    elseif command == "rules" or command == "status" or command == "roster" or command == "verify" or command == "rankings" then
+		elseif command == "rules" or command == "status" or command == "roster" or command == "verify" or command == "rankings" or command == "options" then
         if not Purity.mainInterfaceFrame:IsShown() then
             Purity.mainInterfaceFrame:Show()
         end
@@ -2729,11 +2961,24 @@ SlashCmdList["PURITY"] = function(msg)
             print("|cffFFFF00Purity:|r This command is only available for the Drunken Master challenge.")
         end
 		
-    elseif command == "bloodlog" then
+	elseif command == "bloodlog" then
         local db = Purity:GetDB()
         local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
-        if bloodMageModule and bloodMageModule.bloodLogFrame then
+        
+        -- Check for the active challenge
+        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and bloodMageModule then
+            
+            -- If the frame doesn't exist (e.g., first use), create it now.
+            if not bloodMageModule.bloodLogFrame then
+                bloodMageModule:CreateBloodLogFrame()
+            end
+            
             local frame = bloodMageModule.bloodLogFrame
+            if not frame then -- Safety check
+                 print("|cffFFFF00Purity:|r Blood Log frame failed to create.")
+                 return
+            end
+
             local arg2 = args[2] and string.lower(args[2]) or nil
 
             if arg2 == "reset" then

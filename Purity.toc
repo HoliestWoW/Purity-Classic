@@ -3,11 +3,16 @@
 ## Notes: An addon for WoW Classic leveling challenges.
 ## Author: HoliestWoW
 ## Version: 10.0.3
+## SavedVariables: Purity_MinimapIconDB, Purity_GlobalSettings
 ## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
 
 # Libraries
 Libs/LibStub/LibStub.lua
 Libs/AceGUI-3.0/AceGUI-3.0.xml
+
+## OptionalDeps: LibDataBroker-1.1, LibDBIcon-1.0
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 
 # Addon Core
 Purity.lua

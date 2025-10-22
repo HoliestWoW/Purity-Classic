@@ -116,27 +116,24 @@ local BloodMageModule = {
 	
 	ApplyBarMode = function(self, isSeparate, isToggle)
 		local bar = self.bloodBarFrame
-		if not bar then return end
-		
+		if not bar then
+            return
+        end
+
 		local db = Purity:GetDB()
-		
+        local wasSeparate = db.bloodBarIsSeparate
+
 		if isSeparate then
-			-- DETACHABLE MODE
 			bar:SetParent(UIParent)
 			bar:SetFrameStrata("MEDIUM")
 			bar:ClearAllPoints()
 
-			-- If this function was called by the slash command, reset to center.
-			if isToggle then
-				bar:SetPoint("CENTER")
-				db.bloodBarX = nil
-				db.bloodBarY = nil
-			-- Otherwise (on login), restore the saved position if it exists.
-			elseif db.bloodBarX and db.bloodBarY then
-				bar:SetPoint("CENTER", UIParent, "CENTER", db.bloodBarX, db.bloodBarY)
-			-- If there's no saved position, default to the center.
+			if (isToggle and not wasSeparate) or not db.bloodBarX or not db.bloodBarY or type(db.bloodBarX) ~= "number" or type(db.bloodBarY) ~= "number" then
+				bar:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+				db.bloodBarX = 0
+				db.bloodBarY = 0
 			else
-				bar:SetPoint("CENTER")
+				bar:SetPoint("CENTER", UIParent, "CENTER", db.bloodBarX, db.bloodBarY)
 			end
 
 			bar:SetSize(200, 20)
@@ -146,27 +143,53 @@ local BloodMageModule = {
 			bar:SetScript("OnDragStart", function(frame) frame:StartMoving() end)
 			bar:SetScript("OnDragStop", function(frame)
 				frame:StopMovingOrSizing()
-				
-				-- Correctly save the position relative to the screen's center.
 				local scale = UIParent:GetEffectiveScale()
 				local x, y = frame:GetCenter()
-				db.bloodBarX = x / scale
-				db.bloodBarY = y / scale
+                local screenCenterX = GetScreenWidth() / 2
+                local screenCenterY = GetScreenHeight() / 2
+				db.bloodBarX = (x / scale) - screenCenterX
+				db.bloodBarY = (y / scale) - screenCenterY
 			end)
+
+            if not bar.background then
+                bar.background = bar:CreateTexture(nil, "BACKGROUND")
+                bar.background:SetAllPoints(bar)
+                bar.background:SetColorTexture(0.1, 0.1, 0.1, 0.7)
+            end
+            bar.background:Show()
+            bar:GetStatusBarTexture():SetAlpha(0.85)
+
+            bar:SetAlpha(1)
+            bar:Show()
+
+            C_Timer.After(0.1, function()
+                if bar:IsShown() then
+                     local p1, _, p2, x, y = bar:GetPoint()
+                else
+                end
+            end)
+
 		else
-			-- OVERLAY MODE
 			bar:SetParent(PlayerFrame)
 			bar:SetFrameStrata("LOW")
 			bar:SetFrameLevel(PlayerFrameHealthBar:GetFrameLevel())
 			bar:ClearAllPoints()
 			bar:SetPoint("TOPLEFT", PlayerFrameHealthBar, "TOPLEFT", 2, 0)
 			bar:SetPoint("BOTTOMRIGHT", PlayerFrameHealthBar, "BOTTOMRIGHT", 0, 0)
-			bar:SetSize(1, 1) -- Size is controlled by SetPoint
+			bar:SetSize(1, 1)
 			bar:SetMovable(false)
 			bar:EnableMouse(false)
 			bar:SetScript("OnDragStart", nil)
 			bar:SetScript("OnDragStop", nil)
+
+            if bar.background then
+                bar.background:Hide()
+            end
+            bar:GetStatusBarTexture():SetAlpha(1)
 		end
+
+        db.bloodBarIsSeparate = isSeparate
+
 		self:_UpdateDefaultHealthBarVisibility()
 	end,
 
@@ -238,7 +261,13 @@ local BloodMageModule = {
 		if self.bloodLogFrame then return end
 
 		local frame = CreateFrame("Frame", "PurityBloodLogFrame", UIParent)
-		frame:SetSize(350, 150)
+        
+        local db = Purity:GetDB()
+        local width = (db and db.bloodLogDimensions and db.bloodLogDimensions.width) or 350
+        local height = (db and db.bloodLogDimensions and db.bloodLogDimensions.height) or 150
+        frame:SetSize(width, height)
+		frame:SetResizable(true)
+
 		frame:SetClampedToScreen(true)
 		frame:SetMovable(true)
 		frame:EnableMouse(true)
@@ -252,14 +281,26 @@ local BloodMageModule = {
 			db.bloodLogPosition = { point = point, relativePoint = relativePoint, x = x, y = y }
 		end)
 
-		local bg = frame:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints(true)
-		bg:SetColorTexture(0, 0, 0, 0.6)
+        frame:SetScript("OnSizeChanged", function(self, width, height)
+            if self.scrollChild then
+                self.scrollChild:SetWidth(width - 40) -- Account for padding and scrollbar
+            end
+            if self.logLines then
+                for _, line in ipairs(self.logLines) do
+                    line:SetWidth(width - 40)
+                end
+            end
+        end)
+
+		frame.bg = frame:CreateTexture(nil, "BACKGROUND")
+		frame.bg:SetAllPoints(true)
+        local fixedOpacity = 0.7 -- Set your desired fixed opacity here
+		frame.bg:SetColorTexture(0, 0, 0, fixedOpacity)
 		
 		-- Create the scrollable area
 		local scrollFrame = CreateFrame("ScrollFrame", "PurityBloodLogScrollFrame", frame, "UIPanelScrollFrameTemplate")
 		scrollFrame:SetPoint("TOPLEFT", 5, -5)
-		scrollFrame:SetPoint("BOTTOMRIGHT", -25, 5)
+		scrollFrame:SetPoint("BOTTOMRIGHT", -25, 5) -- Reverted to original padding
 
 		-- Create the child frame that will hold the text lines and grow
 		local scrollChild = CreateFrame("Frame")
@@ -271,8 +312,49 @@ local BloodMageModule = {
 		frame.scrollChild = scrollChild
 		frame.logLines = {}
 		frame.maxLogLines = 100 -- We'll keep a history of 100 lines
+
+        -- Add Resize Handle
+        local resizeHandle = CreateFrame("Button", "PurityBloodLogResizeButton", frame)
+        resizeHandle:SetSize(16, 16) -- Back to original size
+        resizeHandle:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 2) -- Changed Anchor Point
+        resizeHandle:SetFrameLevel(frame:GetFrameLevel() + 5)
+        resizeHandle:SetFrameStrata("HIGH")
+        -- Restore original textures
+        resizeHandle:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Up")
+        resizeHandle:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Down")
+        resizeHandle:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Highlight")
+
+        resizeHandle:RegisterForDrag("LeftButton")
+
+        resizeHandle:SetScript("OnDragStart", function(self)
+            frame:StartSizing("BOTTOMLEFT") -- Changed Sizing Corner
+            if frame.scrollFrame then frame.scrollFrame:Hide() end
+            frame:SetScript("OnDragStart", nil)
+        end)
+
+        resizeHandle:SetScript("OnDragStop", function(self)
+            frame:StopMovingOrSizing()
+            if frame.scrollFrame then frame.scrollFrame:Show() end
+            frame:SetScript("OnDragStart", frame.StartMoving)
+
+            local db = Purity:GetDB()
+            if not db.bloodLogDimensions then db.bloodLogDimensions = {} end
+            db.bloodLogDimensions.width = frame:GetWidth()
+            db.bloodLogDimensions.height = frame:GetHeight()
+        end)
+        frame.resizeHandle = resizeHandle
+        resizeHandle:Show()
 		
-		local db = Purity:GetDB()
+		resizeHandle:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+            GameTooltip:SetText("Resize Blood Log")
+            GameTooltip:AddLine("Click: Resize freely.")
+            GameTooltip:Show()
+        end)
+        resizeHandle:SetScript("OnLeave", function(self)
+            GameTooltip:Hide()
+        end)
+
 		if db.bloodLogPosition then
 			frame:SetPoint(db.bloodLogPosition.point, UIParent, db.bloodLogPosition.relativePoint, db.bloodLogPosition.x, db.bloodLogPosition.y)
 		else
@@ -391,12 +473,12 @@ ManageBloodRegen = function(self)
                         hps_found_on_line = tonumber(hp5) / 5
                     end
 					
-					if hps_found_on_line == 0 then
-						local hp5_regenerate = lineText:match("[Rr]egenerate (%d+) [Hh]ealth every 5 secs?")
-						if hp5_regenerate then
-							hps_found_on_line = tonumber(hp5_regenerate) / 5
-						end
-					end
+                    if hps_found_on_line == 0 then
+                        local hp5_regenerate = lineText:match("[Rr]egenerate (%d+) [Hh]ealth every 5 secs?")
+                        if hp5_regenerate then
+                            hps_found_on_line = tonumber(hp5_regenerate) / 5
+                        end
+                    end
 
                     if hps_found_on_line == 0 then
                         local hps = lineText:match("[Rr]estores (%d+) [Hh]ealth per second")
@@ -404,7 +486,6 @@ ManageBloodRegen = function(self)
                             hps_found_on_line = tonumber(hps)
                         end
                     end
-
 
                     if hps_found_on_line == 0 then
                         local percent, duration = lineText:match("[Rr]egenerates (%d+)%% of your total [Hh]ealth over (%d+) secs?")
@@ -414,22 +495,28 @@ ManageBloodRegen = function(self)
                             hps_found_on_line = regenAmount / tonumber(duration)
                         end
                     end
-					
+
                     if hps_found_on_line == 0 then
-                        local percent, duration = lineText:match("[Rr]egenerates (%d+)%% of your [Hh]ealth and [Mm]ana per second.")
-                        if percent and duration and tonumber(duration) > 0 then
+                        local percent = lineText:match("[Rr]egenerates (%d+)%% of your [Hh]ealth and [Mm]ana per second.")
+                        if percent then
                             local totalHealth = UnitHealthMax("player")
-                            local regenAmount = totalHealth * (tonumber(percent) / 100)
-                            hps_found_on_line = regenAmount / tonumber(duration)
+                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
                         end
                     end
 					
                     if hps_found_on_line == 0 then
-                        local percent, duration = lineText:match("[Rr]estores (%d+)%% of your [Hh]ealth per second.")
-                        if percent and duration and tonumber(duration) > 0 then
+                        local percent = lineText:match("[Rr]estores (%d+)%% of your [Hh]ealth per second.")
+                        if percent then
                             local totalHealth = UnitHealthMax("player")
-                            local regenAmount = totalHealth * (tonumber(percent) / 100)
-                            hps_found_on_line = regenAmount / tonumber(duration)
+                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
+                        end
+                    end
+
+                    if hps_found_on_line == 0 then
+                        local percent = lineText:match("[Rr]estores (%d+)%% of your [Hh]ealth and [Mm]ana per second.")
+                        if percent then
+                            local totalHealth = UnitHealthMax("player")
+                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
                         end
                     end
 
@@ -695,32 +782,71 @@ end,
         
         if not self.debuffFrame then
             self.debuffFrame = CreateFrame("Button", "PuritySanguineWeaknessDebuff", UIParent)
-            self.debuffFrame:SetSize(28, 28)
+            self.debuffFrame:SetSize(32, 32)
             self.debuffFrame:SetFrameStrata("MEDIUM")
             local icon = self.debuffFrame:CreateTexture(nil, "BACKGROUND"); icon:SetAllPoints(true); icon:SetTexture("Interface\\AddOns\\Purity\\Media\\SanguineWeakness.tga")
-            local border = self.debuffFrame:CreateTexture(nil, "OVERLAY"); border:SetAllPoints(true); border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays"); border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-            local cooldown = CreateFrame("Cooldown", nil, self.debuffFrame, "CooldownFrameTemplate"); cooldown:SetAllPoints(true); self.debuffFrame.cooldown = cooldown
-            local countText = self.debuffFrame:CreateFontString(nil, "ARTWORK"); countText:SetPoint("TOP", self.debuffFrame, "BOTTOM", 0, -2); countText:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE"); countText:SetShadowOffset(1, -1)
-            self.debuffFrame.cooldown.Text = countText
-            self.debuffFrame:SetScript("OnEnter", function(frame)
-                GameTooltip:SetOwner(frame, "ANCHOR_RIGHT"); GameTooltip:SetText("Sanguine Weakness", 1.0, 0.2, 0.2, 1.0, true)
+            local border = self.debuffFrame:CreateTexture(nil, "OVERLAY")
+            border:SetAllPoints(true)
+            border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+            border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+            border:SetVertexColor(0.75, 0, 0)
+			local countText = self.debuffFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            countText:SetPoint("CENTER", self.debuffFrame, "BOTTOM", 0, -6)
+            countText:SetTextColor(1, 1, 1, 1)
+            countText:SetJustifyH("CENTER")
+            self.debuffFrame.timerText = countText
+			self.debuffFrame:SetScript("OnEnter", function(frame)
+                GameTooltip:SetOwner(frame, "ANCHOR_RIGHT"); GameTooltip:SetText("|cffffd700Sanguine Weakness|r")
                 GameTooltip:AddLine("Your pact is weakened after healing.", 1.0, 1.0, 1.0, true); GameTooltip:AddLine("All Blood Pool costs are doubled.", 1.0, 1.0, 1.0, true)
+				local remaining = self.sanguineWeaknessExpires - GetTime()
+                if remaining > 0 then
+                    GameTooltip:AddLine(string.format("|cffffd700%d sec remaining|r", remaining), 1.0, 1.0, 1.0, true)
+                end
                 GameTooltip:Show()
             end)
             self.debuffFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
             local module = self 
-            self.debuffFrame:SetScript("OnUpdate", function(frame)
+            local module = self
+            self.debuffFrame:SetScript("OnUpdate", function(frame, elapsed)
                 local remaining = module.sanguineWeaknessExpires - GetTime()
+
                 if remaining <= 0 then
                     frame:Hide(); module.sanguineWeaknessActive = false
+                    if frame.timerText then frame.timerText:Hide() end
                     if module.screenGlowFrame then module.screenGlowFrame:Hide() end
+                    if GameTooltip:IsShown() and GameTooltip:GetOwner() == frame then
+                        GameTooltip:Hide()
+                    end
                     return
                 end
-                frame.cooldown.Text:SetText(math.ceil(remaining) .. " s")
+
+                if frame.timerText then
+                    local ceilRemaining = math.ceil(remaining)
+                    local minutes = math.floor(ceilRemaining / 60)
+                    local seconds = ceilRemaining % 60
+                    local timerString
+
+                    if minutes >= 1 then
+                        timerString = string.format("|cffffd700%d|r m", minutes)
+                    else
+                        timerString = string.format("|cffffffff%d|r s", seconds)
+                    end
+                    frame.timerText:SetText(timerString)
+                    frame.timerText:Show()
+                end
+				if GameTooltip:IsShown() and GameTooltip:GetOwner() == frame then
+                    local numLines = GameTooltip:NumLines()
+                    if numLines >= 4 then
+                        local line4 = _G["GameTooltipTextLeft4"]
+                        if line4 then
+                            line4:SetText(string.format("|cffffd700%d sec remaining|r", math.ceil(remaining)))
+                        end
+                    end
+                end
                 local numDebuffs = 0
                 for i = 1, 40 do if select(1, UnitDebuff("player", i)) then numDebuffs = numDebuffs + 1 else break end end
-                if numDebuffs == 0 then frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -100)
-                else local lastDebuff = _G["DebuffButton" .. numDebuffs]; if lastDebuff then frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 0) end end
+                if numDebuffs == 0 then frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -99)
+                else local lastDebuff = _G["DebuffButton" .. numDebuffs]; if lastDebuff then frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 1) end end
             end)
             self.debuffFrame:Hide()
         end
@@ -951,7 +1077,9 @@ EventHandler = function(self, event, ...)
 						
 						if self.debuffFrame then
 							self.debuffFrame:Show()
-							self.debuffFrame.cooldown:SetCooldown(GetTime(), 15)
+							if self.debuffFrame.timerText then
+                            self.debuffFrame.timerText:Show()
+							end
 						end
 						if self.screenGlowFrame then
 							self.screenGlowFrame:Show()
