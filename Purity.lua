@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "10.0.4"
+Purity.Version = "10.0.5"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -3095,10 +3095,10 @@ function Purity_Tooltip_OnShow(self)
     if left1 then
         local text = left1:GetText()
         if text then
-            if text == STAT_SPIRIT or text:find("Spirit") then
+            if text == STAT_SPIRIT then
                 self:AddLine("Reduces blood cost of your spells.")
                 self:Show()
-            elseif text == STAT_STAMINA or text:find("Stamina") then
+            elseif text == STAT_STAMINA then
                 self:AddLine("Increases your total Blood Pool.")
                 self:Show()
             end
@@ -3541,15 +3541,31 @@ local function Purity_GeneralTooltip_OnShow_Handler(self)
         return
     end
 
-    if activeChallenge.id == "BLOOD_MAGE_BARGAIN" then
+	if activeChallenge.id == "BLOOD_MAGE_BARGAIN" then
+        -- Check by frame owner first, using the names you provided
+        local owner = self:GetOwner()
+        if owner then
+            if owner == CharacterStatFrame5 then -- Spirit
+                self:AddLine("Reduces blood cost of your spells.")
+                self:Show()
+                return -- Stat found, stop here
+            elseif owner == CharacterStatFrame3 then -- Stamina
+                self:AddLine("Increases your blood pool.")
+                self:Show()
+                return -- Stat found, stop here
+            end
+        end
+
+        -- Fallback check using text (in case owner isn't a stat frame)
         local left1 = _G[self:GetName() .. "TextLeft1"]
         if left1 then
             local text = left1:GetText()
             if text then
-                if text == STAT_SPIRIT or text:find("Spirit") then
+                -- Note: The text:find() bug is removed here too
+                if text == STAT_SPIRIT then
                     self:AddLine("Reduces blood cost of your spells.")
                     self:Show()
-                elseif text == STAT_STAMINA or text:find("Stamina") then
+                elseif text == STAT_STAMINA then
                     self:AddLine("Increases your blood pool.")
                     self:Show()
                 end
