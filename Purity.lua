@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "10.0.3"
+Purity.Version = "10.0.4"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -51,11 +51,20 @@ function Purity:UpdateCharacterFrameClassName()
     end
 end
 
-function Purity:GetThematicClassColor(className)
+function Purity:GetThematicClassColor(className, playerData)
+    if not className then return nil end
+
+    local defaultPaladinColor = "F58CBA"
+
     local db = self:GetDB()
-    if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and self.BLOODMAGE_CLASS_OVERRIDES[className] then
-        return self.BLOODMAGE_CLASS_OVERRIDES[className].colorHex
+    local activeChallenge = playerData and playerData.challenge or (db and db.challengeTitle)
+
+    if className == "PALADIN" and activeChallenge == "The Blood Mage's Bargain" then
+        return self.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].colorHex  -- "FF0000"
+    elseif className == "PALADIN" then
+        return defaultPaladinColor
     end
+
     return nil
 end
 
@@ -2728,7 +2737,7 @@ function Purity:ActivateMonitoring()
 		monitorFrame:RegisterEvent("INSPECT_READY")
         monitorFrame:RegisterEvent("BAG_UPDATE")
 		monitorFrame:RegisterEvent("CVAR_UPDATE")
-		monitorFrame:RegisterEvent("UNIT_SPELLCAST_SENT")
+		monitorFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
         monitorFrame:RegisterEvent("UNIT_POWER_UPDATE")
 		monitorFrame:RegisterEvent("UNIT_HEALTH")
 		monitorFrame:RegisterEvent("UNIT_AURA")
@@ -3261,6 +3270,7 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
             end
 
             if (msg == "!purity_ping" or msg == "joins channel") and sender and not isSelf then
+                Purity:SendStatusToPlayer(sender)
                 C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "ROSTER_REQUEST", "WHISPER", sender)
             else
                 if msg == "!purity_ping" then

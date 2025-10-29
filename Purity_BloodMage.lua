@@ -4,6 +4,16 @@ if not Purity then
     return
 end
 
+local function GetBloodCostPercentForSpeed(speed)
+    if not speed or speed < 2.0 then
+        return 0.01
+    elseif speed < 3.0 then
+        return 0.02
+    else
+        return 0.03
+    end
+end
+
 local BloodMageModule = {
     id = "BLOOD_MAGE_BARGAIN",
     challengeName = "The Blood Mage's Bargain",
@@ -50,7 +60,7 @@ local BloodMageModule = {
 
         GameTooltip:SetText("Blood", 1, 1, 1)
         
-        local description = "The amount of life force you currently have. Your blood is depleted by taking damage and by using your own abilities. If your blood reaches zero, your vow is broken. Melee and ranged auto-attacks cost 1% of your max blood when not weakened. Your ability blood costs increase when your max blood increases, and are only decreased by increasing your Spirit stat. Blood automatically regenerates when you are out of combat."
+        local description = "The amount of life force you currently have. Your blood is depleted by taking damage and by using your own abilities. If your blood reaches zero, your vow is broken. Melee and ranged auto-attacks cost a percentage of your max blood when not weakened. Your ability blood costs increase when your max blood increases, and are only decreased by increasing your Spirit stat. Blood automatically regenerates when you are out of combat."
         GameTooltip:AddLine(description, 1, 0.82, 0, true)
 
         GameTooltip:Show()
@@ -66,7 +76,7 @@ local BloodMageModule = {
             self:_ShowDefaultHealthBar()
         end
     end,
-
+	
     healingSpells = {
         ["Lesser Heal"] = true, ["Heal"] = true, ["Greater Heal"] = true, ["Flash Heal"] = true, ["Prayer of Healing"] = true, ["Renew"] = true,
         ["Holy Light"] = true, ["Flash of Light"] = true,
@@ -969,7 +979,6 @@ end,
             self.bloodBarFrame:SetScript("OnLeave", function(frame)
                 GameTooltip:Hide()
             end)
-
             self.playerFrameTooltipHooked = true
         end
     end,
@@ -981,16 +990,30 @@ end,
     IsUnitForbidden = function(self, unit) return false end,
 
 EventHandler = function(self, event, ...)
-        local db = Purity:GetDB()
-		if not (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
-			if self.bloodBarFrame then self.bloodBarFrame:Hide() end
-			if self.regenFrame then self.regenFrame:Hide() end
-			return
-		end
-
-        if event == "PLAYER_LEVEL_UP" then
-            db.bloodPoolCurrent = db.bloodPoolMax
+    local db = Purity:GetDB()
+	if not (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
+		if self.bloodBarFrame then self.bloodBarFrame:Hide() end
+		if self.regenFrame then self.regenFrame:Hide() end
+		return
+	end
+	
+	local function spendBlood(amount, sourceName)
+        local finalAmount = amount
+        if self.sanguineWeaknessActive then 
+            finalAmount = amount * 2 
         end
+            
+        self:LogBloodLoss(sourceName, finalAmount)
+
+        db.bloodPoolCurrent = db.bloodPoolCurrent - finalAmount
+        if db.bloodPoolCurrent <= 0 then
+            Purity:Violation("Your life force has been expended by the bargain.")
+        end
+    end
+
+    if event == "PLAYER_LEVEL_UP" then
+        db.bloodPoolCurrent = db.bloodPoolMax
+    end
 
 	if self.bloodBarFrame then
 		if not db.bloodPoolMax or db.bloodPoolMax == 0 then db.bloodPoolMax = UnitHealthMax("player") end
@@ -999,6 +1022,19 @@ EventHandler = function(self, event, ...)
 		self.bloodBarFrame:SetMinMaxValues(0, db.bloodPoolMax)
 		self.bloodBarFrame:SetValue(db.bloodPoolCurrent)
 		self:UpdateBarText()
+	end
+
+	if event == "UNIT_SPELLCAST_CHANNEL_START" then
+        local unitTarget, castGUID, spellId = ...
+        if unitTarget == "player" and spellId then
+			local spellName = GetSpellInfo(spellId)
+            if spellId and not self.healingSpells[spellName] then
+                local healthCost = self:GetBloodCostForSpell(spellId)
+                if healthCost > 0 then
+                    spendBlood(healthCost, spellName)
+                end
+            end
+        end
 	end
 
         if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_ENTER_COMBAT" then
@@ -1010,23 +1046,6 @@ EventHandler = function(self, event, ...)
         if self.sanguineWeaknessActive and GetTime() > self.sanguineWeaknessExpires then
             self.sanguineWeaknessActive = false
             if self.debuffFrame then self.debuffFrame:Hide() end
-        end
-
-		local function spendBlood(amount, sourceName)
-            -- 1. Calculate the final cost with the Sanguine Weakness multiplier
-            local finalAmount = amount
-            if self.sanguineWeaknessActive then 
-                finalAmount = amount * 2 
-            end
-            
-            -- 2. Log the actual, final cost that will be spent
-            self:LogBloodLoss(sourceName, finalAmount)
-
-            -- 3. Spend the final amount of blood
-            db.bloodPoolCurrent = db.bloodPoolCurrent - finalAmount
-            if db.bloodPoolCurrent <= 0 then
-                Purity:Violation("Your life force has been expended by the bargain.")
-            end
         end
 
         if event == "COMBAT_LOG_EVENT_UNFILTERED" then
@@ -1052,12 +1071,43 @@ EventHandler = function(self, event, ...)
                         db.bloodPoolCurrent = db.bloodPoolCurrent - amount
                         if db.bloodPoolCurrent <= 0 then Purity:Violation("Your life force has been depleted by your enemies.") end
                     elseif sourceGUID == playerGUID then
-						if subEvent == "SWING_DAMAGE" or subEvent == "RANGE_DAMAGE" then
-                            local attackCost = math.max(1, math.floor(db.bloodPoolMax * 0.01))
-                            local attackType = (subEvent == "SWING_DAMAGE") and "Melee Swing" or "Auto Shot"
+						if subEvent == "SWING_DAMAGE" then
+                            local targetCPS = 0.005
+                            local attackCostPercent = 0.01
+
+                            local mainSpeed, offSpeed = UnitAttackSpeed("player")
+                            if not mainSpeed or mainSpeed == 0 then mainSpeed = 1.9 end
+
+                            if offSpeed and offSpeed > 0 then
+                                local mainHitCostPercent = mainSpeed * targetCPS
+                                local offHitCostPercent = (offSpeed * targetCPS) / 2
+                                attackCostPercent = (mainHitCostPercent + offHitCostPercent) / 2
+                            else
+                                attackCostPercent = mainSpeed * targetCPS
+                            end
                             
-                            spendBlood(attackCost, attackType) -- This now handles both logging and spending
-                        end
+                            local attackCost = math.max(1, math.floor(db.bloodPoolMax * attackCostPercent))
+                            spendBlood(attackCost, "Melee Swing")
+
+                        elseif subEvent == "RANGE_DAMAGE" then
+                            local targetCPS = 0.005
+                            
+                            local _, _, _, _, _, rangedSpeed = UnitRangedDamage("player")
+                            if not rangedSpeed or rangedSpeed == 0 then rangedSpeed = 2.0 end
+                            local attackCostPercent = rangedSpeed * targetCPS
+                            
+                            local attackType = "Auto Shot"
+                            local rangedLink = GetInventoryItemLink("player", INVSLOT_RANGED)
+                            if rangedLink then
+                                 local _, _, _, _, _, _, itemSubType = GetItemInfo(rangedLink)
+                                 if itemSubType and itemSubType == "Wand" then
+                                    attackType = "Wand Bolt"
+                                 end
+                            end
+                            
+                            local attackCost = math.max(1, math.floor(db.bloodPoolMax * attackCostPercent))
+                            spendBlood(attackCost, attackType)
+						end
                     end
                 end
 			elseif string.find(subEvent, "_HEAL") and destGUID == playerGUID then
