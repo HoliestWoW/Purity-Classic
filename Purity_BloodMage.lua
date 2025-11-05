@@ -547,7 +547,7 @@ ManageBloodRegen = function(self)
     end
 end,
 	
-	GetBloodCostForSpell = function(self, spellId)
+	_GetBloodCostInternal = function(self, spellId)
 		local db = Purity:GetDB()
 		if not db then return 0 end
 
@@ -570,11 +570,16 @@ end,
 			end
 			
 			if healthCost > 0 then 
-				return math.max(1, math.floor(healthCost))
+				return math.max(1, healthCost)
 			end
 		end
 		
 		return 0
+	end,
+	
+	GetBloodCostForSpell = function(self, spellId)
+        local decimalCost = self:_GetBloodCostInternal(spellId)
+		return math.floor(decimalCost)
 	end,
 	
     RefreshGroupFrames = function(self)
@@ -1029,7 +1034,7 @@ EventHandler = function(self, event, ...)
         if unitTarget == "player" and spellId then
 			local spellName = GetSpellInfo(spellId)
             if spellId and not self.healingSpells[spellName] then
-                local healthCost = self:GetBloodCostForSpell(spellId)
+                local healthCost = self:_GetBloodCostInternal(spellId)
                 if healthCost > 0 then
                     spendBlood(healthCost, spellName)
                 end
@@ -1054,9 +1059,9 @@ EventHandler = function(self, event, ...)
 
 			if subEvent == "SPELL_CAST_SUCCESS" and sourceGUID == playerGUID then
                 if not self.healingSpells[spellName] then
-                    local healthCost = self:GetBloodCostForSpell(spellId)
+                    local healthCost = self:_GetBloodCostInternal(spellId)
                     if healthCost > 0 then
-						spendBlood(healthCost, spellName) -- This now handles both logging and spending
+						spendBlood(healthCost, spellName)
                     end
                 end
 			elseif string.find(subEvent, "_DAMAGE") then
@@ -1086,70 +1091,26 @@ EventHandler = function(self, event, ...)
                                 attackCostPercent = mainSpeed * targetCPS
                             end
                             
-                            local attackCost = math.max(1, math.floor(db.bloodPoolMax * attackCostPercent))
+                            local attackCost = math.max(1, db.bloodPoolMax * attackCostPercent)
                             spendBlood(attackCost, "Melee Swing")
 
                         elseif subEvent == "RANGE_DAMAGE" then
                             local targetCPS = 0.005
-                            local attackCostPercent = 0.01 -- Default
+                            
+                            local _, _, _, _, _, rangedSpeed = UnitRangedDamage("player")
+                            if not rangedSpeed or rangedSpeed == 0 then rangedSpeed = 2.0 end
+                            local attackCostPercent = rangedSpeed * targetCPS
+                            
                             local attackType = "Auto Shot"
-                            local rangedSpeed = 2.0 -- Default
-                            
                             local rangedLink = GetInventoryItemLink("player", INVSLOT_RANGED)
-                            
                             if rangedLink then
                                  local _, _, _, _, _, _, itemSubType = GetItemInfo(rangedLink)
-                                 
                                  if itemSubType and itemSubType == "Wand" then
                                     attackType = "Wand Bolt"
-                                    
-                                    -- We need to get the wand speed from the tooltip
-                                    if not self.PurityScanTooltip then 
-                                        self.PurityScanTooltip = CreateFrame("GameTooltip", "PurityScanTooltip", UIParent, "GameTooltipTemplate") 
-                                    end
-                                    
-                                    self.PurityScanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
-                                    self.PurityScanTooltip:SetHyperlink(rangedLink)
-                                    
-                                    local foundSpeed = nil
-                                    for i = 2, self.PurityScanTooltip:NumLines() do -- Start from line 2 to skip name
-                                        local lineText = _G["PurityScanTooltipTextLeft"..i]:GetText()
-                                        if lineText then
-                                            -- Look for "Speed X.XX"
-                                            local speedMatch = lineText:match("Speed ([%d%.]+)")
-                                            if speedMatch then
-                                                foundSpeed = tonumber(speedMatch)
-                                                break
-                                            end
-                                        end
-                                    end
-                                    self.PurityScanTooltip:Hide()
-                                    
-                                    if foundSpeed then
-                                        rangedSpeed = foundSpeed
-                                    else
-                                        rangedSpeed = 1.5 -- Fallback for wands if tooltip scan fails
-                                    end
-                                    
-                                    attackCostPercent = rangedSpeed * targetCPS
-                                    
-                                 else
-                                    -- It's a Bow, Gun, or Crossbow
-                                    -- **THIS IS THE CORRECTED PART**
-                                    local rSpeed = UnitRangedDamage("player") -- Gets the FIRST return value
-                                    
-                                    if rSpeed and rSpeed > 0 then
-                                        rangedSpeed = rSpeed
-                                    end
-                                    attackCostPercent = rangedSpeed * targetCPS
                                  end
-                            else
-                                -- No ranged weapon equipped, but RANGE_DAMAGE happened?
-                                -- This shouldn't really happen, but we'll use defaults.
-                                attackCostPercent = rangedSpeed * targetCPS -- 2.0 * 0.005 = 1%
                             end
                             
-                            local attackCost = math.max(1, math.floor(db.bloodPoolMax * attackCostPercent))
+                            local attackCost = math.max(1, db.bloodPoolMax * attackCostPercent)
                             spendBlood(attackCost, attackType)
 						end
                     end
