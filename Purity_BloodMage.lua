@@ -873,9 +873,12 @@ end,
 			self.regenFrame:SetScript("OnUpdate", function(frame, elapsed)
                 local db = Purity:GetDB()
                 if (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
+					local currentMaxHealth = UnitHealthMax("player")
+                    if currentMaxHealth <= 1 then
+                        return 
+                    end
                     if module.bloodBarFrame then
                         db.bloodPoolMax = UnitHealthMax("player")
-                        -- ADDED: Ensure current blood does not exceed the new max.
                         db.bloodPoolCurrent = math.min(db.bloodPoolCurrent, db.bloodPoolMax)
 
                         if not module.bloodBarFrame:IsShown() then 
@@ -1017,7 +1020,9 @@ EventHandler = function(self, event, ...)
     end
 
     if event == "PLAYER_LEVEL_UP" then
-        db.bloodPoolCurrent = db.bloodPoolMax
+        local newMaxBlood = UnitHealthMax("player")
+        db.bloodPoolMax = newMaxBlood
+        db.bloodPoolCurrent = newMaxBlood
     end
 
 	if self.bloodBarFrame then
