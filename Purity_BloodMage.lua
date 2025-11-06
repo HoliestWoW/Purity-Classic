@@ -93,6 +93,7 @@ local BloodMageModule = {
         ["Food"] = true,
         ["Blood Craze"] = true,
 		["Regeneration"] = true,
+		["Cannibalize"] = true,
     },
     
     sanguineWeaknessActive = false,
@@ -797,7 +798,7 @@ end,
         
         if not self.debuffFrame then
             self.debuffFrame = CreateFrame("Button", "PuritySanguineWeaknessDebuff", UIParent)
-            self.debuffFrame:SetSize(32, 32)
+            self.debuffFrame:SetSize(30, 30)
             self.debuffFrame:SetFrameStrata("MEDIUM")
             local icon = self.debuffFrame:CreateTexture(nil, "BACKGROUND"); icon:SetAllPoints(true); icon:SetTexture("Interface\\AddOns\\Purity\\Media\\SanguineWeakness.tga")
             local border = self.debuffFrame:CreateTexture(nil, "OVERLAY")
@@ -1127,23 +1128,28 @@ EventHandler = function(self, event, ...)
 
                 if healAmount and healAmount > 0 then
 					if sourceGUID == playerGUID then
-						db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
-						db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
-						
-						self.sanguineWeaknessActive = true
-						self.sanguineWeaknessExpires = GetTime() + 15
-						
-						self:LogSanguineWeakness(spellName)
-						
-						if self.debuffFrame then
-							self.debuffFrame:Show()
-							if self.debuffFrame.timerText then
-                            self.debuffFrame.timerText:Show()
-							end
-						end
-						if self.screenGlowFrame then
-							self.screenGlowFrame:Show()
-						end
+						if self.allowedPeriodicHeals[spellName] then
+                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
+                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
+                        else
+                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
+                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
+                            
+                            self.sanguineWeaknessActive = true
+                            self.sanguineWeaknessExpires = GetTime() + 15
+                            
+                            self:LogSanguineWeakness(spellName)
+                            
+                            if self.debuffFrame then
+                                self.debuffFrame:Show()
+                                if self.debuffFrame.timerText then
+                                self.debuffFrame.timerText:Show()
+                                end
+                            end
+                            if self.screenGlowFrame then
+                                self.screenGlowFrame:Show()
+                            end
+                        end
 					end
 				end
             end
