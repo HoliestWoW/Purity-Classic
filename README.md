@@ -29,6 +29,8 @@ The addon will automatically present the challenge selection screen to you at le
 * `/purity rules` : Opens the main interface to the Rules tab.
 * `/purity roster` : Opens the Roster tab and automatically refreshes the list of online players.
 * `/purity verify` : Opens the verification window with your completion code.
+* `/purity bloodbar` : Detaches the blood bar for Blood Mage's Bargain challenge players from unit frame to drag and place where desired.
+* `/purity bloodlog` : Gives you a draggable, resizable 'combat log' of Blood spent and lost.
 
 ---
 
@@ -46,13 +48,13 @@ A challenge of self-denial where you must limit your reliance on material posses
 
 You have made a pact for power, allowing you to fuel your abilities with your own life force. Your vitality is your true power, but this pact is a double-edged sword: the more you heal and protect your life force, the weaker your bargain becomes.
 
-* **|cffffd100The Bargain:|r**
-    * |cff261A0D • Your life force is a resource for combat, represented by a Blood Pool.|r
-    * |cff261A0D • All abilities, attacks, and damage taken deplete your Blood Pool.|r
-    * |cff261A0D • If your Blood Pool is depleted, your vow is broken.|r
-* **|cffffd100The Price of Weakness:|r**
-    * |cff261A0D • After restoring your own health, you become 'Weakened' for 15 seconds.
-    * |cff261A0D • While 'Weakened', all Blood Pool costs are doubled.
+* **The Bargain:**
+    * Your life force is a resource for combat, represented by a Blood Pool.
+    * All abilities, attacks, and damage taken deplete your Blood Pool.
+    * If your Blood Pool is depleted, your vow is broken.
+* **The Price of Weakness:**
+    * After restoring your own health, you become 'Weakened' for 15 seconds.
+    * While 'Weakened', all Blood Pool costs are doubled.
 
 ### Fisherman's Folly
 
