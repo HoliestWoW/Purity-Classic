@@ -62,6 +62,17 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 
 * **Key Prohibition:** You may ONLY equip items that you have personally fished from the water (vendor-purchased fishing poles are an exception).
 
+### The Drunken Master
+
+The Way of the Staggering Fist. Years spent as the town drunk were not wasted. Countless barroom brawls have honed your clumsy stumbles into an unpredictable martial art. Your enemies see a swaying fool, but you are a master of chaotic grace, turning staggering into evasion and slurred shouts into battle cries. To fight with a clear head would be to forget your training; only in the haze of ale can you find true focus.
+
+* **The Path of the Citizen (Levels 1-20):**
+    * Before level 21, you must prove yourself as a productive citizen.
+    * You must achieve a skill of 150 in at least TWO primary professions.
+* **The Drunken Master (Level 21+):**
+    * At level 21, your professions are checked. If you fail, the challenge ends.
+    * From level 21 on, you must be 'Drunk' or 'Smashed' to initiate combat.
+
 ---
 
 ## Class-Specific Challenges
@@ -217,6 +228,7 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
             |-- Purity_Ascetic.lua
             |-- Purity_BloodMage.lua
             |-- Purity_Druid.lua
+            |-- Purity_Drunk.lua
             |-- Purity_Fishing.lua
             |-- Purity_Hunter.lua
             |-- Purity_Mage.lua
