@@ -119,17 +119,17 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 * **Testament of Purity**
     * **Description:** A true vessel of the Light, this Priest has sworn off the corrupting and seductive whispers of the Shadow. Their Purity is a testament to their unwavering faith, relying solely on Holy and Disciplinary magic to aid their allies and smite their foes.
     * **Key Prohibitions:**
-        * |cff261A0D • No weapons or physical attacks (including wands).|r
-        * |cff261A0D • No learning or using Shadow magic spells or talents.|r
-        * |cff261A0D • No killing Humanoid creatures.|r
-        * |cff261A0D • Gaining experience for any Humanoid kills will break your vow.|r
+        * No weapons or physical attacks (including wands).
+        * No learning or using Shadow magic spells or talents.
+        * No killing Humanoid creatures.
+        * Gaining experience for any Humanoid kills will break your vow.
 
 * **Covenant of Purity**
     * **Description:** Forsake the Light's protection and healing. You must rely on the Shadow for survival, and on raw power for destruction.
     * **Key Prohibitions:**
-        * |cff261A0D • No using Discipline spells.|r
-        * |cff261A0D • With the exception of Smite, no other Holy spells may be used.|r
-        * |cff261A0D • No Holy damage wands.|r
+        * No using Discipline spells.
+        * With the exception of Smite, no other Holy spells may be used.
+        * No Holy damage wands.
 
 ### Rogue
 
@@ -151,41 +151,41 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 * **Communion of Purity**
     * **Description:** The Spirit Walker. Your power flows purely from your spells and maintaining active totems in combat. No weapons of any kind.
     * **Key Prohibitions:**
-        * |cff261A0D • You may NOT equip any weapons of any kind.|r
-        * |cff261A0D • You must always maintain at least one active totem while in combat (after totems unlocked).|r
-        * |cff261A0D • You must learn your first totem spell and complete the quest before reaching Level 6.|r
+        * You may NOT equip any weapons of any kind.
+        * You must always maintain at least one active totem while in combat (after totems unlocked).
+        * You must learn your first totem spell and complete the quest before reaching Level 6.
 
 * **Flame of Purity**
     * **Description:** You begin as a normal Shaman, but at level 10 your path changes. Your spirit awakens to the flame, forsaking all other elements. From that moment on, you may only use Fire spells, Fire totems, and physical attacks.
-    * **|cffffd100The Awakening:|r**
-        * |cff261A0D • From level 1 to 9, you are free to use any Shaman ability.|r
-        * |cff261A0D • Upon reaching Level 10, your vow begins and the following rules apply for the remainder of the challenge:|r
-    * **|cffffd100Level 10+ Prohibitions:|r**
-        * |cff261A0D • Only Fire spells may be cast (including weapon imbuements).|r
-        * |cff261A0D • Only Fire totems may be used.|r
+    * **The Awakening:**
+        * From level 1 to 9, you are free to use any Shaman ability.
+        * Upon reaching Level 10, your vow begins and the following rules apply for the remainder of the challenge:
+    * **Level 10+ Prohibitions:**
+        * Only Fire spells may be cast (including weapon imbuements).
+        * Only Fire totems may be used.
 
 ### Warlock
 
 * **Grimoire of Purity**
     * **Description:** A crazed demonologist focused on fire, brimstone, and demons. Souls are fuel for summoning and nothing else.
     * **Key Prohibitions:**
-        * |cff261A0D • No learning or using forbidden spells (Shadow, Curses, etc.).|r
-        * |cff261A0D • No spending points in the Affliction talent tree.|r
-        * |cff261A0D • No non-Fire wands may be equipped or used.|r
+        * No learning or using forbidden spells (Shadow, Curses, etc.).
+        * No spending points in the Affliction talent tree.
+        * No non-Fire wands may be equipped or used.
     * **Special Rules:**
-        * |cff261A0D • Soul Shards may |cffFF4500ONLY|r be used to summon or subjugate demons.|r
-        * |cff261A0D • Healthstones and Soulstones are |cffFF4500FORBIDDEN|r.|r
-        * |cff261A0D • |cff8788eeDrain Soul (Rank 1)|r is the only rank allowed.|r
-        * |cff261A0D • |cff8788eeDrain Soul|r may only be cast on targets below 20% health.|r
+        * Soul Shards may ONLY be used to summon or subjugate demons.
+        * Healthstones and Soulstones are FORBIDDEN.
+        * Drain Soul (Rank 1) is the only rank allowed.
+        * Drain Soul may only be cast on targets below 20% health.
 
 * **Sacrament of Purity**
     * **Description:** Forsake demonic pacts and all external mana sources (drinks, potions). You must rely on your own life force, using Life Tap and Drain Mana as your only way to restore mana, and then regain your health through drains and crafted Healthstones.
     * **Key Prohibitions:**
-        * |cff261A0D • No demon pets may be summoned (|cff00FF00Felsteed is allowed|r).|r
-        * |cff261A0D • No drinking or using mana potions to restore mana.|r
-        * |cff261A0D • No spending points in the Demonology talent tree.|r
+        * No demon pets may be summoned (Felsteed is allowed).
+        * No drinking or using mana potions to restore mana.
+        * No spending points in the Demonology talent tree.
     * **Challenge Conditions:**
-        * |cff261A0Success! - I've regenerated the complete README file for you, now including all the new challenges. • Mana must only be regained passively, via |cff8788eeLife Tap|r, or via |cff8788eeDrain Mana|r.|r
+        * Mana must only be regained passively, via Life Tap, or via Drain Mana.
 
 ### Warrior
 
