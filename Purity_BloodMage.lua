@@ -93,7 +93,6 @@ local BloodMageModule = {
         ["Food"] = true,
         ["Blood Craze"] = true,
 		["Regeneration"] = true,
-		["Cannibalize"] = true,
     },
     
     sanguineWeaknessActive = false,
@@ -548,7 +547,7 @@ ManageBloodRegen = function(self)
     end
 end,
 	
-	_GetBloodCostInternal = function(self, spellId)
+	GetBloodCostForSpell = function(self, spellId)
 		local db = Purity:GetDB()
 		if not db then return 0 end
 
@@ -571,16 +570,11 @@ end,
 			end
 			
 			if healthCost > 0 then 
-				return math.max(1, healthCost)
+				return math.max(1, math.floor(healthCost))
 			end
 		end
 		
 		return 0
-	end,
-	
-	GetBloodCostForSpell = function(self, spellId)
-        local decimalCost = self:_GetBloodCostInternal(spellId)
-		return math.floor(decimalCost)
 	end,
 	
     RefreshGroupFrames = function(self)
@@ -798,7 +792,7 @@ end,
         
         if not self.debuffFrame then
             self.debuffFrame = CreateFrame("Button", "PuritySanguineWeaknessDebuff", UIParent)
-            self.debuffFrame:SetSize(30, 30)
+            self.debuffFrame:SetSize(32, 32)
             self.debuffFrame:SetFrameStrata("MEDIUM")
             local icon = self.debuffFrame:CreateTexture(nil, "BACKGROUND"); icon:SetAllPoints(true); icon:SetTexture("Interface\\AddOns\\Purity\\Media\\SanguineWeakness.tga")
             local border = self.debuffFrame:CreateTexture(nil, "OVERLAY")
@@ -874,12 +868,9 @@ end,
 			self.regenFrame:SetScript("OnUpdate", function(frame, elapsed)
                 local db = Purity:GetDB()
                 if (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
-					local currentMaxHealth = UnitHealthMax("player")
-                    if currentMaxHealth <= 1 then
-                        return 
-                    end
                     if module.bloodBarFrame then
                         db.bloodPoolMax = UnitHealthMax("player")
+                        -- ADDED: Ensure current blood does not exceed the new max.
                         db.bloodPoolCurrent = math.min(db.bloodPoolCurrent, db.bloodPoolMax)
 
                         if not module.bloodBarFrame:IsShown() then 
@@ -1021,9 +1012,7 @@ EventHandler = function(self, event, ...)
     end
 
     if event == "PLAYER_LEVEL_UP" then
-        local newMaxBlood = UnitHealthMax("player")
-        db.bloodPoolMax = newMaxBlood
-        db.bloodPoolCurrent = newMaxBlood
+        db.bloodPoolCurrent = db.bloodPoolMax
     end
 
 	if self.bloodBarFrame then
@@ -1040,7 +1029,7 @@ EventHandler = function(self, event, ...)
         if unitTarget == "player" and spellId then
 			local spellName = GetSpellInfo(spellId)
             if spellId and not self.healingSpells[spellName] then
-                local healthCost = self:_GetBloodCostInternal(spellId)
+                local healthCost = self:GetBloodCostForSpell(spellId)
                 if healthCost > 0 then
                     spendBlood(healthCost, spellName)
                 end
@@ -1065,9 +1054,9 @@ EventHandler = function(self, event, ...)
 
 			if subEvent == "SPELL_CAST_SUCCESS" and sourceGUID == playerGUID then
                 if not self.healingSpells[spellName] then
-                    local healthCost = self:_GetBloodCostInternal(spellId)
+                    local healthCost = self:GetBloodCostForSpell(spellId)
                     if healthCost > 0 then
-						spendBlood(healthCost, spellName)
+						spendBlood(healthCost, spellName) -- This now handles both logging and spending
                     end
                 end
 			elseif string.find(subEvent, "_DAMAGE") then
@@ -1097,7 +1086,7 @@ EventHandler = function(self, event, ...)
                                 attackCostPercent = mainSpeed * targetCPS
                             end
                             
-                            local attackCost = math.max(1, db.bloodPoolMax * attackCostPercent)
+                            local attackCost = math.max(1, math.floor(db.bloodPoolMax * attackCostPercent))
                             spendBlood(attackCost, "Melee Swing")
 
                         elseif subEvent == "RANGE_DAMAGE" then
@@ -1116,7 +1105,7 @@ EventHandler = function(self, event, ...)
                                  end
                             end
                             
-                            local attackCost = math.max(1, db.bloodPoolMax * attackCostPercent)
+                            local attackCost = math.max(1, math.floor(db.bloodPoolMax * attackCostPercent))
                             spendBlood(attackCost, attackType)
 						end
                     end
@@ -1128,28 +1117,23 @@ EventHandler = function(self, event, ...)
 
                 if healAmount and healAmount > 0 then
 					if sourceGUID == playerGUID then
-						if self.allowedPeriodicHeals[spellName] then
-                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
-                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
-                        else
-                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
-                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
-                            
-                            self.sanguineWeaknessActive = true
-                            self.sanguineWeaknessExpires = GetTime() + 15
-                            
-                            self:LogSanguineWeakness(spellName)
-                            
-                            if self.debuffFrame then
-                                self.debuffFrame:Show()
-                                if self.debuffFrame.timerText then
-                                self.debuffFrame.timerText:Show()
-                                end
-                            end
-                            if self.screenGlowFrame then
-                                self.screenGlowFrame:Show()
-                            end
-                        end
+						db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
+						db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
+						
+						self.sanguineWeaknessActive = true
+						self.sanguineWeaknessExpires = GetTime() + 15
+						
+						self:LogSanguineWeakness(spellName)
+						
+						if self.debuffFrame then
+							self.debuffFrame:Show()
+							if self.debuffFrame.timerText then
+                            self.debuffFrame.timerText:Show()
+							end
+						end
+						if self.screenGlowFrame then
+							self.screenGlowFrame:Show()
+						end
 					end
 				end
             end

@@ -29,8 +29,6 @@ The addon will automatically present the challenge selection screen to you at le
 * `/purity rules` : Opens the main interface to the Rules tab.
 * `/purity roster` : Opens the Roster tab and automatically refreshes the list of online players.
 * `/purity verify` : Opens the verification window with your completion code.
-* `/purity bloodbar` : Detaches the blood bar for Blood Mage's Bargain challenge players from unit frame to drag and place where desired.
-* `/purity bloodlog` : Gives you a draggable, resizable 'combat log' of Blood spent and lost.
 
 ---
 
@@ -44,34 +42,11 @@ A challenge of self-denial where you must limit your reliance on material posses
 * **Path of Endurance (MEDIUM):** No armor may be worn. Weapons and shields are permitted.
 * **Path of the Unburdened (HARD):** No items may be equipped whatsoever.
 
-### The Blood Mage's Bargain
-
-You have made a pact for power, allowing you to fuel your abilities with your own life force. Your vitality is your true power, but this pact is a double-edged sword: the more you heal and protect your life force, the weaker your bargain becomes.
-
-* **The Bargain:**
-    * Your life force is a resource for combat, represented by a Blood Pool.
-    * All abilities, attacks, and damage taken deplete your Blood Pool.
-    * If your Blood Pool is depleted, your vow is broken.
-* **The Price of Weakness:**
-    * After restoring your own health, you become 'Weakened' for 15 seconds.
-    * While 'Weakened', all Blood Pool costs are doubled.
-
 ### Fisherman's Folly
 
 The devoted angler. You have forsaken all worldly possessions in pursuit of the perfect catch.
 
 * **Key Prohibition:** You may ONLY equip items that you have personally fished from the water (vendor-purchased fishing poles are an exception).
-
-### The Drunken Master
-
-The Way of the Staggering Fist. Years spent as the town drunk were not wasted. Countless barroom brawls have honed your clumsy stumbles into an unpredictable martial art. Your enemies see a swaying fool, but you are a master of chaotic grace, turning staggering into evasion and slurred shouts into battle cries. To fight with a clear head would be to forget your training; only in the haze of ale can you find true focus.
-
-* **The Path of the Citizen (Levels 1-20):**
-    * Before level 21, you must prove yourself as a productive citizen.
-    * You must achieve a skill of 150 in at least TWO primary professions.
-* **The Drunken Master (Level 21+):**
-    * At level 21, your professions are checked. If you fail, the challenge ends.
-    * From level 21 on, you must be 'Drunk' or 'Smashed' to initiate combat.
 
 ---
 
@@ -79,14 +54,14 @@ The Way of the Staggering Fist. Years spent as the town drunk were not wasted. C
 
 ### Druid
 
-* **Pact of Purity**
+* **Pact of Purity: The Avenger of Nature**
     * **Description:** Forsake the celestial balance of the moon, relying only on feral instincts and restorative powers.
     * **Criteria:**
         * You may not kill any creature of the 'Beast' type.
         * After level 10, you may not use any Balance spells.
         * You may not equip any Leather armor.
 
-* **Astrolabe of Purity**
+* **Astrolabe of Purity: The Celestial Weaver**
     * **Description:** Forsake your primal connection to focus on a cosmic balance, alternating between Nature and Arcane damaging spells.
     * **Criteria:**
         * You may not use Bear Form or Cat Form.
@@ -95,119 +70,84 @@ The Way of the Staggering Fist. Years spent as the town drunk were not wasted. C
 
 ### Hunter
 
-* **Bond of Purity**
+* **Bond of Purity: The Primal Savage**
     * **Description:** Forsake cowardly ranged weapons and clever traps to fight in melee side-by-side with your pet.
     * **Criteria:**
         * You may not equip any ranged weapons or use ranged shots.
         * Your pet must be active during all combat.
 
-* **Quiver of Purity**
+* **Quiver of Purity: The Lone Wolf**
     * **Description:** Face the world on your own, relying only on marksmanship. No pets or melee weapons allowed.
     * **Criteria:**
         * You may not equip any melee weapons or use melee abilities.
         * You may not use a Hunter Pet or complete the Tame Beast quest.
 
-### Mage
+### Mage - The Tome of Purity
 
-* **Tome of Purity**
-    * **Description:** Choose a tome to dedicate yourself to a single school of magic (Burnt, Frozen, or Crackling), forsaking all others. This decision is permanent.
+* **Description:** Choose a tome to dedicate yourself to a single school of magic, forsaking all others. This decision is permanent.
 * **Key Prohibition:** You may ONLY use spells and talents from your chosen school of magic (Fire, Frost, or Arcane).
 
 ### Paladin
 
-* **Oath of Purity**
+* **Oath of Purity: The Selfless Shield**
     * **Description:** Forsake retribution and personal glory, vowing to never be the aggressor.
     * **Criteria:**
         * Do not initiate combat; enemies must strike first.
         * No learning or using Retribution spells or talents.
 
-* **Libram of Purity**
+* **Libram of Purity: The Undead Bane**
     * **Description:** Dedicate your sacred might solely to purging the impure Undead from the world.
     * **Key Prohibition:** You may ONLY land the killing blow on creatures of the 'Undead' type.
 
-### Priest
+### Priest - The Testament of Purity
 
-* **Testament of Purity**
-    * **Description:** A true vessel of the Light, this Priest has sworn off the corrupting and seductive whispers of the Shadow. Their Purity is a testament to their unwavering faith, relying solely on Holy and Disciplinary magic to aid their allies and smite their foes.
-    * **Key Prohibitions:**
-        * No weapons or physical attacks (including wands).
-        * No learning or using Shadow magic spells or talents.
-        * No killing Humanoid creatures.
-        * Gaining experience for any Humanoid kills will break your vow.
-
-* **Covenant of Purity**
-    * **Description:** Forsake the Light's protection and healing. You must rely on the Shadow for survival, and on raw power for destruction.
-    * **Key Prohibitions:**
-        * No using Discipline spells.
-        * With the exception of Smite, no other Holy spells may be used.
-        * No Holy damage wands.
+* **Description:** A true vessel of the Light, sworn off the corrupting whispers of the Shadow.
+* **Key Prohibitions:**
+    * No weapons or physical attacks (including wands).
+    * No learning or using Shadow magic spells or talents.
+    * No killing Humanoid creatures.
 
 ### Rogue
 
-* **Contract of Purity**
+* **Contract of Purity: The Honorable Duelist**
     * **Description:** Forsake the shadows and underhanded tactics. Every fight is a fair duel.
     * **Criteria:**
         * You may not initiate combat from Stealth.
         * You may not learn or use any Poisons.
         * You may not use "cheap shots" like Backstab, Gouge, Kidney Shot, etc.
 
-* **Foil of Purity**
-    * **Description:** A master of single-blade combat, forsaking the use of an off-hand weapon and all ranged weapons.
+* **Foil of Purity: A master of single-blade combat**
+    * **Description:** Forsake the use of an off-hand weapon and all ranged weapons.
     * **Criteria:**
         * You may not equip any item in your off-hand slot.
         * You may not equip any ranged weapon.
 
-### Shaman
+### Shaman - Communion of Purity
 
-* **Communion of Purity**
-    * **Description:** The Spirit Walker. Your power flows purely from your spells and maintaining active totems in combat. No weapons of any kind.
-    * **Key Prohibitions:**
-        * You may NOT equip any weapons of any kind.
-        * You must always maintain at least one active totem while in combat (after totems unlocked).
-        * You must learn your first totem spell and complete the quest before reaching Level 6.
+* **Description:** The Spirit Walker. Your power flows purely from your spells and maintaining active totems in combat. No weapons of any kind.
+* **Key Prohibitions:**
+    * You may NOT equip any weapons of any kind.
+    * You must always maintain at least one active totem while in combat (after totems are unlocked).
 
-* **Flame of Purity**
-    * **Description:** You begin as a normal Shaman, but at level 10 your path changes. Your spirit awakens to the flame, forsaking all other elements. From that moment on, you may only use Fire spells, Fire totems, and physical attacks.
-    * **The Awakening:**
-        * From level 1 to 9, you are free to use any Shaman ability.
-        * Upon reaching Level 10, your vow begins and the following rules apply for the remainder of the challenge:
-    * **Level 10+ Prohibitions:**
-        * Only Fire spells may be cast (including weapon imbuements).
-        * Only Fire totems may be used.
+### Warlock - Grimoire of Purity
 
-### Warlock
-
-* **Grimoire of Purity**
-    * **Description:** A crazed demonologist focused on fire, brimstone, and demons. Souls are fuel for summoning and nothing else.
-    * **Key Prohibitions:**
-        * No learning or using forbidden spells (Shadow, Curses, etc.).
-        * No spending points in the Affliction talent tree.
-        * No non-Fire wands may be equipped or used.
-    * **Special Rules:**
-        * Soul Shards may ONLY be used to summon or subjugate demons.
-        * Healthstones and Soulstones are FORBIDDEN.
-        * Drain Soul (Rank 1) is the only rank allowed.
-        * Drain Soul may only be cast on targets below 20% health.
-
-* **Sacrament of Purity**
-    * **Description:** Forsake demonic pacts and all external mana sources (drinks, potions). You must rely on your own life force, using Life Tap and Drain Mana as your only way to restore mana, and then regain your health through drains and crafted Healthstones.
-    * **Key Prohibitions:**
-        * No demon pets may be summoned (Felsteed is allowed).
-        * No drinking or using mana potions to restore mana.
-        * No spending points in the Demonology talent tree.
-    * **Challenge Conditions:**
-        * Mana must only be regained passively, via Life Tap, or via Drain Mana.
+* **Description:** A crazed demonologist focused on fire, brimstone, and demons. Souls are fuel for summoning and nothing else.
+* **Key Prohibitions:**
+    * No learning or using forbidden spells (Shadow, most Curses, etc.).
+    * No spending points in the Affliction talent tree.
+    * Soul Shards may ONLY be used to summon or subjugate demons.
+    * Healthstones and Soulstones are forbidden.
 
 ### Warrior
 
-* **Brand of Purity**
+* **Brand of Purity: The Berserker**
     * **Description:** No shields or defensive stance. All combat must be initiated with Charge.
     * **Criteria:**
         * You may NOT use shields or Defensive Stance.
         * After level 4, you must initiate combat with Charge.
         * After level 20, equipping two-handed weapons is forbidden.
 
-* **Bulwark of Purity**
+* **Bulwark of Purity: The Ardent Protector**
     * **Description:** Forsake two-handed weapons and the Fury talent tree to become a bastion of defense.
     * **Criteria:**
         * You may NOT equip Two-Handed weapons at any time.
@@ -226,9 +166,7 @@ The Way of the Staggering Fist. Years spent as the town drunk were not wasted. C
         |-- Purity/
             |-- Purity.lua
             |-- Purity_Ascetic.lua
-            |-- Purity_BloodMage.lua
             |-- Purity_Druid.lua
-            |-- Purity_Drunk.lua
             |-- Purity_Fishing.lua
             |-- Purity_Hunter.lua
             |-- Purity_Mage.lua
