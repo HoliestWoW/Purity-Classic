@@ -53,29 +53,37 @@ function DrunkModule:GetRulesText()
     }
 end
 
-local function DrunkMessageFilter(self, event, message, ...)
-    if string.find(message, "smashed") then
-        DrunkModule:SetDrunkState("Smashed")
-    elseif string.find(message, "drunk") then
-        DrunkModule:SetDrunkState("Drunk")
-    elseif string.find(message, "tipsy") then
-        DrunkModule:SetDrunkState("Tipsy")
-    elseif string.find(message, "sober") then
-        DrunkModule:SetDrunkState("Sober")
-    end
-    return false
-end
-
+-- This is our single, unified event handler
 local function DrunkModule_EventHandler(event, ...)
     local db = Purity:GetDB()
-    if not db.challengeStats then db.challengeStats = {} end
-    if not db.challengeStats.drinksConsumed then db.challengeStats.drinksConsumed = 0 end
 
-    if event == "CHAT_MSG_LOOT" then
-        local message = ...
-        if string.find(message, "You drink") or string.find(message, "drinks") then
-            db.challengeStats.drinksConsumed = db.challengeStats.drinksConsumed + 1
-            Purity:MarkDBDirty()
+    -- This is the fixed logic for detecting drunk status
+    if event == "UI_INFO_MESSAGE" then
+        local messageTable = ...
+        
+        -- Check if the event is valid and has the message data
+        if messageTable and messageTable.message then
+            local message = messageTable.message
+            
+            -- *** THE SECURE FIX ***
+            -- We check if the message starts with "You". 
+            -- This ignores all messages about other players.
+            if string.find(message, "You", 1, true) == 1 then
+                
+                -- Check for status changes (e.g., "You feel tipsy.")
+                if message == "You feel completely smashed." then
+                    DrunkModule:SetDrunkState("Smashed")
+                elseif message == "You feel drunk.  Woah!" then
+                    DrunkModule:SetDrunkState("Drunk")
+                elseif message == "You feel tipsy.  Whee!" then
+                    DrunkModule:SetDrunkState("Tipsy")
+                elseif message == "You feel sober again." then
+                    DrunkModule:SetDrunkState("Sober")
+                end
+
+                -- *** REMOVED: The logic for "You drink " was here. ***
+                -- As you correctly pointed out, this message doesn't exist.
+            end
         end
     
     elseif event == "PLAYER_LEVEL_UP" then
@@ -121,19 +129,11 @@ local function DrunkModule_EventHandler(event, ...)
             end
         end
     
-    -- The violation logic has been REMOVED from this event handler.
-    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        -- We can leave this event handler here for potential future use, but it no longer does anything for this challenge.
-        return
-
+    -- This is the clean combat violation logic
     elseif event == "PLAYER_REGEN_DISABLED" then -- This event fires when you ENTER combat.
-        -- First, if we're already in combat, do nothing. This prevents the event from firing multiple times.
         if isPlayerInCombat then return end
-        
         isPlayerInCombat = true
         
-        -- Now, we perform the check right here at the moment combat starts.
-        -- We check the REAL-TIME drunk status.
         if UnitLevel("player") >= 21 and (currentDrunkState == "Tipsy" or currentDrunkState == "Sober") then
             Purity:Violation("Entered combat while " .. currentDrunkState .. ".")
         end
@@ -203,6 +203,8 @@ function DrunkModule:InitializeOnPlayerEnterWorld()
     else
         currentDrunkState = "Sober"
     end
+    
+    -- This is the correct logic to restore the window
     if db and db.drunkFrame then
         local point = db.drunkFrame.point or "CENTER"
         local relativePoint = db.drunkFrame.relativePoint or "CENTER"
@@ -218,16 +220,15 @@ function DrunkModule:InitializeOnPlayerEnterWorld()
     end
     self:UpdateStatusDisplay()
     
-    DrunkModuleEventHandlerFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-    DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_LEVEL_UP")
-    DrunkModuleEventHandlerFrame:RegisterEvent("CHAT_MSG_LOOT")
-
-    ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", DrunkMessageFilter)
+    -- Registering all the events our handler needs
+    DrunkModuleEventHandlerFrame:RegisterEvent("UI_INFO_MESSAGE") -- For drunk status
+    DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_DISABLED") -- For combat check
+    DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_ENABLED") -- For leaving combat
+    DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_LEVEL_UP") -- For profession check
 end
 
 function DrunkModule:EventHandler(event, ...)
+    -- This function allows the main Purity addon to forward events to our handler
     DrunkModule_EventHandler(event, ...)
 end
 

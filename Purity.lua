@@ -3491,8 +3491,6 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, ...)
 end)
 
 local function Purity_OnTooltipSetSpell_Handler(self)
-    if Purity.isActionTooltip then return end
-
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge then return end
 
@@ -3595,25 +3593,6 @@ GameTooltip.SetAction = function(self, actionSlot)
             self:AddLine(" ", 0, 0, 0, 0)
             self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
             self:Show()
-        end
-
-        local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
-        if bloodMageModule and activeChallenge.id == bloodMageModule.id then
-            local spellName = GetSpellInfo(actionID)
-
-            if not bloodMageModule.healingSpells[spellName] then
-                local bloodCost = bloodMageModule:GetBloodCostForSpell(actionID)
-                if bloodCost and bloodCost > 0 then
-                    local weakenedCost = math.max(1, math.floor(bloodCost * 2.0))
-                    
-                    -- This logic also shows only the current cost
-                    local costToDisplay = bloodMageModule.sanguineWeaknessActive and weakenedCost or bloodCost
-
-                    self:AddLine(" ", 0, 0, 0, 0)
-                    self:AddLine(costToDisplay .. " Blood", 1.0, 0.2, 0.2)
-                    self:Show()
-                end
-            end
         end
     end
     Purity.isActionTooltip = false
