@@ -524,6 +524,14 @@ ManageBloodRegen = function(self)
                     end
 
                     if hps_found_on_line == 0 then
+                        local percent = lineText:match("[Rr]estores (%d+) [Hh]ealth and (%d+) [Mm]ana per second")
+                        if percent then
+                            local totalHealth = UnitHealthMax("player")
+                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
+                        end
+                    end
+					
+                    if hps_found_on_line == 0 then
                         local percent = lineText:match("[Rr]estores (%d+)%% of your [Hh]ealth and [Mm]ana per second.")
                         if percent then
                             local totalHealth = UnitHealthMax("player")
