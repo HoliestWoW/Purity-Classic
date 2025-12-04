@@ -4,6 +4,29 @@ if not Purity then
     return
 end
 
+-- HELPER: Precision Scan for Anniversary API
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+    if not forbiddenTabIndex then return false end
+    if id == forbiddenTabIndex then return true end
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        if (val1 == id) or (val12 == id) then return true end
+    end
+    return false
+end
+
 local PriestModule = {
     challenges = {}
 }
@@ -70,6 +93,10 @@ local TestamentOfPurity = {
         end
 
         return false
+    end,
+	
+	IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Shadow")
     end,
 
     isWeaponAllowed = function(self, itemLink)
@@ -146,7 +173,8 @@ local TestamentOfPurity = {
                     return
                 end
             end
-        elseif event == "PLAYER_TALENT_UPDATE" or event == "SPELLS_CHANGED" then
+        -- FIXED: Separated SPELLS_CHANGED and PLAYER_TALENT_UPDATE logic
+        elseif event == "SPELLS_CHANGED" then
             for id, name in pairs(self._forbiddenSpellIDs) do
                 if IsSpellKnown(id) and id ~= 5019 and id ~= 6603 then
                     Purity:Violation("Learned a forbidden spell:\n" .. name);
@@ -157,6 +185,21 @@ local TestamentOfPurity = {
                 if IsSpellKnown(id) then 
                     Purity:Violation("Learned a forbidden talent:\n" .. name); 
                     return 
+                end
+            end
+        elseif event == "PLAYER_TALENT_UPDATE" then
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                -- Name check for Anniversary API
+                local _, name = GetTalentTabInfo(t)
+                if name == "Shadow" then
+                    for i = 1, GetNumTalents(t) do
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\nShadow talent tree.")
+                            return
+                        end
+                    end
                 end
             end
         end
@@ -234,6 +277,10 @@ local CovenantOfPurity = {
         
         return false
     end,
+	
+	IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Discipline") or IsIDInForbiddenTree(id, "Holy")
+    end,
 
     IsItemForbidden = function(self, itemLink)
         if not itemLink then return false end
@@ -282,7 +329,8 @@ local CovenantOfPurity = {
                     return
                 end
             end
-        elseif event == "PLAYER_TALENT_UPDATE" or event == "SPELLS_CHANGED" then
+        -- FIXED: Separated SPELLS_CHANGED and PLAYER_TALENT_UPDATE logic
+        elseif event == "SPELLS_CHANGED" then
             for i = 1, GetNumSpellTabs() do
                 local _, _, _, numSpells = GetSpellTabInfo(i)
                 for j = 1, numSpells do
@@ -290,6 +338,21 @@ local CovenantOfPurity = {
                     if spellType == "SPELL" and id and self:IsSpellForbidden(id) then
                         Purity:Violation("Learned a forbidden spell:\n" .. GetSpellBookItemName(j, "spell"));
                         return
+                    end
+                end
+            end
+        elseif event == "PLAYER_TALENT_UPDATE" then
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                -- Name check for Anniversary API
+                local _, name = GetTalentTabInfo(t)
+                if name == "Discipline" or name == "Holy" then
+                    for i = 1, GetNumTalents(t) do
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\n" .. name .. " talent tree.")
+                            return
+                        end
                     end
                 end
             end

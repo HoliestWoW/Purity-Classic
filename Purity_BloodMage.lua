@@ -464,97 +464,96 @@ local BloodMageModule = {
     end,
 
 ManageBloodRegen = function(self)
-    if not self.PurityScanTooltip then self.PurityScanTooltip = CreateFrame("GameTooltip", "PurityScanTooltip", UIParent, "GameTooltipTemplate") end
+        if not self.PurityScanTooltip then 
+            self.PurityScanTooltip = CreateFrame("GameTooltip", "PurityScanTooltip", UIParent, "GameTooltipTemplate") 
+        end
 
-    local totalHPS = 0
-    for i = 1, 40 do
-        local buffName = UnitAura("player", i)
+        local totalHPS = 0
         
-        if buffName then
-            self.PurityScanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
-            self.PurityScanTooltip:SetUnitAura("player", i)
+        for i = 1, 40 do
+            local buffName = UnitAura("player", i)
             
-            for j = 1, self.PurityScanTooltip:NumLines() do
-                local lineText = _G["PurityScanTooltipTextLeft"..j]:GetText()
-                if lineText then
-                    local hps_found_on_line = 0
+            if buffName then
+                self.PurityScanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+                self.PurityScanTooltip:SetUnitAura("player", i)
+                
+                for j = 1, self.PurityScanTooltip:NumLines() do
+                    local lineText = _G["PurityScanTooltipTextLeft"..j]:GetText()
+                    if lineText then
+                        local hps_found_on_line = 0
 
-                    local hp5 = lineText:match("[Rr]estores (%d+) [Hh]ealth every 5 secs?") or lineText:match("[Rr]estores (%d+) [Hh]ealth per 5 secs?")
-                    if hp5 then
-                        hps_found_on_line = tonumber(hp5) / 5
-                    end
-					
-                    if hps_found_on_line == 0 then
-                        local hp5_regenerate = lineText:match("[Rr]egenerate (%d+) [Hh]ealth every 5 secs?")
-                        if hp5_regenerate then
-                            hps_found_on_line = tonumber(hp5_regenerate) / 5
+                        -- 1. Exact Match for Demon Skin ("restores Y Health per 5 sec")
+                        -- Handles "Health" (Capital H) and "per"
+                        local skinHP = lineText:match("restores (%d+) Health per 5 sec")
+                        if skinHP then
+                            hps_found_on_line = tonumber(skinHP) / 5
                         end
-                    end
 
-                    if hps_found_on_line == 0 then
-                        local hps = lineText:match("[Rr]estores (%d+) [Hh]ealth per second")
-                        if hps then
-                            hps_found_on_line = tonumber(hps)
+                        -- 2. Exact Match for Demon Armor ("restores P health every 5 sec")
+                        -- Handles "health" (lowercase h) and "every"
+                        if hps_found_on_line == 0 then
+                            local armorHP = lineText:match("restores (%d+) health every 5 sec")
+                            if armorHP then
+                                hps_found_on_line = tonumber(armorHP) / 5
+                            end
                         end
-                    end
 
-                    if hps_found_on_line == 0 then
-                        local percent, duration = lineText:match("[Rr]egenerates (%d+)%% of your total [Hh]ealth over (%d+) secs?")
-                        if percent and duration and tonumber(duration) > 0 then
-                            local totalHealth = UnitHealthMax("player")
-                            local regenAmount = totalHealth * (tonumber(percent) / 100)
-                            hps_found_on_line = regenAmount / tonumber(duration)
+                        -- 3. Generic/Fallback matches (Potions, Trolls, other items)
+                        -- Covers case-insensitivity and "sec" vs "secs" just in case
+                        if hps_found_on_line == 0 then
+                            local genericHP = lineText:match("[Rr]estores (%d+) [Hh]ealth every 5 secs?") or 
+                                              lineText:match("[Rr]estores (%d+) [Hh]ealth per 5 secs?") or
+                                              lineText:match("[Rr]egenerate (%d+) [Hh]ealth every 5 secs?")
+                            if genericHP then
+                                hps_found_on_line = tonumber(genericHP) / 5
+                            end
                         end
-                    end
 
-                    if hps_found_on_line == 0 then
-                        local percent = lineText:match("[Rr]egenerates (%d+)%% of your [Hh]ealth and [Mm]ana per second.")
-                        if percent then
-                            local totalHealth = UnitHealthMax("player")
-                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
+                        -- 4. "Restores X health per second" (Fast HoTs/Items)
+                        if hps_found_on_line == 0 then
+                            local hps = lineText:match("[Rr]estores (%d+) [Hh]ealth per second")
+                            if hps then
+                                hps_found_on_line = tonumber(hps)
+                            end
                         end
-                    end
-					
-                    if hps_found_on_line == 0 then
-                        local percent = lineText:match("[Rr]estores (%d+)%% of your [Hh]ealth per second.")
-                        if percent then
-                            local totalHealth = UnitHealthMax("player")
-                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
-                        end
-                    end
 
-                    if hps_found_on_line == 0 then
-                        local percent = lineText:match("[Rr]estores (%d+) [Hh]ealth and (%d+) [Mm]ana per second")
-                        if percent then
-                            local totalHealth = UnitHealthMax("player")
-                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
+                        -- 5. Percentage based regen (Evocation / Spirit Tap)
+                        if hps_found_on_line == 0 then
+                            local percent, duration = lineText:match("[Rr]egenerates (%d+)%% of your total [Hh]ealth over (%d+) secs?")
+                            if percent and duration and tonumber(duration) > 0 then
+                                local totalHealth = UnitHealthMax("player")
+                                local regenAmount = totalHealth * (tonumber(percent) / 100)
+                                hps_found_on_line = regenAmount / tonumber(duration)
+                            end
                         end
-                    end
-					
-                    if hps_found_on_line == 0 then
-                        local percent = lineText:match("[Rr]estores (%d+)%% of your [Hh]ealth and [Mm]ana per second.")
-                        if percent then
-                            local totalHealth = UnitHealthMax("player")
-                            hps_found_on_line = totalHealth * (tonumber(percent) / 100)
+                        
+                        -- 6. "Regenerates X% of your Health and Mana per second"
+                        if hps_found_on_line == 0 then
+                            local percent = lineText:match("[Rr]egenerates (%d+)%% of your [Hh]ealth and [Mm]ana per second")
+                            if percent then
+                                local totalHealth = UnitHealthMax("player")
+                                hps_found_on_line = totalHealth * (tonumber(percent) / 100)
+                            end
                         end
-                    end
 
-                    if hps_found_on_line > 0 then
-                        totalHPS = totalHPS + hps_found_on_line
-                        break 
+                        if hps_found_on_line > 0 then
+                            totalHPS = totalHPS + hps_found_on_line
+                            break 
+                        end
                     end
                 end
+                self.PurityScanTooltip:Hide()
             end
-            self.PurityScanTooltip:Hide()
         end
-    end
 
-    if self.bloodRegenTicker then self.bloodRegenTicker:Cancel(); self.bloodRegenTicker = nil; end
+        -- Restart the ticker with the new total HPS
+        if self.bloodRegenTicker then self.bloodRegenTicker:Cancel(); self.bloodRegenTicker = nil; end
 
-    if totalHPS > 0 then
-        self.bloodRegenTicker = C_Timer.NewTicker(1, function() self:ApplyBloodRegen(totalHPS) end)
-    end
-end,
+        if totalHPS > 0 then
+            -- Apply the calculated health-per-second every 1 second
+            self.bloodRegenTicker = C_Timer.NewTicker(1, function() self:ApplyBloodRegen(totalHPS) end)
+        end
+    end,
 	
 	_GetBloodCostInternal = function(self, spellId)
 		local db = Purity:GetDB()

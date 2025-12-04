@@ -2,10 +2,31 @@
 
 if not Purity then return end
 
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+    if not forbiddenTabIndex then return false end
+    if id == forbiddenTabIndex then return true end
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        if (val1 == id) or (val12 == id) then return true end
+    end
+    return false
+end
+
 local WarriorModule = {
     challenges = {}
 }
-
 
 local CHARGE_SPELL_IDS = {
     [100] = true,
@@ -189,8 +210,8 @@ WarriorModule.challenges.bulwark = {
         return false
     end,
 
-    IsTalentForbidden = function(self, tabIndex)
-        return tabIndex == 2
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Fury")
     end,
 
     IsSpellForbidden = function(self, spellId)
@@ -210,6 +231,20 @@ WarriorModule.challenges.bulwark = {
                 db.challengeStats.blocks = (db.challengeStats.blocks or 0) + 1
 				if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
                     _G["UpdateCharacterPurity"]()
+                end
+            end
+		elseif event == "PLAYER_TALENT_UPDATE" then
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                local _, name = GetTalentTabInfo(t)
+                if name == "Fury" then
+                    for i = 1, GetNumTalents(t) do
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\nFury talent tree.")
+                            return
+                        end
+                    end
                 end
             end
         end

@@ -4,6 +4,28 @@ if not Purity then
     return
 end
 
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+    if not forbiddenTabIndex then return false end
+    if id == forbiddenTabIndex then return true end
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        if (val1 == id) or (val12 == id) then return true end
+    end
+    return false
+end
+
 local learnableFireSpells = {
     --- Fireball (11 Ranks) ---
     [133] = true, [143] = true, [145] = true, [3140] = true, [8400] = true, [8401] = true, [8402] = true, [10148] = true, [10149] = true, [10150] = true, [10151] = true,
@@ -88,35 +110,20 @@ function MageModule:InitializeOnPlayerEnterWorld()
 end
 
 function MageModule:RegisterEvents()
-    -- Create a frame to listen for our events
-    if not self.eventFrame then
-        self.eventFrame = CreateFrame("Frame")
-    end
+    if not self.eventFrame then self.eventFrame = CreateFrame("Frame") end
+    self.eventFrame:UnregisterAllEvents() 
     
-    self.eventFrame:UnregisterAllEvents() -- Clear any old events
-    
-    -- Register the event for standard casts (Fireball, Frostbolt)
     self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    -- Register the event for channeled casts (Arcane Missiles)
     self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
+    self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE") -- Added this
 
-    -- ############# THIS IS THE CORRECTED SCRIPT #############
     self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
-        local unit, spellId
-        unit = ... -- The first argument is always the unit ID
-
-        if event == "UNIT_SPELLCAST_SUCCEEDED" then
-            -- For this event, the spell ID is the 6th argument
-            local _, _, _, _, _, id = ...
-            spellId = id
-        elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-            -- For this event, the spell ID is the 3rd argument
-            local _, _, id = ...
-            spellId = id
-        end
-        
-        if spellId then
-            self:EventHandler(event, unit, spellId)
+        if event == "PLAYER_TALENT_UPDATE" then
+            self:CheckTalents()
+        else
+            local unit, _, _, _, _, spellId = ... -- Standard args for cast events
+            if event == "UNIT_SPELLCAST_CHANNEL_STOP" then spellId = select(3, ...) end
+            if spellId then self:EventHandler(event, unit, spellId) end
         end
     end)
 end
@@ -184,27 +191,54 @@ function MageModule:IsSpellForbidden(spellId)
     return false
 end
 
-function MageModule:IsTalentForbidden(tabIndex)
-    if not tabIndex then return false end
-    
+function MageModule:IsTalentForbidden(id)
     local currentDB = Purity:GetDB()
     local chosenSpec = currentDB.mageData and currentDB.mageData.specialization
     if not chosenSpec then return false end
 
-    local allowedTabIndex
+    -- Determine which trees are forbidden based on choice
+    local forbidden1, forbidden2
     if chosenSpec == "Arcane" then
-        allowedTabIndex = 1
+        forbidden1 = "Fire"; forbidden2 = "Frost"
     elseif chosenSpec == "Fire" then
-        allowedTabIndex = 2
+        forbidden1 = "Arcane"; forbidden2 = "Frost"
     elseif chosenSpec == "Frost" then
-        allowedTabIndex = 3
+        forbidden1 = "Arcane"; forbidden2 = "Fire"
     end
 
-    if allowedTabIndex and tabIndex ~= allowedTabIndex then
+    if IsIDInForbiddenTree(id, forbidden1) or IsIDInForbiddenTree(id, forbidden2) then
         return true
     end
-
     return false
+end
+
+function MageModule:CheckTalents()
+    local currentDB = Purity:GetDB()
+    local chosenSpec = currentDB.mageData and currentDB.mageData.specialization
+    if not chosenSpec then return end
+
+    local forbidden1, forbidden2
+    if chosenSpec == "Arcane" then
+        forbidden1 = "Fire"; forbidden2 = "Frost"
+    elseif chosenSpec == "Fire" then
+        forbidden1 = "Arcane"; forbidden2 = "Frost"
+    elseif chosenSpec == "Frost" then
+        forbidden1 = "Arcane"; forbidden2 = "Fire"
+    end
+
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local _, name = GetTalentTabInfo(t)
+        if name == forbidden1 or name == forbidden2 then
+            for i = 1, GetNumTalents(t) do
+                local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                if pointsSpent and pointsSpent > 0 then
+                    Purity:Violation("Allocated points in the forbidden\n" .. name .. " talent tree.")
+                    return
+                end
+            end
+        end
+    end
 end
 
 function MageModule:EventHandler(event, unit, spellId)

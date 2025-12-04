@@ -3522,24 +3522,31 @@ local function Purity_OnTooltipSetSpell_Handler(self)
     end
 end
 
-local function Purity_GeneralTooltip_OnShow_Handler(self)
-    if Purity.isActionTooltip then return end
-
+local function Purity_CheckItemTooltip(tooltip)
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge then return end
+    
     local db = Purity:GetDB()
     if not db then return end
 
-    local _, itemLink = self:GetItem()
+    local _, itemLink = tooltip:GetItem()
     if itemLink and activeChallenge.IsItemForbidden and activeChallenge:IsItemForbidden(itemLink) then
         local challengeName = db.challengeTitle or "Purity Challenge"
-        self:AddLine(" ", 0, 0, 0, 0)
-        self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
-        self:Show()
-        return
+        tooltip:AddLine(" ", 0, 0, 0, 0)
+        tooltip:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
+        tooltip:Show()
     end
+end
 
-    if activeChallenge.id == "BLOOD_MAGE_BARGAIN" then
+-- Hook Tooltip Events
+GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
+
+GameTooltip:HookScript("OnShow", function(self)
+    if Purity.isActionTooltip then return end
+
+    -- Blood Mage Logic (Original OnShow Logic)
+    local activeChallenge = Purity:GetActiveChallengeObject()
+    if activeChallenge and activeChallenge.id == "BLOOD_MAGE_BARGAIN" then
         local left1 = _G[self:GetName() .. "TextLeft1"]
         if left1 then
             local text = left1:GetText()
@@ -3554,10 +3561,10 @@ local function Purity_GeneralTooltip_OnShow_Handler(self)
             end
         end
     end
-end
+end)
 
-GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
-GameTooltip:HookScript("OnShow", Purity_GeneralTooltip_OnShow_Handler)
+-- NEW: Hook OnTooltipSetItem to prevent other addons from wiping our text
+GameTooltip:HookScript("OnTooltipSetItem", Purity_CheckItemTooltip)
 
 hooksecurefunc(GameTooltip, "SetTalent", function(self, tabIndex, talentIndex)
     local activeChallenge = Purity:GetActiveChallengeObject()
@@ -3575,26 +3582,20 @@ if not Original_GameTooltip_SetAction then
     Original_GameTooltip_SetAction = GameTooltip.SetAction
 end
 
+if not Original_GameTooltip_SetAction then
+    Original_GameTooltip_SetAction = GameTooltip.SetAction
+end
+
 GameTooltip.SetAction = function(self, actionSlot)
+    -- We flag this as an Action Tooltip so OnShow doesn't interfere
     Purity.isActionTooltip = true
+    
+    -- Call the original function. 
+    -- This triggers OnTooltipSetSpell internally, which adds the "Forbidden" text.
     Original_GameTooltip_SetAction(self, actionSlot)
 
-    local activeChallenge = Purity:GetActiveChallengeObject()
-    if not activeChallenge then
-        Purity.isActionTooltip = false
-        return
-    end
-
-    local actionType, actionID = GetActionInfo(actionSlot)
-
-    if actionType == "spell" then
-        if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(actionID) then
-            local challengeName = Purity:GetDB().challengeTitle or "Purity Challenge"
-            self:AddLine(" ", 0, 0, 0, 0)
-            self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
-            self:Show()
-        end
-    end
+    -- We do NOT add the text here anymore to avoid the duplicate line.
+    
     Purity.isActionTooltip = false
 end
 

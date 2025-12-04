@@ -1,7 +1,30 @@
--- Purity AddOn - Druid Module (Final Bugfix Build)
+-- Purity AddOn - Druid Module (Final Merged Build)
 
 if not Purity then
     return
+end
+
+-- HELPER: Precision Scan for Anniversary API
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+    if not forbiddenTabIndex then return false end
+    if id == forbiddenTabIndex then return true end
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        if (val1 == id) or (val12 == id) then return true end
+    end
+    return false
 end
 
 local DruidModule = {
@@ -34,7 +57,10 @@ DruidModule.challenges.pact = {
     end,
 
     IsSpellForbidden = function(self, spellId) return false end, -- Casting check is in EventHandler
-    IsTalentForbidden = function(self, tabIndex) return UnitLevel("player") >= 10 and tabIndex == 1 end,
+    IsTalentForbidden = function(self, id) 
+        if UnitLevel("player") < 10 then return false end
+        return IsIDInForbiddenTree(id, "Balance")
+    end,
     IsItemForbidden = function(self, itemLink)
         if not itemLink then return false end
         local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
@@ -88,6 +114,22 @@ DruidModule.challenges.pact = {
                     end
                 end
             end
+        elseif event == "PLAYER_TALENT_UPDATE" then
+            if UnitLevel("player") >= 10 then
+                local numTabs = GetNumTalentTabs()
+                for t = 1, numTabs do
+                    local _, name = GetTalentTabInfo(t)
+                    if name == "Balance" then
+                        for i = 1, GetNumTalents(t) do
+                            local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                            if pointsSpent and pointsSpent > 0 then
+                                Purity:Violation("Allocated points in the forbidden\nBalance talent tree.")
+                                return
+                            end
+                        end
+                    end
+                end
+            end
         end
     end,
 }
@@ -100,6 +142,7 @@ DruidModule.challenges.astrolabe = {
     end,
     needsWeaponWarning = false,
     lastDamageSpellSchool = nil,
+    isInitialized = false, -- Flag for original visual hook
 
     natureDamageSpells = {
         [5176] = true, [5177] = true, [5178] = true, [5179] = true, [5180] = true, [8905] = true, [9756] = true, [9912] = true,
@@ -121,7 +164,84 @@ DruidModule.challenges.astrolabe = {
         }
     end,
     
-    IsSpellForbidden = function(self, spellId) return self.forbiddenFeralSpells[spellId] or self.forbiddenRestoSpells[spellId] end,
+    -- Restored Original Hook Logic
+    InitializeOnPlayerEnterWorld = function(self)
+        if self.isInitialized then return end
+
+        for i = 1, 12 do
+            local button = _G["ActionButton"..i]
+            if button then
+                local function onHover()
+                    -- Use a minimal timer to ensure our update runs after the default UI
+                    C_Timer.After(0, function()
+                        self:UpdateActionbarOverlay()
+                    end)
+                end
+                button:HookScript("OnEnter", onHover)
+                button:HookScript("OnLeave", onHover)
+            end
+        end
+        self.isInitialized = true
+    end,
+
+    UpdateActionbarOverlay = function(self)
+        local schoolToDim = nil
+        if UnitAffectingCombat("player") then
+            schoolToDim = self.lastDamageSpellSchool
+        end
+
+        for i = 1, 12 do
+            local cooldownFrame = _G["ActionButton"..i.."Cooldown"]
+            if cooldownFrame then
+                local actionType, spellId = GetActionInfo(i)
+                
+                if actionType == "spell" then
+                    local isNature = self.natureDamageSpells[spellId]
+                    local isArcane = self.arcaneDamageSpells[spellId]
+                    local shouldDim = (schoolToDim == "Nature" and isNature) or (schoolToDim == "Arcane" and isArcane)
+                    
+                    if shouldDim then
+                        CooldownFrame_Set(cooldownFrame, GetTime(), 3600, 1)
+                        
+                        if cooldownFrame.SetDrawEdge then
+                            cooldownFrame:SetDrawEdge(false)
+                        end
+                        
+                        if cooldownFrame.SetDrawSwipe then
+                            cooldownFrame:SetDrawSwipe(true)
+                        end
+                        
+                        if cooldownFrame.SetHideCountdownNumbers then
+                            cooldownFrame:SetHideCountdownNumbers(true)
+                        end
+                    else
+                        CooldownFrame_Set(cooldownFrame, 0, 0, 0)
+                    end
+                else
+                    CooldownFrame_Set(cooldownFrame, 0, 0, 0)
+                end
+            end
+        end
+    end,
+
+    IsSpellForbidden = function(self, spellId) 
+        -- 1. Check strict bans (Feral/Resto)
+        if self.forbiddenFeralSpells[spellId] or self.forbiddenRestoSpells[spellId] then return true end
+        
+        -- 2. Check Dynamic Astrolabe Logic (Red Text in Tooltip)
+        if not UnitAffectingCombat("player") then return false end
+        if not self.lastDamageSpellSchool then return false end
+        
+        if self.lastDamageSpellSchool == "Nature" and self.natureDamageSpells[spellId] then
+            return true
+        end
+        if self.lastDamageSpellSchool == "Arcane" and self.arcaneDamageSpells[spellId] then
+            return true
+        end
+
+        return false 
+    end,
+
     AuditKnownSpells = function(self, violationFunc)
         for i = 1, GetNumSpellTabs() do
             local _, _, _, numSpells = GetSpellTabInfo(i)
@@ -137,7 +257,9 @@ DruidModule.challenges.astrolabe = {
         end
         return true
     end,
-    IsTalentForbidden = function(self, tabIndex) return tabIndex == 2 or tabIndex == 3 end,
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Feral Combat") or IsIDInForbiddenTree(id, "Restoration")
+    end,
     IsItemForbidden = function(self, itemLink) return false end,
     isWeaponAllowed = function(self, itemLink) return true end,
     IsUnitForbidden = function(self, unit) return false end,
@@ -145,6 +267,24 @@ DruidModule.challenges.astrolabe = {
     EventHandler = function(self, event, ...)
         if event == "PLAYER_LEAVE_COMBAT" or event == "PLAYER_REGEN_ENABLED" then
             self.lastDamageSpellSchool = nil
+            self:UpdateActionbarOverlay()
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            self:UpdateActionbarOverlay()
+        elseif event == "PLAYER_TALENT_UPDATE" then
+            -- API FIX: Scan tab names for violation
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                local _, name = GetTalentTabInfo(t)
+                if name == "Feral Combat" or name == "Restoration" then
+                    for i = 1, GetNumTalents(t) do
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\n" .. name .. " talent tree.")
+                            return
+                        end
+                    end
+                end
+            end
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
 			local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName = CombatLogGetCurrentEventInfo()
 
@@ -176,7 +316,12 @@ DruidModule.challenges.astrolabe = {
 				Purity:Violation("Broke the celestial balance by casting from the same magic school twice:\n" .. spellName)
 				return
 			end
-			self.lastDamageSpellSchool = currentSchool
+            
+			if self.lastDamageSpellSchool ~= currentSchool then
+                self.lastDamageSpellSchool = currentSchool
+                -- Trigger visual update
+                self:UpdateActionbarOverlay()
+            end
 		end
 	end,
 }
