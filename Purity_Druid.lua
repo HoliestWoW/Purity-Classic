@@ -160,7 +160,7 @@ DruidModule.challenges.astrolabe = {
 
     GetRulesText = function()
         return {
-            "|cffffd100Key Prohibitions:|r", "|cff261A0D  • You may not use Bear Form or Cat Form.|r", "|cff261A0D  • You may not learn or use any Restoration healing spells.|r", "|cff261A0D  • You may not allocate points in the Feral or Restoration talent trees.|r", " ", "|cffffd100Special Vow:|r", "|cff261A0D  • You must alternate between Nature and Arcane damaging spells.|r", "|cff261A0D  • Casting a damaging spell from the same school twice in a row will break your vow (resets each combat).|r", " ", "|cffffd100Challenge Conditions:|r", "|cff261A0D  • Must be started on a level 1 Druid.|r", "|cff261A0D  • Must be accepted before leveling to 2.|r", "|cff261A0D  • An uptime of at least 96.0% must be maintained.|r",
+            "|cffffd100Key Prohibitions:|r", "|cff261A0D  • You may not use Bear Form or Cat Form.|r", "|cff261A0D  • You may not learn or use any Restoration healing spells.|r", "|cff261A0D  • You may not allocate points in the Feral or Restoration talent trees.|r", " ", "|cffffd100Special Vow:|r", "|cff261A0D  • You must keep your Balance Bar in equalibrium.|r", "|cff261A0D  • Casting a damaging spell from the same school too many times in a row will break your vow.|r", " ", "|cffffd100Challenge Conditions:|r", "|cff261A0D  • Must be started on a level 1 Druid.|r", "|cff261A0D  • Must be accepted before leveling to 2.|r", "|cff261A0D  • An uptime of at least 96.0% must be maintained.|r",
         }
     end,
 	
