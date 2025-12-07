@@ -4,6 +4,28 @@ if not Purity then
     return
 end
 
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+    if not forbiddenTabIndex then return false end
+    if id == forbiddenTabIndex then return true end
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        if (val1 == id) or (val12 == id) then return true end
+    end
+    return false
+end
+
 local WarlockModule = {
     challenges = {}
 }
@@ -48,8 +70,8 @@ local GrimoireOfPurity = {
         return self._forbiddenSpellIDs[spellId] or false
     end,
 
-    IsTalentForbidden = function(self, tabIndex)
-        return tabIndex == 1
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Affliction")
     end,
 
     isWeaponAllowed = function(self, itemLink)
@@ -129,10 +151,18 @@ local GrimoireOfPurity = {
                  end
             end
         elseif event == "PLAYER_TALENT_UPDATE" then
-            if self:IsTalentForbidden(1) then
-                local points = 0
-                for i=1,GetNumTalents(1) do local _,_,_,_,p=GetTalentInfo(1,i) points=points+p end
-                if points > 0 then Purity:Violation("Allocated points in the forbidden\nAffliction talent tree.") end
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                local _, name = GetTalentTabInfo(t)
+                if name == "Affliction" then 
+                    for i = 1, GetNumTalents(t) do
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\n" .. name .. " talent tree.")
+                            return
+                        end
+                    end
+                end
             end
         elseif event == "SPELLS_CHANGED" then
             for i=1,GetNumSpellTabs() do
@@ -178,8 +208,8 @@ local SacramentOfPurity = {
         return self._forbiddenSpellIDs[spellId] or self._manaItemSpellIDs[spellId]
     end,
 
-    IsTalentForbidden = function(self, tabIndex)
-        return tabIndex == 2
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Demonology")
     end,
 
     isWeaponAllowed = function(self, itemLink)
@@ -236,12 +266,17 @@ local SacramentOfPurity = {
                 end
             end
         elseif event == "PLAYER_TALENT_UPDATE" then
-            if self:IsTalentForbidden(2) then
-                local points = 0
-                for i=1,GetNumTalents(2) do local _,_,_,_,p=GetTalentInfo(2,i) points=points+p end
-                if points > 0 then
-                    local _, treeName = GetTalentTabInfo(2)
-                    Purity:Violation("Allocated points in the forbidden\n" .. treeName .. " talent tree.")
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                local _, name = GetTalentTabInfo(t)
+                if name == "Demonology" then 
+                    for i = 1, GetNumTalents(t) do
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\n" .. name .. " talent tree.")
+                            return
+                        end
+                    end
                 end
             end
         elseif event == "SPELLS_CHANGED" then

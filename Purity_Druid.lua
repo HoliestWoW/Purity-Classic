@@ -1,7 +1,30 @@
--- Purity AddOn - Druid Module (Final Bugfix Build)
+-- Purity AddOn - Druid Module (Final Merged Build)
 
 if not Purity then
     return
+end
+
+-- HELPER: Precision Scan for Anniversary API
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+    if not forbiddenTabIndex then return false end
+    if id == forbiddenTabIndex then return true end
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        if (val1 == id) or (val12 == id) then return true end
+    end
+    return false
 end
 
 local DruidModule = {
@@ -34,7 +57,10 @@ DruidModule.challenges.pact = {
     end,
 
     IsSpellForbidden = function(self, spellId) return false end, -- Casting check is in EventHandler
-    IsTalentForbidden = function(self, tabIndex) return UnitLevel("player") >= 10 and tabIndex == 1 end,
+    IsTalentForbidden = function(self, id) 
+        if UnitLevel("player") < 10 then return false end
+        return IsIDInForbiddenTree(id, "Balance")
+    end,
     IsItemForbidden = function(self, itemLink)
         if not itemLink then return false end
         local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
@@ -88,6 +114,22 @@ DruidModule.challenges.pact = {
                     end
                 end
             end
+        elseif event == "PLAYER_TALENT_UPDATE" then
+            if UnitLevel("player") >= 10 then
+                local numTabs = GetNumTalentTabs()
+                for t = 1, numTabs do
+                    local _, name = GetTalentTabInfo(t)
+                    if name == "Balance" then
+                        for i = 1, GetNumTalents(t) do
+                            local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                            if pointsSpent and pointsSpent > 0 then
+                                Purity:Violation("Allocated points in the forbidden\nBalance talent tree.")
+                                return
+                            end
+                        end
+                    end
+                end
+            end
         end
     end,
 }
@@ -100,6 +142,7 @@ DruidModule.challenges.astrolabe = {
     end,
     needsWeaponWarning = false,
     lastDamageSpellSchool = nil,
+    isInitialized = false, -- Flag for original visual hook
 
     natureDamageSpells = {
         [5176] = true, [5177] = true, [5178] = true, [5179] = true, [5180] = true, [8905] = true, [9756] = true, [9912] = true,
@@ -112,7 +155,7 @@ DruidModule.challenges.astrolabe = {
     },
     
     forbiddenFeralSpells = {[768]=true,[5487]=true,[9634]=true,[1079]=true,[5221]=true,[6807]=true,[779]=true,[780]=true,[99]=true,[1735]=true,[5229]=true,[5211]=true,[6795]=true,[8983]=true,[9005]=true,[9827]=true,[9846]=true,[9866]=true,[9892]=true,[9896]=true,[9908]=true,[9913]=true},
-    forbiddenRestoSpells = {[5185]=true,[8936]=true,[774]=true,[20739]=true,[5186]=true,[5187]=true,[5188]=true,[5189]=true,[9758]=true,[9888]=true,[9889]=true,[8938]=true,[8939]=true,[8940]=true,[8941]=true,[9759]=true,[9856]=true,[9857]=true,[9858]=true,[8903]=true,[9760]=true,[9839]=true,[9840]=true,[9841]=true,[1058]=true,[467]=true,[26989]=true, [1126]=true},
+    forbiddenRestoSpells = {[5185]=true,[8936]=true,[774]=true,[20739]=true,[5186]=true,[5187]=true,[5188]=true,[5189]=true,[9758]=true,[9888]=true,[9889]=true,[8938]=true,[8939]=true,[8940]=true,[8941]=true,[9759]=true,[9856]=true,[9857]=true,[9858]=true,[8903]=true,[9760]=true,[9839]=true,[9840]=true,[9841]=true,[1058]=true, [26989]=true, [1126]=true},
     ignoredStartSpells = {[5185] = true, [1126] = true},
 
     GetRulesText = function()
@@ -120,8 +163,126 @@ DruidModule.challenges.astrolabe = {
             "|cffffd100Key Prohibitions:|r", "|cff261A0D  • You may not use Bear Form or Cat Form.|r", "|cff261A0D  • You may not learn or use any Restoration healing spells.|r", "|cff261A0D  • You may not allocate points in the Feral or Restoration talent trees.|r", " ", "|cffffd100Special Vow:|r", "|cff261A0D  • You must alternate between Nature and Arcane damaging spells.|r", "|cff261A0D  • Casting a damaging spell from the same school twice in a row will break your vow (resets each combat).|r", " ", "|cffffd100Challenge Conditions:|r", "|cff261A0D  • Must be started on a level 1 Druid.|r", "|cff261A0D  • Must be accepted before leveling to 2.|r", "|cff261A0D  • An uptime of at least 96.0% must be maintained.|r",
         }
     end,
+	
+	StartForcedUpdates = function(self)
+        if self.updateFrame then return end -- Already running
+
+        self.updateFrame = CreateFrame("Frame")
+        self.updateTimer = 0
+        
+        self.updateFrame:SetScript("OnUpdate", function(f, elapsed)
+            -- Only run this heavy logic if we are actually fighting
+            if UnitAffectingCombat("player") then
+                self.updateTimer = self.updateTimer + elapsed
+                
+                -- Force an update every 0.1 seconds (10 times a second)
+                if self.updateTimer > 0.1 then
+                    self:UpdateActionbarOverlay()
+                    self.updateTimer = 0
+                end
+            end
+        end)
+    end,
     
-    IsSpellForbidden = function(self, spellId) return self.forbiddenFeralSpells[spellId] or self.forbiddenRestoSpells[spellId] end,
+    InitializeOnPlayerEnterWorld = function(self)
+        if self.isInitialized then return end
+        
+        -- Load from DB (Persists across reloads)
+        local db = Purity:GetDB()
+        if not db.astrolabeBalance then 
+            db.astrolabeBalance = 0 
+        end
+        
+        self:CreateBalanceFrame()
+        self:CreateVignetteFrame()
+		self:UpdateVignette()
+        self:StartForcedUpdates()
+
+        -- (Keep your existing tooltip hooks here)
+        local barNames = {"ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "MultiBarRightButton", "MultiBarLeftButton"}
+        for _, barName in ipairs(barNames) do
+            for i = 1, 12 do
+                local button = _G[barName..i]
+                if button then
+                    local function onHover()
+                        self:UpdateActionbarOverlay()
+                    end
+                    button:HookScript("OnEnter", onHover)
+                    button:HookScript("OnLeave", onHover)
+                end
+            end
+        end
+        self.isInitialized = true
+    end,
+
+    UpdateActionbarOverlay = function(self)
+        local schoolToDim = nil
+        if UnitAffectingCombat("player") then
+            schoolToDim = self.lastDamageSpellSchool
+        end
+
+        local barNames = {
+            "ActionButton", 
+            "MultiBarBottomLeftButton", 
+            "MultiBarBottomRightButton", 
+            "MultiBarRightButton", 
+            "MultiBarLeftButton"
+        }
+
+        for _, barName in ipairs(barNames) do
+            for i = 1, 12 do
+                local button = _G[barName..i]
+                local cooldownFrame = _G[barName..i.."Cooldown"]
+                
+                -- Verify the button and cooldown frame exist before acting
+                if button and cooldownFrame then
+                    local actionSlot = button.action
+                    local actionType, spellId = GetActionInfo(actionSlot)
+                    
+                    if actionType == "spell" then
+                        local isNature = self.natureDamageSpells[spellId]
+                        local isArcane = self.arcaneDamageSpells[spellId]
+                        local shouldDim = (schoolToDim == "Nature" and isNature) or (schoolToDim == "Arcane" and isArcane)
+                        
+                        if shouldDim then
+                            -- FORCE RED: High duration to ensure it overrides GCD swipes
+                            CooldownFrame_Set(cooldownFrame, GetTime(), 3600, 1)
+                            if cooldownFrame.SetDrawEdge then cooldownFrame:SetDrawEdge(false) end
+                            if cooldownFrame.SetDrawSwipe then cooldownFrame:SetDrawSwipe(true) end
+                            if cooldownFrame.SetHideCountdownNumbers then cooldownFrame:SetHideCountdownNumbers(true) end
+                        else
+                            -- RESTORE REAL: If not dimmed, show the actual game state (GCD)
+                            local start, duration, enabled = GetSpellCooldown(spellId)
+                            if start and duration then
+                                CooldownFrame_Set(cooldownFrame, start, duration, enabled)
+                                if cooldownFrame.SetHideCountdownNumbers then cooldownFrame:SetHideCountdownNumbers(false) end
+                            end
+                        end
+                    else
+                        -- Cleanup for non-spells
+                        CooldownFrame_Set(cooldownFrame, 0, 0, 0)
+                    end
+                end
+            end
+        end
+    end,
+
+    IsSpellForbidden = function(self, spellId) 
+        if self.forbiddenFeralSpells[spellId] or self.forbiddenRestoSpells[spellId] then return true end
+        
+        if not UnitAffectingCombat("player") then return false end
+        if not self.lastDamageSpellSchool then return false end
+        
+        if self.lastDamageSpellSchool == "Nature" and self.natureDamageSpells[spellId] then
+            return true
+        end
+        if self.lastDamageSpellSchool == "Arcane" and self.arcaneDamageSpells[spellId] then
+            return true
+        end
+
+        return false 
+    end,
+
     AuditKnownSpells = function(self, violationFunc)
         for i = 1, GetNumSpellTabs() do
             local _, _, _, numSpells = GetSpellTabInfo(i)
@@ -137,48 +298,298 @@ DruidModule.challenges.astrolabe = {
         end
         return true
     end,
-    IsTalentForbidden = function(self, tabIndex) return tabIndex == 2 or tabIndex == 3 end,
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Feral Combat") or IsIDInForbiddenTree(id, "Restoration")
+    end,
     IsItemForbidden = function(self, itemLink) return false end,
     isWeaponAllowed = function(self, itemLink) return true end,
     IsUnitForbidden = function(self, unit) return false end,
 
+    CreateBalanceFrame = function(self)
+        if self.balanceFrame then return end
+        
+        -- 1. Create the Main Container
+        local f = CreateFrame("Frame", "PurityAstrolabeFrame", UIParent)
+        f:SetSize(256, 64) 
+        f:SetPoint("CENTER", 0, -180)
+        f:EnableMouse(true)
+        f:Show() 
+        
+        -- TOOLTIP SCRIPT
+        f:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Balance Bar", 1, 1, 1)
+            GameTooltip:AddLine("The stars demand equilibrium. You may hold a maximum of 2 consecutive charges of one school before the Astrolabe shatters, and you fail the challenge.", 1, 0.82, 0, true)
+            GameTooltip:Show()
+        end)
+
+        f:SetScript("OnLeave", function(self)
+            GameTooltip:Hide()
+        end)
+        
+        -- 2. BACKGROUND LAYER
+        f.backing = f:CreateTexture(nil, "BACKGROUND")
+        f.backing:SetSize(235, 40)
+        f.backing:SetPoint("CENTER")
+        f.backing:SetColorTexture(0, 0, 0, 0.8) 
+
+        -- 3. MIDDLE LAYER: The Pips
+        local barTexture = "Interface\\TargetingFrame\\UI-StatusBar"
+
+        -- LEFT SIDE (Arcane)
+        self.pipsArcane = {}
+        for i = 1, 2 do
+            local p = f:CreateTexture(nil, "BORDER") 
+            p:SetSize(55, 42) 
+            p:SetTexture(barTexture)
+            p:SetBlendMode("BLEND") 
+            p:SetPoint("RIGHT", f, "CENTER", 0 - ((i-1)*57), 0)
+            p:SetVertexColor(0.6, 0.2, 1.0, 0.2) 
+            table.insert(self.pipsArcane, p)
+        end
+
+        -- RIGHT SIDE (Nature)
+        self.pipsNature = {}
+        for i = 1, 2 do
+            local p = f:CreateTexture(nil, "BORDER") 
+            p:SetSize(55, 42) 
+            p:SetTexture(barTexture)
+            p:SetBlendMode("BLEND") 
+            p:SetPoint("LEFT", f, "CENTER", 0 + ((i-1)*57), 0)
+            p:SetVertexColor(0.2, 1.0, 0.2, 0.2)
+            table.insert(self.pipsNature, p)
+        end
+
+        -- 4. TOP LAYER: Your Custom Frame Art
+        f.bg = f:CreateTexture(nil, "ARTWORK")
+        f.bg:SetAllPoints(true)
+        f.bg:SetTexture("Interface\\AddOns\\Purity\\Media\\AstrolabeFrame.tga") 
+
+        -- 5. TEXT LAYER: The Numbers (X/2)
+        -- Arcane Text (Left Side)
+        f.arcaneText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+        f.arcaneText:SetPoint("CENTER", -60, 0) -- Positioned over left bars
+        f.arcaneText:SetText("0/2")
+
+        -- Nature Text (Right Side)
+        f.natureText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+        f.natureText:SetPoint("CENTER", 60, 0) -- Positioned over right bars
+        f.natureText:SetText("0/2")
+
+        self.balanceFrame = f
+        self:UpdateBalanceFrame()
+    end,
+	
+	UpdateBalanceFrame = function(self)
+        if not self.balanceFrame then return end
+        
+        self.balanceFrame:Show()
+        
+        -- GET DATABASE
+        local db = Purity:GetDB()
+        local score = db.astrolabeBalance or 0
+        local absScore = math.abs(score)
+        local f = self.balanceFrame
+
+        -- 1. UPDATE PIPS (Visual Bars)
+        for i, pip in ipairs(self.pipsArcane) do
+            if score < 0 and i <= absScore then
+                pip:SetVertexColor(0.8, 0.2, 1.0, 1.0)
+            else
+                pip:SetVertexColor(0.3, 0.1, 0.5, 0.3)
+            end
+        end
+
+        for i, pip in ipairs(self.pipsNature) do
+            if score > 0 and i <= absScore then
+                pip:SetVertexColor(0.1, 1.0, 0.1, 1.0)
+            else
+                pip:SetVertexColor(0.0, 0.4, 0.0, 0.3)
+            end
+        end
+
+        -- 2. UPDATE TEXT NUMBERS (X/2)
+        -- Only show if the setting is enabled (defaults to true)
+        if db.showAstrolabeNumbers ~= false then
+            f.arcaneText:Show()
+            f.natureText:Show()
+
+            if score < 0 then
+                -- ARCANE ACTIVE
+                f.arcaneText:SetText(absScore .. "/2")
+                f.arcaneText:SetTextColor(1, 1, 1) -- White
+                f.natureText:SetText("0/2")
+                f.natureText:SetTextColor(0.5, 0.5, 0.5) -- Gray
+            elseif score > 0 then
+                -- NATURE ACTIVE
+                f.arcaneText:SetText("0/2")
+                f.arcaneText:SetTextColor(0.5, 0.5, 0.5) -- Gray
+                f.natureText:SetText(absScore .. "/2")
+                f.natureText:SetTextColor(1, 1, 1) -- White
+            else
+                -- NEUTRAL
+                f.arcaneText:SetText("0/2")
+                f.arcaneText:SetTextColor(0.5, 0.5, 0.5)
+                f.natureText:SetText("0/2")
+                f.natureText:SetTextColor(0.5, 0.5, 0.5)
+            end
+        else
+            -- HIDE IF DISABLED
+            f.arcaneText:Hide()
+            f.natureText:Hide()
+        end
+    end,
+	
+	CreateVignetteFrame = function(self)
+        if self.vignetteFrame then return end
+        
+        local f = CreateFrame("Frame", "PurityVignetteFrame", UIParent)
+        f:SetAllPoints(UIParent)
+        f:SetFrameStrata("BACKGROUND")
+        f:EnableMouse(false)
+        f:Show()
+        
+        local texFile = "Interface\\FullScreenTextures\\LowHealth"
+
+        -- HELPER: Function to create a glow layer
+        local function CreateLayer(colorR, colorG, colorB)
+            local t = f:CreateTexture(nil, "ARTWORK")
+            t:SetAllPoints(true)
+            t:SetTexture(texFile)
+            t:SetDesaturated(true)
+            t:SetBlendMode("ADD") 
+            t:SetVertexColor(colorR, colorG, colorB)
+            t:SetAlpha(0)
+            return t
+        end
+
+        -- NATURE LAYERS (Green)
+        -- We create 3 separate layers. Stacking them makes the glow 3x brighter.
+        self.natureLayers = {}
+        for i = 1, 4 do
+            table.insert(self.natureLayers, CreateLayer(0.2, 1.0, 0.2))
+        end
+
+        -- ARCANE LAYERS (Purple)
+        self.arcaneLayers = {}
+        for i = 1, 4 do
+            table.insert(self.arcaneLayers, CreateLayer(1.0, 0.3, 1.0))
+        end
+
+        self.vignetteFrame = f
+    end,
+	
+	UpdateVignette = function(self)
+        if not self.vignetteFrame then return end
+        
+        local score = Purity:GetDB().astrolabeBalance or 0
+        local f = self.vignetteFrame
+
+        -- Helper to control layers
+        local function SetLayers(layers, count)
+            for i, tex in ipairs(layers) do
+                if i <= count then
+                    tex:SetAlpha(1.0) -- Full brightness
+                else
+                    tex:SetAlpha(0) -- Off
+                end
+            end
+        end
+
+        if score == 0 then
+            SetLayers(self.natureLayers, 0)
+            SetLayers(self.arcaneLayers, 0)
+            
+        elseif score > 0 then
+            -- NATURE
+            SetLayers(self.arcaneLayers, 0)
+            
+            if score == 1 then
+                SetLayers(self.natureLayers, 1)
+            elseif score >= 2 then
+                SetLayers(self.natureLayers, 4)
+            end
+            
+        elseif score < 0 then
+            -- ARCANE
+            SetLayers(self.natureLayers, 0)
+            
+            local absScore = math.abs(score)
+            if absScore == 1 then
+                SetLayers(self.arcaneLayers, 1)
+            elseif absScore >= 2 then
+                SetLayers(self.arcaneLayers, 4)
+            end
+        end
+    end,
+
     EventHandler = function(self, event, ...)
-        if event == "PLAYER_LEAVE_COMBAT" or event == "PLAYER_REGEN_ENABLED" then
-            self.lastDamageSpellSchool = nil
+        local db = Purity:GetDB()
+
+        -- Reset only on death
+        if event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
+            db.astrolabeBalance = 0
+            self:UpdateBalanceFrame()
+            self:UpdateVignette()
+
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-			local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName = CombatLogGetCurrentEventInfo()
+            local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName, _, missType = CombatLogGetCurrentEventInfo()
 
-			-- Stat tracking for celestial casts (reliable method)
-			if sourceGUID == UnitGUID("player") and subEvent == "SPELL_CAST_SUCCESS" then
-				if self.natureDamageSpells[spellId] or self.arcaneDamageSpells[spellId] then
-					local db = Purity:GetDB()
-					if not db.challengeStats then db.challengeStats = {} end
-					db.challengeStats.celestialCasts = (db.challengeStats.celestialCasts or 0) + 1
-					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        _G["UpdateCharacterPurity"]()
-                    end
-				end
-			end
+            if sourceGUID ~= UnitGUID("player") then return end
 
-			-- Rule validation for alternating spell schools
-			if sourceGUID ~= UnitGUID("player") or (subEvent ~= "SPELL_DAMAGE" and subEvent ~= "SPELL_PERIODIC_DAMAGE") then return end
+            local isNature = self.natureDamageSpells[spellId]
+            local isArcane = self.arcaneDamageSpells[spellId]
+            
+            -- Ignore spells that aren't part of the challenge
+            if not (isNature or isArcane) then return end
+            
+            -- Ensure DB value exists
+            if not db.astrolabeBalance then db.astrolabeBalance = 0 end
 
-			local currentSchool = nil
-			if self.natureDamageSpells[spellId] then
-				currentSchool = "Nature"
-			elseif self.arcaneDamageSpells[spellId] then
-				currentSchool = "Arcane"
-			end
+            -- 1. INSTANT UPDATE: Update balance immediately upon casting
+            if subEvent == "SPELL_CAST_SUCCESS" then
+                
+                if isNature then
+                    db.astrolabeBalance = db.astrolabeBalance + 1
+                elseif isArcane then
+                    db.astrolabeBalance = db.astrolabeBalance - 1
+                end
 
-			if not currentSchool then return end
+                self:UpdateBalanceFrame()
+                self:UpdateVignette()
 
-			if self.lastDamageSpellSchool == currentSchool then
-				Purity:Violation("Broke the celestial balance by casting from the same magic school twice:\n" .. spellName)
-				return
-			end
-			self.lastDamageSpellSchool = currentSchool
-		end
-	end,
+                -- FAIL CONDITION: >2 or <-2
+                -- We check this ON CAST now. If you try to cast a 3rd one, you fail instantly.
+                if db.astrolabeBalance > 2 then
+                    Purity:Violation("Nature Overload! The Astrolabe shattered.\nMax 2 consecutive charges allowed.")
+                elseif db.astrolabeBalance < -2 then
+                    Purity:Violation("Arcane Overload! The Astrolabe shattered.\nMax 2 consecutive charges allowed.")
+                end
+                
+                if not db.challengeStats then db.challengeStats = {} end
+                db.challengeStats.celestialCasts = (db.challengeStats.celestialCasts or 0) + 1
+
+            -- 2. REFUND MECHANIC: If it missed/dodged/resisted, undo the change
+            elseif subEvent == "SPELL_MISSED" then
+                -- Note: 'missType' tells us why (DODGE, RESIST, etc), but we refund regardless.
+                
+                if isNature then
+                    -- Refund the +1 (Subtract 1)
+                    db.astrolabeBalance = db.astrolabeBalance - 1
+                    -- (Optional) Notify user they got a refund
+                    -- print("Nature spell missed! Charge refunded.")
+                elseif isArcane then
+                    -- Refund the -1 (Add 1)
+                    db.astrolabeBalance = db.astrolabeBalance + 1
+                    -- print("Arcane spell missed! Charge refunded.")
+                end
+                
+                -- Update visuals immediately to show the refund
+                self:UpdateBalanceFrame()
+                self:UpdateVignette()
+            end
+        end
+    end,
 }
 
 Purity.ClassModules = Purity.ClassModules or {}

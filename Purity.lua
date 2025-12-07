@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "10.0.5"
+Purity.Version = "10.0.7"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -1138,8 +1138,6 @@ function Purity:SendGoodbye()
     end
 end
 
--- In Purity.lua, replace this entire function.
-
 function Purity:UpdateRosterWindow()
     if not Purity.rosterPane or not Purity.rosterPane:IsShown() then return end
 
@@ -1639,6 +1637,42 @@ function Purity:BuildOptionsMenu()
         noBMAvailText:SetTextColor(0.6, 0.6, 0.6)
         noBMAvailText:SetText("Blood Mage options require the challenge.")
         table.insert(self.optionsPane.controls, noBMAvailText)
+        yOffset = yOffset - 30
+    end
+
+	-- Astrolabe Options (Druid)
+    if db and db.activeChallengeID == "Astrolabe of Purity" then
+        local astrolabeCheck = CreateFrame("CheckButton", "PurityAstrolabeNumbersCheck", Purity.optionsPane, "UICheckButtonTemplate")
+        astrolabeCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+        
+        local text = _G[astrolabeCheck:GetName() .. "Text"]
+        if text then
+            text:SetText("Show Astrolabe Numbers (X/2)")
+            text:SetFontObject(GameFontNormalSmall)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", astrolabeCheck, "RIGHT", 2, 0)
+            text:SetTextColor(1, 0.82, 0)
+            text:Show()
+        end
+        
+        -- Default to true if nil
+        astrolabeCheck:SetChecked(db.showAstrolabeNumbers ~= false)
+
+        astrolabeCheck:SetScript("OnClick", function(self)
+            local isChecked = self:GetChecked()
+            local db = Purity:GetDB()
+            db.showAstrolabeNumbers = isChecked
+            
+            -- Force update the frame immediately
+            if Purity.ClassModules and Purity.ClassModules.DRUID then
+                local mod = Purity.ClassModules.DRUID
+                if mod.challenges and mod.challenges.astrolabe then
+                    mod.challenges.astrolabe:UpdateBalanceFrame()
+                end
+            end
+        end)
+        
+        table.insert(self.optionsPane.controls, astrolabeCheck)
         yOffset = yOffset - 30
     end
 

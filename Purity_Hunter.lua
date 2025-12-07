@@ -8,6 +8,43 @@ local HunterModule = {
     challenges = {}
 }
 
+-- HELPER: Precision Scan for Anniversary API
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    
+    -- 1. Find the tab by Name
+    for t = 1, numTabs do
+        -- Anniversary API: ID is Arg1, Name is Arg2. We check both to be safe.
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+
+    if not forbiddenTabIndex then return false end
+
+    -- 2. Standard Client Check: If ID is small (1-3), it is the Tab Index itself.
+    if id == forbiddenTabIndex then return true end
+
+    -- 3. Anniversary Client Check: Scan talents to find the matching ID in Slot 12.
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        -- We check Slot 12 (Anniversary) and Slot 1 (Standard/Other)
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        
+        if (val1 == id) or (val12 == id) then
+            return true
+        end
+    end
+
+    return false
+end
+
 HunterModule.challenges.bond = {
     id = "HUNTER_BOND",
     challengeName = "Bond of Purity",
@@ -26,13 +63,14 @@ HunterModule.challenges.bond = {
 
     forbiddenPassiveSkillIDs = { [266] = "Guns", [264] = "Bows", [2567] = "Thrown", [5011] = "Crossbows" },
 	
- IsSpellForbidden = function(self, spellId)
+    IsSpellForbidden = function(self, spellId)
         if not spellId then return false end
         return self.forbiddenSpellIDs[spellId] ~= nil
     end,
 
-    IsTalentForbidden = function(self, tabIndex)
-        return tabIndex == 2
+    -- Tooltip Check
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Marksmanship")
     end,
 
     IsItemForbidden = function(self, itemLink)
@@ -50,7 +88,7 @@ HunterModule.challenges.bond = {
         return not self:IsItemForbidden(itemLink)
     end,
 
-GetRulesText = function()
+    GetRulesText = function()
         return {
             "|cffffd100Key Prohibitions:|r",
             "|cff261A0D  • You may not equip any ranged weapons (Bows, Guns, Crossbows).|r",
@@ -76,10 +114,20 @@ GetRulesText = function()
                 if IsSpellKnown(id) and id ~= 75 then Purity:Violation("Learned a forbidden ability:\n" .. name); return end
             end
         elseif event == "PLAYER_TALENT_UPDATE" then
-            if self:IsTalentForbidden(2) then
-                for j = 1, GetNumTalents(2) do
-                    local _, _, _, _, pointsSpent = GetTalentInfo(2, j)
-                    if pointsSpent > 0 then Purity:Violation("Allocated points in the forbidden\nMarksmanship talent tree."); return end
+            -- Check if points were spent in Marksmanship
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                -- Check Arg2 for Name
+                local _, name = GetTalentTabInfo(t)
+                if name == "Marksmanship" then
+                    for i = 1, GetNumTalents(t) do
+                        -- Points Spent is usually Arg5
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\nMarksmanship talent tree.")
+                            return
+                        end
+                    end
                 end
             end
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then Purity:CheckWeaponState()
@@ -95,7 +143,6 @@ GetRulesText = function()
             if sourceGUID ~= UnitGUID("player") then return end
 
             if subEvent == "SPELL_CAST_SUCCESS" then
-                -- Stat tracking for Mend Pet
                 local mendPetIDs = { [136]=true,[3111]=true,[13542]=true,[3661]=true,[3662]=true,[13543]=true,[13544]=true }
                 if mendPetIDs[spellId] then
                     local db = Purity:GetDB()
@@ -170,8 +217,8 @@ HunterModule.challenges.quiver = {
         return self.forbiddenSpellIDs[spellId] ~= nil
     end,
 
-    IsTalentForbidden = function(self, tabIndex)
-        return tabIndex == 1
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Beast Mastery")
     end,
 
     IsItemForbidden = function(self, itemLink)
@@ -203,12 +250,18 @@ HunterModule.challenges.quiver = {
                 end
             end
         elseif event == "PLAYER_TALENT_UPDATE" then
-            if self:IsTalentForbidden(1) then
-                for j = 1, GetNumTalents(1) do
-                    local _, _, _, _, pointsSpent = GetTalentInfo(1, j)
-                    if pointsSpent > 0 then
-                        Purity:Violation("Allocated points in the forbidden\nBeast Mastery talent tree.")
-                        return
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                -- Check Arg2 for Name
+                local _, name = GetTalentTabInfo(t)
+                if name == "Beast Mastery" then
+                    for i = 1, GetNumTalents(t) do
+                        -- Check Arg5 for Points Spent
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\nBeast Mastery talent tree.")
+                            return
+                        end
                     end
                 end
             end

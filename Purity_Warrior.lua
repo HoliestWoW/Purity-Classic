@@ -2,10 +2,31 @@
 
 if not Purity then return end
 
+local function IsIDInForbiddenTree(id, forbiddenTreeName)
+    if not id then return false end
+    local forbiddenTabIndex = nil
+    local numTabs = GetNumTalentTabs()
+    for t = 1, numTabs do
+        local r1, r2 = GetTalentTabInfo(t)
+        if (r1 == forbiddenTreeName) or (r2 == forbiddenTreeName) then
+            forbiddenTabIndex = t
+            break
+        end
+    end
+    if not forbiddenTabIndex then return false end
+    if id == forbiddenTabIndex then return true end
+    local numTalents = GetNumTalents(forbiddenTabIndex)
+    for i = 1, numTalents do
+        local val1 = select(1, GetTalentInfo(forbiddenTabIndex, i))
+        local val12 = select(12, GetTalentInfo(forbiddenTabIndex, i))
+        if (val1 == id) or (val12 == id) then return true end
+    end
+    return false
+end
+
 local WarriorModule = {
     challenges = {}
 }
-
 
 local CHARGE_SPELL_IDS = {
     [100] = true,
@@ -32,7 +53,7 @@ WarriorModule.challenges.brand = {
             "|cff261A0D  • You may NOT use shields at any time.|r",
             "|cff261A0D  • You may NOT use Defensive Stance.|r",
             "|cff261A0D  • After level 4, you may NOT initiate combat without using Charge or Intercept.|r",
-            "|cff261A0D  • After level 20, equipping two-handed weapons is forbidden.|r",
+            "|cff261A0D  • After level 20, equipping two-handed weapons is forbidden. Fishing poles are allowed.|r",
             " ",
             "|cffffd100Challenge Conditions:|r",
             "|cff261A0D  • Must be started on a level 1 Warrior.|r",
@@ -52,6 +73,10 @@ WarriorModule.challenges.brand = {
         if itemSubType == "Shields" then
             return true
         end
+		
+		if itemSubType == "Fishing Poles" then
+			return false
+		end
 
         if UnitLevel("player") >= 20 then
             if itemType == "Weapon" and (itemSubType == "Two-Handed Axes" or itemSubType == "Two-Handed Maces" or itemSubType == "Two-Handed Swords" or itemSubType == "Polearms" or itemSubType == "Staves") then
@@ -86,13 +111,14 @@ WarriorModule.challenges.brand = {
         if playerLevel >= 20 then
             if mainHandLink then
                 local _, _, _, _, _, mainHandType, mainHandSubType = GetItemInfo(mainHandLink)
+                
+                if mainHandSubType == "Fishing Poles" then
+                    return true
+                end
+
                 if mainHandType == "Weapon" and (mainHandSubType == "Two-Handed Axes" or mainHandSubType == "Two-Handed Maces" or mainHandSubType == "Two-Handed Swords" or mainHandSubType == "Polearms" or mainSubType == "Staves") then
                     return false
                 end
-            end
-            
-            if mainHandLink and not offHandLink then
-                return false
             end
         end
 
@@ -141,7 +167,15 @@ EventHandler = function(self, event, ...)
             if playerLevel >= 4 then
                 if UnitAffectingCombat("player") then
                     if sourceGUID == UnitGUID("player") and not self.hasChargedForCombat then
-                        if subEvent == "SWING_DAMAGE" or subEvent == "SPELL_DAMAGE" or subEvent == "SPELL_CAST_SUCCESS" then
+                        
+                        local isSafeSpell = false
+                        if subEvent == "SPELL_CAST_SUCCESS" then
+                            if spellId == 2457 or spellId == 2458 or spellId == 2687 or spellId == 6673 or spellId == 5242 or spellId == 6192 or spellId == 11549 or spellId == 11550 or spellId == 11551 then
+                                isSafeSpell = true
+                            end
+                        end
+
+                        if not isSafeSpell and (subEvent == "SWING_DAMAGE" or subEvent == "SPELL_DAMAGE" or subEvent == "SPELL_CAST_SUCCESS") then
                             Purity:Violation("Initiated combat with an attack without using Charge first.")
                         end
                     end
@@ -189,8 +223,8 @@ WarriorModule.challenges.bulwark = {
         return false
     end,
 
-    IsTalentForbidden = function(self, tabIndex)
-        return tabIndex == 2
+    IsTalentForbidden = function(self, id)
+        return IsIDInForbiddenTree(id, "Fury")
     end,
 
     IsSpellForbidden = function(self, spellId)
@@ -210,6 +244,20 @@ WarriorModule.challenges.bulwark = {
                 db.challengeStats.blocks = (db.challengeStats.blocks or 0) + 1
 				if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
                     _G["UpdateCharacterPurity"]()
+                end
+            end
+		elseif event == "PLAYER_TALENT_UPDATE" then
+            local numTabs = GetNumTalentTabs()
+            for t = 1, numTabs do
+                local _, name = GetTalentTabInfo(t)
+                if name == "Fury" then
+                    for i = 1, GetNumTalents(t) do
+                        local _, _, _, _, pointsSpent = GetTalentInfo(t, i)
+                        if pointsSpent and pointsSpent > 0 then
+                            Purity:Violation("Allocated points in the forbidden\nFury talent tree.")
+                            return
+                        end
+                    end
                 end
             end
         end
