@@ -539,11 +539,7 @@ MageModule.challenges.conduit = {
 
             -- 2. Record this payment so we don't double-charge
             self.lastPaid = { id = spellId, time = now }
-            
-            -- Debug print (You can remove this later if you want)
-            local costType = (castTimeMs > 0) and "Cast-Time" or "Instant"
-            print("|cff00ff00[Purity]|r Paid " .. math.floor(cost) .. " charge for " .. spellName .. " (" .. costType .. ")")
-            
+                        
             return true, cost
         end
     end,
