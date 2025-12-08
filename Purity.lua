@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "10.0.6"
+Purity.Version = "10.1.0"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -1138,8 +1138,6 @@ function Purity:SendGoodbye()
     end
 end
 
--- In Purity.lua, replace this entire function.
-
 function Purity:UpdateRosterWindow()
     if not Purity.rosterPane or not Purity.rosterPane:IsShown() then return end
 
@@ -1639,6 +1637,74 @@ function Purity:BuildOptionsMenu()
         noBMAvailText:SetTextColor(0.6, 0.6, 0.6)
         noBMAvailText:SetText("Blood Mage options require the challenge.")
         table.insert(self.optionsPane.controls, noBMAvailText)
+        yOffset = yOffset - 30
+    end
+
+	-- Astrolabe Options (Druid)
+    if db and db.activeChallengeID == "Astrolabe of Purity" then
+        local astrolabeCheck = CreateFrame("CheckButton", "PurityAstrolabeNumbersCheck", Purity.optionsPane, "UICheckButtonTemplate")
+        astrolabeCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+        
+        local text = _G[astrolabeCheck:GetName() .. "Text"]
+        if text then
+            text:SetText("Show Astrolabe Numbers (X/2)")
+            text:SetFontObject(GameFontNormalSmall)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", astrolabeCheck, "RIGHT", 2, 0)
+            text:SetTextColor(1, 0.82, 0)
+            text:Show()
+        end
+        
+        -- Default to true if nil
+        astrolabeCheck:SetChecked(db.showAstrolabeNumbers ~= false)
+
+        astrolabeCheck:SetScript("OnClick", function(self)
+            local isChecked = self:GetChecked()
+            local db = Purity:GetDB()
+            db.showAstrolabeNumbers = isChecked
+            
+            -- Force update the frame immediately
+            if Purity.ClassModules and Purity.ClassModules.DRUID then
+                local mod = Purity.ClassModules.DRUID
+                if mod.challenges and mod.challenges.astrolabe then
+                    mod.challenges.astrolabe:UpdateBalanceFrame()
+                end
+            end
+        end)
+        
+        table.insert(self.optionsPane.controls, astrolabeCheck)
+        yOffset = yOffset - 30
+    end
+	
+	-- Mage Options (Conduit)
+    if db and db.activeChallengeID == "Conduit of Purity" then
+        local mageBarCheck = CreateFrame("CheckButton", "PurityMageBarDetachCheck", Purity.optionsPane, "UICheckButtonTemplate")
+        mageBarCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+        
+        local text = _G[mageBarCheck:GetName() .. "Text"]
+        if text then
+            text:SetText("Detach & Unlock Charge Bar")
+            text:SetFontObject(GameFontNormalSmall)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", mageBarCheck, "RIGHT", 2, 0)
+            text:SetTextColor(1, 0.82, 0)
+            text:Show()
+        end
+        
+        mageBarCheck:SetChecked(db.mageBarDetached == true)
+
+        mageBarCheck:SetScript("OnClick", function(self)
+            local isChecked = self:GetChecked()
+            local db = Purity:GetDB()
+            db.mageBarDetached = isChecked
+            
+            -- Trigger the update immediately
+            if Purity.ClassModules.MAGE and Purity.ClassModules.MAGE.challenges.conduit then
+                Purity.ClassModules.MAGE.challenges.conduit:ApplyBarMode(isChecked)
+            end
+        end)
+        
+        table.insert(self.optionsPane.controls, mageBarCheck)
         yOffset = yOffset - 30
     end
 
@@ -3491,6 +3557,8 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, ...)
 end)
 
 local function Purity_OnTooltipSetSpell_Handler(self)
+    if Purity.isActionTooltip then return end
+
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge then return end
 
@@ -3522,31 +3590,24 @@ local function Purity_OnTooltipSetSpell_Handler(self)
     end
 end
 
-local function Purity_CheckItemTooltip(tooltip)
+local function Purity_GeneralTooltip_OnShow_Handler(self)
+    if Purity.isActionTooltip then return end
+
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge then return end
-    
     local db = Purity:GetDB()
     if not db then return end
 
-    local _, itemLink = tooltip:GetItem()
+    local _, itemLink = self:GetItem()
     if itemLink and activeChallenge.IsItemForbidden and activeChallenge:IsItemForbidden(itemLink) then
         local challengeName = db.challengeTitle or "Purity Challenge"
-        tooltip:AddLine(" ", 0, 0, 0, 0)
-        tooltip:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
-        tooltip:Show()
+        self:AddLine(" ", 0, 0, 0, 0)
+        self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
+        self:Show()
+        return
     end
-end
 
--- Hook Tooltip Events
-GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
-
-GameTooltip:HookScript("OnShow", function(self)
-    if Purity.isActionTooltip then return end
-
-    -- Blood Mage Logic (Original OnShow Logic)
-    local activeChallenge = Purity:GetActiveChallengeObject()
-    if activeChallenge and activeChallenge.id == "BLOOD_MAGE_BARGAIN" then
+    if activeChallenge.id == "BLOOD_MAGE_BARGAIN" then
         local left1 = _G[self:GetName() .. "TextLeft1"]
         if left1 then
             local text = left1:GetText()
@@ -3561,10 +3622,10 @@ GameTooltip:HookScript("OnShow", function(self)
             end
         end
     end
-end)
+end
 
--- NEW: Hook OnTooltipSetItem to prevent other addons from wiping our text
-GameTooltip:HookScript("OnTooltipSetItem", Purity_CheckItemTooltip)
+GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
+GameTooltip:HookScript("OnShow", Purity_GeneralTooltip_OnShow_Handler)
 
 hooksecurefunc(GameTooltip, "SetTalent", function(self, tabIndex, talentIndex)
     local activeChallenge = Purity:GetActiveChallengeObject()
@@ -3582,20 +3643,45 @@ if not Original_GameTooltip_SetAction then
     Original_GameTooltip_SetAction = GameTooltip.SetAction
 end
 
-if not Original_GameTooltip_SetAction then
-    Original_GameTooltip_SetAction = GameTooltip.SetAction
-end
-
 GameTooltip.SetAction = function(self, actionSlot)
-    -- We flag this as an Action Tooltip so OnShow doesn't interfere
     Purity.isActionTooltip = true
-    
-    -- Call the original function. 
-    -- This triggers OnTooltipSetSpell internally, which adds the "Forbidden" text.
     Original_GameTooltip_SetAction(self, actionSlot)
 
-    -- We do NOT add the text here anymore to avoid the duplicate line.
-    
+    local activeChallenge = Purity:GetActiveChallengeObject()
+    if not activeChallenge then
+        Purity.isActionTooltip = false
+        return
+    end
+
+    local actionType, actionID = GetActionInfo(actionSlot)
+
+    if actionType == "spell" then
+        if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(actionID) then
+            local challengeName = Purity:GetDB().challengeTitle or "Purity Challenge"
+            self:AddLine(" ", 0, 0, 0, 0)
+            self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
+            self:Show()
+        end
+
+        local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+        if bloodMageModule and activeChallenge.id == bloodMageModule.id then
+            local spellName = GetSpellInfo(actionID)
+
+            if not bloodMageModule.healingSpells[spellName] then
+                local bloodCost = bloodMageModule:GetBloodCostForSpell(actionID)
+                if bloodCost and bloodCost > 0 then
+                    local weakenedCost = math.max(1, math.floor(bloodCost * 2.0))
+                    
+                    -- This logic also shows only the current cost
+                    local costToDisplay = bloodMageModule.sanguineWeaknessActive and weakenedCost or bloodCost
+
+                    self:AddLine(" ", 0, 0, 0, 0)
+                    self:AddLine(costToDisplay .. " Blood", 1.0, 0.2, 0.2)
+                    self:Show()
+                end
+            end
+        end
+    end
     Purity.isActionTooltip = false
 end
 

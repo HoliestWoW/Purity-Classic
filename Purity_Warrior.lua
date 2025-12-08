@@ -53,7 +53,7 @@ WarriorModule.challenges.brand = {
             "|cff261A0D  • You may NOT use shields at any time.|r",
             "|cff261A0D  • You may NOT use Defensive Stance.|r",
             "|cff261A0D  • After level 4, you may NOT initiate combat without using Charge or Intercept.|r",
-            "|cff261A0D  • After level 20, equipping two-handed weapons is forbidden.|r",
+            "|cff261A0D  • After level 20, equipping two-handed weapons is forbidden. Fishing poles are allowed.|r",
             " ",
             "|cffffd100Challenge Conditions:|r",
             "|cff261A0D  • Must be started on a level 1 Warrior.|r",
@@ -73,6 +73,10 @@ WarriorModule.challenges.brand = {
         if itemSubType == "Shields" then
             return true
         end
+		
+		if itemSubType == "Fishing Poles" then
+			return false
+		end
 
         if UnitLevel("player") >= 20 then
             if itemType == "Weapon" and (itemSubType == "Two-Handed Axes" or itemSubType == "Two-Handed Maces" or itemSubType == "Two-Handed Swords" or itemSubType == "Polearms" or itemSubType == "Staves") then
@@ -107,13 +111,14 @@ WarriorModule.challenges.brand = {
         if playerLevel >= 20 then
             if mainHandLink then
                 local _, _, _, _, _, mainHandType, mainHandSubType = GetItemInfo(mainHandLink)
+                
+                if mainHandSubType == "Fishing Poles" then
+                    return true
+                end
+
                 if mainHandType == "Weapon" and (mainHandSubType == "Two-Handed Axes" or mainHandSubType == "Two-Handed Maces" or mainHandSubType == "Two-Handed Swords" or mainHandSubType == "Polearms" or mainSubType == "Staves") then
                     return false
                 end
-            end
-            
-            if mainHandLink and not offHandLink then
-                return false
             end
         end
 
@@ -162,7 +167,15 @@ EventHandler = function(self, event, ...)
             if playerLevel >= 4 then
                 if UnitAffectingCombat("player") then
                     if sourceGUID == UnitGUID("player") and not self.hasChargedForCombat then
-                        if subEvent == "SWING_DAMAGE" or subEvent == "SPELL_DAMAGE" or subEvent == "SPELL_CAST_SUCCESS" then
+                        
+                        local isSafeSpell = false
+                        if subEvent == "SPELL_CAST_SUCCESS" then
+                            if spellId == 2457 or spellId == 2458 or spellId == 2687 or spellId == 6673 or spellId == 5242 or spellId == 6192 or spellId == 11549 or spellId == 11550 or spellId == 11551 then
+                                isSafeSpell = true
+                            end
+                        end
+
+                        if not isSafeSpell and (subEvent == "SWING_DAMAGE" or subEvent == "SPELL_DAMAGE" or subEvent == "SPELL_CAST_SUCCESS") then
                             Purity:Violation("Initiated combat with an attack without using Charge first.")
                         end
                     end

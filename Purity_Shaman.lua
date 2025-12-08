@@ -54,58 +54,102 @@ ShamanModule.challenges.COMMUNION = {
     end,
 
     CheckActiveTotems = function(self)
-        if not Purity:GetDB().hasCompletedShamanTotemQuest then return end
-        if not UnitAffectingCombat("player") then return end
-
-        local hasActiveTotem = false
+        -- If we haven't unlocked totems yet, we are safe.
+        if not Purity:GetDB().hasCompletedShamanTotemQuest then return true end
+        
+        -- Check if any of the 4 slots has an active totem
         for _, isActive in pairs(self.activeTotemSlots) do
             if isActive then
-                hasActiveTotem = true
-                break
+                return true -- Safe!
             end
         end
 
-        if not hasActiveTotem then
-            Purity:Violation("Failed to maintain an active totem in combat.")
-            if self.totemCombatCheckTicker then
-                self.totemCombatCheckTicker:Cancel()
-                self.totemCombatCheckTicker = nil
-            end
-        end
+        return false -- No totems found
     end,
 
     EventHandler = function(self, event, ...)
         local currentDB = Purity:GetDB()
+        
+        -- 1. Totem Unlock Detection
+        if event == "SPELLS_CHANGED" then
+            if not currentDB.hasCompletedShamanTotemQuest then
+                if IsSpellKnown(self.KEY_TOTEM_SPELL_ID) then
+                    currentDB.hasCompletedShamanTotemQuest = true
+                    print("|cff00ff00[Purity]|r Totem unlocked detected. Combat checks are now active.")
+                end
+            end
+        end
+
+        -- 2. Track Active Totems
         if event == "PLAYER_TOTEM_UPDATE" then
             local totemSlot = ...
             local haveTotem, _, _, duration = GetTotemInfo(totemSlot)
             self.activeTotemSlots[totemSlot] = (haveTotem and duration > 0)
+        
+        -- 3. Track Weapon State
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
             Purity:CheckWeaponState()
-        elseif event == "PLAYER_REGEN_DISABLED" then
-            if currentDB.hasCompletedShamanTotemQuest and not self.totemCombatCheckTicker then
-                self.totemCombatCheckTicker = C_Timer.NewTicker(1.0, function() self:CheckActiveTotems() end)
-            end
-        elseif event == "PLAYER_REGEN_ENABLED" then
-            if self.totemCombatCheckTicker then
-                self.totemCombatCheckTicker:Cancel()
-                self.totemCombatCheckTicker = nil
-            end
+        
+        -- 4. COMBAT LOGIC
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-            local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, spellId = CombatLogGetCurrentEventInfo()
-            if sourceGUID == UnitGUID("player") and subEvent == "SPELL_CAST_SUCCESS" then
-                local lightningBoltIDs = { [403]=true, [529]=true, [548]=true, [915]=true, [943]=true, [6041]=true, [10391]=true, [10392]=true, [15207]=true, [15208]=true }
-                if lightningBoltIDs[spellId] then
-                    local db = Purity:GetDB()
-                    if not db.challengeStats then db.challengeStats = {} end
-                    db.challengeStats.lightningBoltCasts = (db.challengeStats.lightningBoltCasts or 0) + 1
-					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        _G["UpdateCharacterPurity"]()
+            local _, subEvent, _, sourceGUID, _, _, _, destGUID, _, destFlags, _, spellId, spellName = CombatLogGetCurrentEventInfo()
+            
+            if sourceGUID == UnitGUID("player") then
+                local isOffensiveAction = false
+
+                -- A) Melee Swing
+                -- Catches auto-attacks (openers and mid-combat)
+                if subEvent == "SWING_DAMAGE" then
+                    isOffensiveAction = true
+                
+                -- B) Spell Casts
+                elseif subEvent == "SPELL_CAST_SUCCESS" then
+                    -- 1. Check Explicit Offensive Spell List (Catches Yellow/Neutral openers)
+                    -- We check Names because it handles all Ranks automatically.
+                    local offensiveSpells = {
+                        ["Lightning Bolt"] = true,
+                        ["Chain Lightning"] = true,
+                        ["Earth Shock"] = true,
+                        ["Flame Shock"] = true,
+                        ["Frost Shock"] = true,
+                    }
+                    
+                    if offensiveSpells[spellName] then
+                        isOffensiveAction = true
+                    
+                    -- 2. Fallback: Check Hostile Flag (Catches everything else on RED mobs)
+                    elseif destFlags and bit.band(destFlags, COMBATLOG_OBJECT_REACTION_HOSTILE) ~= 0 then
+                        isOffensiveAction = true
+                    end
+
+                    -- Stat Tracking (Lightning Bolt)
+                    if spellName == "Lightning Bolt" then
+                        if not currentDB.challengeStats then currentDB.challengeStats = {} end
+                        currentDB.challengeStats.lightningBoltCasts = (currentDB.challengeStats.lightningBoltCasts or 0) + 1
+                        if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
+                            _G["UpdateCharacterPurity"]()
+                        end
+                    end
+                end
+
+                -- TRIGGER VIOLATION
+                if isOffensiveAction then
+                    if not self:CheckActiveTotems() then
+                        Purity:Violation("Offensive action ("..(spellName or "Melee")..") taken without an active totem!")
                     end
                 end
             end
+            
+        -- 5. Level Cap Enforcement
+        elseif event == "PLAYER_LEVEL_UP" then
+            local newLevel = ...
+            if newLevel == 6 then
+                if not IsSpellKnown(self.KEY_TOTEM_SPELL_ID) then
+                    Purity:Violation("Failed to learn the first totem spell before reaching Level 6.")
+                end
+            end
         end
-    end
+    end,
 }
 
 ShamanModule.challenges.FLAME = {
@@ -277,6 +321,13 @@ end
 
 function ShamanModule:InitializeOnPlayerEnterWorld()
     self.isAddonFullyLoaded = true
+    
+    -- Force a check immediately on login
+    local commChallenge = self.challenges.COMMUNION
+    if IsSpellKnown(commChallenge.KEY_TOTEM_SPELL_ID) then
+        Purity:GetDB().hasCompletedShamanTotemQuest = true
+    end
+
     self:EventHandler("SPELLS_CHANGED") 
 end
 
