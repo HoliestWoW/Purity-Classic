@@ -32,10 +32,48 @@ local function IsIDInForbiddenTree(id, forbiddenTreeName)
     return false
 end
 
--- (Spell lists abbreviated for brevity, assuming standard lists from previous turn)
-local learnableFireSpells = { [133]=true, [11366]=true, [11129]=true } -- etc
-local learnableFrostSpells = { [116]=true, [122]=true, [11958]=true } -- etc
-local learnableArcaneSpells = { [5143]=true, [1449]=true, [12051]=true } -- etc
+local learnableFireSpells = {
+    [133] = true, [143] = true, [145] = true, [3140] = true, [8400] = true, [8401] = true, [8402] = true, [10148] = true, [10149] = true, [10150] = true, [10151] = true, -- Fireball
+    [2136] = true, [2137] = true, [2138] = true, [8403] = true, [8404] = true, [8405] = true, [10152] = true, -- Fire Blast
+    [2120] = true, [2121] = true, [8422] = true, [8423] = true, [10215] = true, [10216] = true, -- Flamestrike
+    [2948] = true, [8444] = true, [8445] = true, [8446] = true, [10197] = true, [10198] = true, [10199] = true, -- Scorch
+    [11366] = true, [12505] = true, [18809] = true, [18810] = true, [18811] = true, [18812] = true, [18813] = true, -- Pyroblast
+    [543] = true, [8457] = true, [8458] = true, [10223] = true, [10224] = true, [10225] = true, -- Fire Ward
+    [11129] = true, -- Combustion
+}
+
+local learnableFrostSpells = {
+    [116] = true, [205] = true, [837] = true, [7322] = true, [8406] = true, [8407] = true, [8408] = true, [10179] = true, [10180] = true, [10181] = true, -- Frostbolt
+    [122] = true, [865] = true, [8412] = true, [10230] = true, -- Frost Nova
+    [168] = true, [7321] = true, [8461] = true, [8462] = true, -- Frost Armor
+    [7302] = true, [10219] = true, [10220] = true, -- Ice Armor
+    [10] = true, [6141] = true, [8427] = true, [10185] = true, [10186] = true, [10187] = true, -- Blizzard
+    [120] = true, [8492] = true, [10159] = true, [10160] = true, [10161] = true, -- Cone of Cold
+    [6143] = true, [8464] = true, [8465] = true, [10175] = true, [10176] = true, [10177] = true, -- Frost Ward
+    [11958] = true, -- Ice Block
+}
+
+local learnableArcaneSpells = {
+    [5143] = true, [5144] = true, [5145] = true, [8416] = true, [8417] = true, [10207] = true, [10208] = true, -- Arcane Missiles
+    [1449] = true, [8432] = true, [8433] = true, [10203] = true, [10204] = true, [10205] = true, -- Arcane Explosion
+    [1459] = true, [1460] = true, [1461] = true, [3158] = true, [10156] = true, -- Arcane Intellect
+    [23028] = true, -- Arcane Brilliance
+    [6117] = true, [10221] = true, [10222] = true, -- Mage Armor
+    [1463] = true, [8494] = true, [8495] = true, [10191] = true, [10192] = true, [10193] = true, -- Mana Shield
+    [587] = true, [597] = true, [598] = true, [990] = true, [10144] = true, [10145] = true, -- Conjure Food
+    [5504] = true, [5505] = true, [5506] = true, [6127] = true, [10138] = true, [10139] = true, [10140] = true, -- Conjure Water
+    [3561] = true, [3562] = true, [3565] = true, [3567] = true, [3563] = true, [3566] = true, -- Teleports
+    [10059] = true, [11416] = true, [11417] = true, [11418] = true, [11419] = true, [11420] = true, -- Portals
+    [1008] = true, [8453] = true, [8454] = true, [8455] = true, [10168] = true, -- Amplify Magic
+    [604] = true, [8449] = true, [8450] = true, [10173] = true, [10174] = true, -- Dampen Magic
+    [305] = true, -- Detect Magic
+    [475] = true, -- Remove Lesser Curse
+    [118] = true, [12824] = true, [12825] = true, [12826] = true, -- Polymorph
+    [1953] = true, -- Blink
+    [130] = true, -- Slow Fall
+    [2139] = true, [23023] = true, [23024] = true, -- Counterspell
+    [12051] = true, -- Evocation
+}
 
 local MageModule = {
     challenges = {}
@@ -154,24 +192,23 @@ MageModule.challenges.conduit = {
             if not name then return end
             if self.ignoredSpells[name] then return end
             
+            -- CHECK: Is this a Mage spell?
+            local isMageSpell = learnableFireSpells[id] or learnableFrostSpells[id] or learnableArcaneSpells[id]
+            if not isMageSpell then return end
+            
             local cost = 0
             local _, _, _, castTime = GetSpellInfo(id)
             if name == "Arcane Missiles" or name == "Blizzard" or name == "Evocation" then cost = 30
             elseif castTime and castTime > 0 then cost = castTime / 100
             else cost = 15 end
             
-            -- Calculate % Cost relative to Max Charge
             local costPct = (cost / self.maxCharge) * 100
             
-            -- 1. Add Cost Line (Electric Blue)
             tt:AddLine("Static Cost: " .. math.floor(costPct) .. "%", 0, 0.8, 1)
             
-            -- 2. Add Warning Line if unaffordable (Red)
-            -- Matches the overlay logic: checks if charge is less than cost (with buffer)
             if self.charge < (cost - 1) then
                 tt:AddLine("Forbidden: Insufficient Charge", 1, 0.1, 0.1)
             end
-            
             tt:Show()
         end)
     end,
@@ -403,11 +440,12 @@ MageModule.challenges.conduit = {
                     local actionType, spellId = GetActionInfo(actionSlot)
                     
                     if actionType == "spell" then
-                        -- Check if this spell is allowed or free
                         local spellName = GetSpellInfo(spellId)
-                        if spellName and not self.ignoredSpells[spellName] then
-                            
-                            -- Calculate Cost (Same logic as Event Handler)
+                        
+                        -- CHECK: Is this a Mage spell?
+                        local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
+                        
+                        if isMageSpell and spellName and not self.ignoredSpells[spellName] then
                             local cost = 0
                             local _, _, _, castTime = GetSpellInfo(spellId)
                             if spellName == "Arcane Missiles" or spellName == "Blizzard" or spellName == "Evocation" then
@@ -418,15 +456,12 @@ MageModule.challenges.conduit = {
                                 cost = 15
                             end
 
-                            -- Check Affordability (with 1 buffer)
                             if self.charge < (cost - 1) then
-                                -- LOCK IT RED
                                 CooldownFrame_Set(cooldownFrame, GetTime(), 3600, 1)
                                 if cooldownFrame.SetDrawEdge then cooldownFrame:SetDrawEdge(false) end
                                 if cooldownFrame.SetDrawSwipe then cooldownFrame:SetDrawSwipe(true) end
                                 if cooldownFrame.SetHideCountdownNumbers then cooldownFrame:SetHideCountdownNumbers(true) end
                             else
-                                -- UNLOCK / SHOW REAL CD
                                 local start, duration, enabled = GetSpellCooldown(spellId)
                                 if start and duration then
                                     CooldownFrame_Set(cooldownFrame, start, duration, enabled)
@@ -434,14 +469,11 @@ MageModule.challenges.conduit = {
                                 end
                             end
                         else
-                            -- Free/Ignored Spell: Ensure it's unlocked
+                            -- Free/General Spell: Ensure unlocked
                             local start, duration, enabled = GetSpellCooldown(spellId)
-                            if start and duration then
-                                CooldownFrame_Set(cooldownFrame, start, duration, enabled)
-                            end
+                            if start and duration then CooldownFrame_Set(cooldownFrame, start, duration, enabled) end
                         end
                     else
-                        -- Not a spell: Clear
                         CooldownFrame_Set(cooldownFrame, 0, 0, 0)
                     end
                 end
@@ -480,8 +512,13 @@ MageModule.challenges.conduit = {
         end)
     end,
 
-    ProcessSpellCost = function(self, spellName, castTimeMs)
+    ProcessSpellCost = function(self, spellName, castTimeMs, spellId)
         if self.ignoredSpells[spellName] then return true end
+        
+        -- CHECK: Is this ID in our known Mage Spell Lists?
+        -- If not, it is a General skill (Racial/Weapon/Trade) and should be free.
+        local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
+        if not isMageSpell then return true end
         
         local cost = 0
         if spellName == "Arcane Missiles" or spellName == "Blizzard" or spellName == "Evocation" then cost = 30
@@ -498,7 +535,7 @@ MageModule.challenges.conduit = {
             return true, cost
         end
     end,
-
+	
     EventHandler = function(self, event, ...)
         local db = Purity:GetDB()
         
