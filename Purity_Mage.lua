@@ -171,7 +171,6 @@ MageModule.challenges.conduit = {
         
         local db = Purity:GetDB()
         if not db.mageCharge then db.mageCharge = 0 end
-        -- Default to Attached (false) if nil
         if db.mageBarDetached == nil then db.mageBarDetached = false end
         
         self.charge = db.mageCharge
@@ -513,10 +512,15 @@ MageModule.challenges.conduit = {
     end,
 
     ProcessSpellCost = function(self, spellName, castTimeMs, spellId)
+        -- 1. Anti-Duplicate Check (The Fix)
+        -- If we just paid for this exact spell less than 0.5s ago, ignore this call.
+        local now = GetTime()
+        if self.lastPaid and self.lastPaid.id == spellId and (now - self.lastPaid.time) < 0.5 then
+            return true, 0 -- Return success, but 0 cost
+        end
+
         if self.ignoredSpells[spellName] then return true end
         
-        -- CHECK: Is this ID in our known Mage Spell Lists?
-        -- If not, it is a General skill (Racial/Weapon/Trade) and should be free.
         local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
         if not isMageSpell then return true end
         
@@ -532,6 +536,14 @@ MageModule.challenges.conduit = {
             self.charge = self.charge - cost
             Purity:GetDB().mageCharge = self.charge
             self:UpdateBar()
+
+            -- 2. Record this payment so we don't double-charge
+            self.lastPaid = { id = spellId, time = now }
+            
+            -- Debug print (You can remove this later if you want)
+            local costType = (castTimeMs > 0) and "Cast-Time" or "Instant"
+            print("|cff00ff00[Purity]|r Paid " .. math.floor(cost) .. " charge for " .. spellName .. " (" .. costType .. ")")
+            
             return true, cost
         end
     end,
@@ -566,7 +578,7 @@ MageModule.challenges.conduit = {
             if subEvent == "SPELL_CAST_START" then
                 local _, _, _, castTime = GetSpellInfo(spellId)
                 if castTime and castTime > 0 then
-                    local success, paidCost = self:ProcessSpellCost(spellName, castTime)
+                    local success, paidCost = self:ProcessSpellCost(spellName, castTime, spellId)
                     if success then
                         self.activeCast = { name = spellName, startTime = GetTime(), durationSec = castTime / 1000, cost = paidCost }
                     end
@@ -576,7 +588,7 @@ MageModule.challenges.conduit = {
                 if self.activeCast and self.activeCast.name == spellName then
                     self.activeCast = nil
                 elseif not castTime or castTime == 0 then
-                    self:ProcessSpellCost(spellName, 0)
+                    self:ProcessSpellCost(spellName, 0, spellId)
                 end
             elseif subEvent == "SPELL_CAST_FAILED" then
                 if self.activeCast and self.activeCast.name == spellName then
