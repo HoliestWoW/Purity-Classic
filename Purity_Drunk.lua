@@ -57,42 +57,82 @@ end
 local function DrunkModule_EventHandler(event, ...)
     local db = Purity:GetDB()
 
-    -- This is the fixed logic for detecting drunk status
-    if event == "UI_INFO_MESSAGE" then
-        local messageTable = ...
+    -- FIXED: Switched to CHAT_MSG_SYSTEM to correctly catch chat log text
+    if event == "CHAT_MSG_SYSTEM" then
+        -- FIXED: ... expands to individual args, not a table. 
+        -- The first arg of CHAT_MSG_SYSTEM is the message string.
+        local message = ... 
         
-        -- Check if the event is valid and has the message data
-        if messageTable and messageTable.message then
-            local message = messageTable.message
-            
-            -- *** THE SECURE FIX ***
-            -- We check if the message starts with "You". 
-            -- This ignores all messages about other players.
-            if string.find(message, "You", 1, true) == 1 then
+        if message then
+            -- Check if the message starts with "You" to filter out other players
+            -- Using ^ anchor ensures it is at the start of the string
+            if string.find(message, "^You") then
                 
-                -- Check for status changes (e.g., "You feel tipsy.")
-                if message == "You feel completely smashed." then
+                -- Check for status changes
+                -- Using string.find is safer than exact equality (==) for chat messages
+                if string.find(message, "completely smashed") then
                     DrunkModule:SetDrunkState("Smashed")
-                elseif message == "You feel drunk.  Woah!" then
+                elseif string.find(message, "feel drunk") then
                     DrunkModule:SetDrunkState("Drunk")
-                elseif message == "You feel tipsy.  Whee!" then
+                elseif string.find(message, "feel tipsy") then
                     DrunkModule:SetDrunkState("Tipsy")
-                elseif message == "You feel sober again." then
+                elseif string.find(message, "sober again") then
                     DrunkModule:SetDrunkState("Sober")
                 end
-
-                -- *** REMOVED: The logic for "You drink " was here. ***
-                -- As you correctly pointed out, this message doesn't exist.
             end
         end
     
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = ...
-        if newLevel == 21 then
+        
+        -- IDs for the "Apprentice" rank of each primary profession.
+        -- These IDs return the localized name (e.g., "Alchemy" or "Alchemie")
+        local professionSpellIDs = {
+            2259, -- Alchemy
+            2018, -- Blacksmithing
+            7411, -- Enchanting
+            4036, -- Engineering
+            2366, -- Herbalism
+            2108, -- Leatherworking
+            2575, -- Mining
+            8613, -- Skinning
+            3908, -- Tailoring
+        }
+
+        -- Build the validProfessions table dynamically based on client language
+        local validProfessions = {}
+        for _, spellID in ipairs(professionSpellIDs) do
+            local spellName = GetSpellInfo(spellID)
+            if spellName then
+                validProfessions[spellName] = true
+            end
+        end
+
+        if newLevel == 20 then
             local professionsAtGoal = 0
             for i = 1, GetNumSkillLines() do
-                local skillName, isHeader, skillRank, _, _, _, _, _, _, _, _, _, skillMax = GetSkillLineInfo(i)
-                if not isHeader and skillMax and skillMax > 0 then
+                -- CORRECTED: Rank is 4th, Max is 7th
+                local skillName, isHeader, _, skillRank, _, _, skillMax = GetSkillLineInfo(i)
+                
+                if not isHeader and validProfessions[skillName] then
+                    if skillRank >= 150 then
+                        professionsAtGoal = professionsAtGoal + 1
+                    end
+                end
+            end
+
+            if professionsAtGoal < 2 then
+                local message = "Warning: You must have two primary professions at 150 skill before you reach level 21 or you will fail this challenge!"
+                Purity:ShowWarningBanner(message, 30, 2)
+            end
+
+        elseif newLevel == 21 then
+            local professionsAtGoal = 0
+            for i = 1, GetNumSkillLines() do
+                -- CORRECTED: Rank is 4th, Max is 7th
+                local skillName, isHeader, _, skillRank, _, _, skillMax = GetSkillLineInfo(i)
+                
+                if not isHeader and validProfessions[skillName] then
                     if skillRank >= 150 then
                         professionsAtGoal = professionsAtGoal + 1
                     end
@@ -110,22 +150,6 @@ local function DrunkModule_EventHandler(event, ...)
                     if not db.drunkFrame then db.drunkFrame = {} end
                     db.drunkFrame.shown = true
                 end
-            end
-        
-        elseif newLevel == 20 then
-            local professionsAtGoal = 0
-            for i = 1, GetNumSkillLines() do
-                local skillName, isHeader, skillRank, _, _, _, _, _, _, _, _, _, skillMax = GetSkillLineInfo(i)
-                if not isHeader and skillMax and skillMax > 0 then
-                    if skillRank >= 150 then
-                        professionsAtGoal = professionsAtGoal + 1
-                    end
-                end
-            end
-
-            if professionsAtGoal < 2 then
-                local message = "Warning: You must have two primary professions at 150 skill before you reach level 21 or you will fail this challenge!"
-                Purity:ShowWarningBanner(message, 30, 2)
             end
         end
     
@@ -221,7 +245,8 @@ function DrunkModule:InitializeOnPlayerEnterWorld()
     self:UpdateStatusDisplay()
     
     -- Registering all the events our handler needs
-    DrunkModuleEventHandlerFrame:RegisterEvent("UI_INFO_MESSAGE") -- For drunk status
+    -- FIXED: Changed from UI_INFO_MESSAGE to CHAT_MSG_SYSTEM
+    DrunkModuleEventHandlerFrame:RegisterEvent("CHAT_MSG_SYSTEM") -- For drunk status
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_DISABLED") -- For combat check
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_ENABLED") -- For leaving combat
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_LEVEL_UP") -- For profession check

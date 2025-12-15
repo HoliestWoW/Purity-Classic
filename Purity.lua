@@ -1707,6 +1707,40 @@ function Purity:BuildOptionsMenu()
         table.insert(self.optionsPane.controls, mageBarCheck)
         yOffset = yOffset - 30
     end
+	
+	-- Drunken Master Window Toggle
+    local drunkModule = Purity.GlobalModules and Purity.GlobalModules.DRUNK
+    if drunkModule then
+        local drunkCheck = CreateFrame("CheckButton", "PurityDrunkWindowCheck", Purity.optionsPane, "UICheckButtonTemplate")
+        drunkCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
+        
+        local text = _G[drunkCheck:GetName() .. "Text"]
+        if text then
+            text:SetText("Show Drunken Master Status Window") -- Updated Label
+            text:SetFontObject(GameFontNormalSmall)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", drunkCheck, "RIGHT", 2, 0)
+            text:SetTextColor(1, 0.82, 0)
+            text:Show()
+        end
+        
+        -- Check if the frame is currently visible to set the box correctly
+        local isVisible = false
+        if DrunkenMasterStatusFrame and DrunkenMasterStatusFrame:IsShown() then
+            isVisible = true
+        end
+        drunkCheck:SetChecked(isVisible)
+
+        drunkCheck:SetScript("OnClick", function(self)
+            -- This function toggles the window and saves the preference
+            if drunkModule.ToggleStatusFrame then
+                drunkModule:ToggleStatusFrame()
+            end
+        end)
+        
+        table.insert(self.optionsPane.controls, drunkCheck)
+        yOffset = yOffset - 30
+    end
 
     -- Fallback message if needed
     if #self.optionsPane.controls == 2 then
@@ -2996,36 +3030,64 @@ SlashCmdList["PURITY"] = function(msg)
         Purity:selectTab(command)
 		
 	elseif command == "override" then
-        local newSignature = args[2]
-        local weaponInfractions = tonumber(args[3])
-        local physicalStrikes = tonumber(args[4])
+        local inputSignature = args[2]
+        local weaponInfractions = tonumber(args[3]) or 0
+        local physicalStrikes = tonumber(args[4]) or 0
 
-        if not newSignature or #newSignature ~= 8 then
-            print("|cffFFFF00Purity:|r |cffFF0000Invalid usage. Use: /purity override [signature] [weapon_infractions] [physical_strikes]|r")
-            print("|cffFFFF00Purity:|r |cffFF0000Example: /purity override a1b2c3d4 1 0|r")
+        if not inputSignature or #inputSignature < 8 then
+            print("|cffFFFF00Purity:|r |cffFF0000Invalid usage. Usage: /purity override [signature] [weapons] [strikes]|r")
             return
         end
 
         local db = Purity:GetDB()
-        db.status = "Passing"
-        db.dataSignature = newSignature
         
-        db.weaponInfractions = weaponInfractions or 0
-		db.physicalStrikes = physicalStrikes or 0
+        -- *** STATIC APPEAL VERIFICATION ***
+        -- We generate a hash based ONLY on fields that do not change during gameplay.
+        -- This ensures the code you generate works regardless of their current playtime.
+        
+        local stringToSign = (
+            (db.playerGUID or "") ..
+            (db.activeChallengeID or "") ..
+            (db.startDate or "") ..
+            "Passing" .. -- We enforce that this code is for a "Passing" status
+            tostring(weaponInfractions) ..
+            tostring(physicalStrikes) ..
+            trainerKey
+        )
+        
+        local expectedSignature = Purity:GenerateVerificationHash(stringToSign)
 
-        Purity:ActivateMonitoring()
-        print("|cffFFFF00Purity:|r |cff00FF00Moderator override successful. Challenge status restored.|r")
-        if Purity.mainInterfaceFrame and Purity.mainInterfaceFrame:IsShown() then
-            Purity:UpdateAndGetStatusStrings()
+        if inputSignature == expectedSignature then
+            -- VALID: Apply the changes
+            db.status = "Passing"
+            db.weaponInfractions = weaponInfractions
+            db.physicalStrikes = physicalStrikes
+            db.failureReason = nil
+            
+            -- IMPORTANT: We must now generate the *real* full signature 
+            -- so the website accepts this run later.
+            db.dataSignature = Purity:CreateDataSignature(db)
+            
+            Purity:ActivateMonitoring()
+            print("|cffFFFF00Purity:|r |cff00FF00Appeal code accepted. Challenge status restored to Passing.|r")
+            
+            if Purity.mainInterfaceFrame and Purity.mainInterfaceFrame:IsShown() then
+                Purity:UpdateAndGetStatusStrings()
+            end
+        else
+            print("|cffFFFF00Purity:|r |cffFF0000Invalid appeal code. This code does not match your character's static ID.|r")
         end
 
 	elseif command == "help" then
         print("|cffFFFF00--- Purity Commands ---|r")
         print("/purity: Shows your quick current challenge status in chat.")
+		print("/purity rules: Opens the full rules window.")
         print("/purity status: Opens the full status window.")
-        print("/purity rules: Opens the full rules window.")
         print("/purity roster: Opens the full roster window.")
+		print("/purity rankings: Opens the full rankings window.")
         print("/purity verify: Opens the verification window.")
+		print("/purity options: Opens the options window.")
+		print("/purity drunk: Toggles the Drunken Master status window.")
         print("/purity bloodbar: Toggles the Blood Mage bar between overlay and a movable frame.")
         print("/purity bloodlog: Toggles the Blood Log. Use '/purity bloodlog reset' to reset position.")
 		
