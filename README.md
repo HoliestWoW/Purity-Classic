@@ -29,6 +29,10 @@ The addon will automatically present the challenge selection screen to you at le
 * `/purity rules` : Opens the main interface to the Rules tab.
 * `/purity roster` : Opens the Roster tab and automatically refreshes the list of online players.
 * `/purity verify` : Opens the verification window with your completion code.
+* `/purity options` : Opens the main interface to the Options tab.
+* `/purity drunk` : Toggles the Drunken Master status window.
+* `/purity bloodlog` : Toggles the Blood Log window.
+* `/purity bloodbar` : Toggles the Blood Bar between attached to player frame or detached and moveable.
 
 ---
 
