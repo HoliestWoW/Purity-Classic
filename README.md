@@ -29,15 +29,17 @@ The addon will automatically present the challenge selection screen to you at le
 * `/purity rules` : Opens the main interface to the Rules tab.
 * `/purity roster` : Opens the Roster tab and automatically refreshes the list of online players.
 * `/purity verify` : Opens the verification window with your completion code.
+* `/purity options` : Opens the main interface to the Options tab.
+* `/purity drunk` : Toggles the Drunken Master status window.
+* `/purity bloodlog` : Toggles the Blood Log window.
+* `/purity bloodbar` : Toggles the Blood Bar between attached to player frame or detached and moveable.
 
 ---
 
 ## Global Challenges
 
 ### The Ascetic's Path
-
 A challenge of self-denial where you must limit your reliance on material possessions by choosing one of three paths.
-
 * **Path of Humility (EASY):** Only items of Common (white) quality or lower may be equipped.
 * **Path of Endurance (MEDIUM):** No armor may be worn. Weapons and shields are permitted.
 * **Path of the Unburdened (HARD):** No items may be equipped whatsoever.
@@ -46,6 +48,21 @@ A challenge of self-denial where you must limit your reliance on material posses
 
 The devoted angler. You have forsaken all worldly possessions in pursuit of the perfect catch.
 
+* **Key Prohibition:** You may ONLY equip items that you have personally fished from the water (vendor-purchased fishing poles are an exception).
+
+=======
+### The Blood Mage's Bargain
+You have made a pact for power, allowing you to fuel your abilities with your own life force.
+* **The Bargain:** Your life force is a resource (Blood Pool). All abilities, attacks, and damage taken deplete it. If it hits 0, you fail.
+* **The Price:** Healing yourself causes "Sanguine Weakness" for 15s, doubling the blood cost of all abilities.
+
+### The Drunken Master
+The Way of the Staggering Fist. You are a master of chaotic grace, fighting best when in a haze of ale.
+* **Levels 1-20:** You must achieve a skill of 150 in at least TWO primary professions (The Path of the Citizen).
+* **Level 21+:** You must be 'Drunk' or 'Smashed' to initiate combat.
+
+### Fisherman's Folly
+The devoted angler. You have forsaken all worldly possessions in pursuit of the perfect catch.
 * **Key Prohibition:** You may ONLY equip items that you have personally fished from the water (vendor-purchased fishing poles are an exception).
 
 ---
@@ -63,10 +80,12 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 
 * **Astrolabe of Purity: The Celestial Weaver**
     * **Description:** Forsake your primal connection to focus on a cosmic balance, alternating between Nature and Arcane damaging spells.
+=======
+    * **Description:** Forsake your primal connection to focus on a cosmic balance. You are bound to an Astrolabe that tracks your spellcasting equilibrium.
     * **Criteria:**
         * You may not use Bear Form or Cat Form.
         * You may not learn or use any Restoration healing spells.
-        * You must alternate between Nature and Arcane damaging spells.
+        * **The Balance:** Casting Nature spells charges the Astrolabe positively; Arcane spells charge it negatively. You may never hold more than 2 consecutive charges of one type. Overloading the Astrolabe shatters it and fails the challenge.
 
 ### Hunter
 
@@ -83,9 +102,20 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
         * You may not use a Hunter Pet or complete the Tame Beast quest.
 
 ### Mage - The Tome of Purity
-
 * **Description:** Choose a tome to dedicate yourself to a single school of magic, forsaking all others. This decision is permanent.
 * **Key Prohibition:** You may ONLY use spells and talents from your chosen school of magic (Fire, Frost, or Arcane).
+=======
+* **Tome of Purity**
+    * **Description:** Choose a tome to dedicate yourself to a single school of magic, forsaking all others. This decision is permanent.
+    * **Criteria:**
+        * You may ONLY use spells and talents from your chosen school of magic (Fire, Frost, or Arcane).
+
+* **Conduit of Purity: The Ley-Walker**
+    * **Description:** You have forsaken the stationary study of the arcane, becoming a living conduit for the world's latent energy. You draw power only through motion.
+    * **Criteria:**
+        * **Static Charge:** A custom bar tracks your energy. Moving generates Charge; standing still causes it to decay.
+        * **The Cost:** All spells cost Static Charge to cast (paid upfront).
+        * **The Vow:** Attempting to cast a spell without enough Static Charge breaks the vow.
 
 ### Paladin
 
@@ -97,15 +127,29 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 
 * **Libram of Purity: The Undead Bane**
     * **Description:** Dedicate your sacred might solely to purging the impure Undead from the world.
-    * **Key Prohibition:** You may ONLY land the killing blow on creatures of the 'Undead' type.
+    * **Criteria:**
+        * You may ONLY land the killing blow on creatures of the 'Undead' type.
 
 ### Priest - The Testament of Purity
-
 * **Description:** A true vessel of the Light, sworn off the corrupting whispers of the Shadow.
 * **Key Prohibitions:**
     * No weapons or physical attacks (including wands).
     * No learning or using Shadow magic spells or talents.
     * No killing Humanoid creatures.
+=======
+* **Testament of Purity**
+    * **Description:** A true vessel of the Light, sworn off the corrupting whispers of the Shadow.
+    * **Criteria:**
+        * No weapons or physical attacks (including wands).
+        * No learning or using Shadow magic spells or talents.
+        * No killing Humanoid creatures.
+
+* **Covenant of Purity**
+    * **Description:** Forsake the Light's protection and healing. You must rely on the Shadow for survival.
+    * **Criteria:**
+        * No using Discipline spells.
+        * No using Holy spells (except Smite).
+        * No Holy damage wands.
 
 ### Rogue
 
@@ -118,6 +162,9 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 
 * **Foil of Purity: A master of single-blade combat**
     * **Description:** Forsake the use of an off-hand weapon and all ranged weapons.
+=======
+* **Foil of Purity: The Fencer**
+    * **Description:** A master of single-blade combat.
     * **Criteria:**
         * You may not equip any item in your off-hand slot.
         * You may not equip any ranged weapon.
@@ -137,6 +184,36 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
     * No spending points in the Affliction talent tree.
     * Soul Shards may ONLY be used to summon or subjugate demons.
     * Healthstones and Soulstones are forbidden.
+=======
+* **Communion of Purity**
+    * **Description:** The Spirit Walker. Your power flows purely from your spells and maintaining active totems.
+    * **Criteria:**
+        * You may NOT equip any weapons of any kind.
+        * You must always maintain at least one active totem while in combat (after totems are unlocked).
+
+* **Flame of Purity**
+    * **Description:** Your spirit awakens to the flame, forsaking all other elements.
+    * **Criteria:**
+        * **Level 1-9:** Free to use any ability.
+        * **Level 10+:** Only Fire spells and Fire totems may be used. Physical attacks are allowed.
+
+### Warlock
+
+* **Grimoire of Purity**
+    * **Description:** A crazed demonologist focused on fire, brimstone, and demons.
+    * **Criteria:**
+        * No learning or using Shadow spells or Curses.
+        * No spending points in the Affliction talent tree.
+        * Soul Shards may ONLY be used to summon or subjugate demons.
+        * Healthstones and Soulstones are forbidden.
+
+* **Sacrament of Purity**
+    * **Description:** Forsake demonic pacts and all external mana sources.
+    * **Criteria:**
+        * No demon pets may be summoned (Felsteed allowed).
+        * No drinking or using mana potions.
+        * No Demonology talents.
+        * Mana must be regained passively, via Life Tap, or Drain Mana.
 
 ### Warrior
 
@@ -179,6 +256,8 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
             |-- README.md
             |-- LICENSE
     ```
+=======
+3.  Copy the `Purity` folder into your `World of Warcraft/_classic_era_/Interface/AddOns/` directory.
 
 ## License
 
