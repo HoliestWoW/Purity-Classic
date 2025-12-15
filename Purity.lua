@@ -3,11 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-<<<<<<< HEAD
-Purity.Version = "10.0.5"
-=======
 Purity.Version = "10.1.1"
->>>>>>> f28ad53db299149245eebdada78e99360d0aeda0
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -1679,8 +1675,6 @@ function Purity:BuildOptionsMenu()
         table.insert(self.optionsPane.controls, astrolabeCheck)
         yOffset = yOffset - 30
     end
-<<<<<<< HEAD
-=======
 	
 	-- Mage Options (Conduit)
     if db and db.activeChallengeID == "Conduit of Purity" then
@@ -1747,7 +1741,6 @@ function Purity:BuildOptionsMenu()
         table.insert(self.optionsPane.controls, drunkCheck)
         yOffset = yOffset - 30
     end
->>>>>>> f28ad53db299149245eebdada78e99360d0aeda0
 
     -- Fallback message if needed
     if #self.optionsPane.controls == 2 then

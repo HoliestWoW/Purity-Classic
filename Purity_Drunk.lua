@@ -57,34 +57,6 @@ end
 local function DrunkModule_EventHandler(event, ...)
     local db = Purity:GetDB()
 
-<<<<<<< HEAD
-    -- This is the fixed logic for detecting drunk status
-    if event == "UI_INFO_MESSAGE" then
-        local messageTable = ...
-        
-        -- Check if the event is valid and has the message data
-        if messageTable and messageTable.message then
-            local message = messageTable.message
-            
-            -- *** THE SECURE FIX ***
-            -- We check if the message starts with "You". 
-            -- This ignores all messages about other players.
-            if string.find(message, "You", 1, true) == 1 then
-                
-                -- Check for status changes (e.g., "You feel tipsy.")
-                if message == "You feel completely smashed." then
-                    DrunkModule:SetDrunkState("Smashed")
-                elseif message == "You feel drunk.  Woah!" then
-                    DrunkModule:SetDrunkState("Drunk")
-                elseif message == "You feel tipsy.  Whee!" then
-                    DrunkModule:SetDrunkState("Tipsy")
-                elseif message == "You feel sober again." then
-                    DrunkModule:SetDrunkState("Sober")
-                end
-
-                -- *** REMOVED: The logic for "You drink " was here. ***
-                -- As you correctly pointed out, this message doesn't exist.
-=======
     -- FIXED: Switched to CHAT_MSG_SYSTEM to correctly catch chat log text
     if event == "CHAT_MSG_SYSTEM" then
         -- FIXED: ... expands to individual args, not a table. 
@@ -107,7 +79,6 @@ local function DrunkModule_EventHandler(event, ...)
                 elseif string.find(message, "sober again") then
                     DrunkModule:SetDrunkState("Sober")
                 end
->>>>>>> f28ad53db299149245eebdada78e99360d0aeda0
             end
         end
     
@@ -274,12 +245,8 @@ function DrunkModule:InitializeOnPlayerEnterWorld()
     self:UpdateStatusDisplay()
     
     -- Registering all the events our handler needs
-<<<<<<< HEAD
-    DrunkModuleEventHandlerFrame:RegisterEvent("UI_INFO_MESSAGE") -- For drunk status
-=======
     -- FIXED: Changed from UI_INFO_MESSAGE to CHAT_MSG_SYSTEM
     DrunkModuleEventHandlerFrame:RegisterEvent("CHAT_MSG_SYSTEM") -- For drunk status
->>>>>>> f28ad53db299149245eebdada78e99360d0aeda0
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_DISABLED") -- For combat check
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_REGEN_ENABLED") -- For leaving combat
     DrunkModuleEventHandlerFrame:RegisterEvent("PLAYER_LEVEL_UP") -- For profession check
