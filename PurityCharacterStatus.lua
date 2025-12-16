@@ -369,6 +369,9 @@ function UpdateCharacterPurity()
 		elseif db.challengeTitle == "Grimoire of Purity" then statValue = db.challengeStats.immolateCasts; statName = "Immolates Cast:"
 		elseif db.challengeTitle == "Brand of Purity" then statValue = db.challengeStats.chargeInterceptCasts; statName = "Charges/Intercepts:"
 		elseif db.challengeTitle == "Bulwark of Purity" then statValue = db.challengeStats.blocks; statName = "Successful Blocks:"
+		elseif db.challengeTitle == "Conduit of Purity" then
+            statValue = math.floor(db.challengeStats.chargeAccumulatedCombat or 0)
+            statName = "Combat Charge Gen:"
 		elseif db.challengeTitle == "Tome of Purity" then
 			statValue = db.challengeStats and db.challengeStats.primarySpellCasts or 0
 			local spec = db.mageData and db.mageData.specialization

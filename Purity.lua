@@ -178,6 +178,7 @@ Purity.ChallengeCoefficients = {
 	["Brand of Purity"] = 4.35,
 	["Fisherman's Folly"] = 4.32,
 	["Libram of Purity"] = 4.25,
+	["Conduit of Purity"] = 4.10,
 	["Tome of Purity (Arcane)"] = 4.05,
 	["Astrolabe of Purity"] = 4.00,
 	["Flame of Purity"] = 3.91,
@@ -616,6 +617,9 @@ function Purity:DisplayCompletionStats()
         message = string.format("Fun fact: As an ardent protector, you successfully blocked %d attacks!", stats.blocks)
     elseif challenge == "Tome of Purity" and stats.primarySpellCasts then
         message = string.format("Fun fact: During your studies, you cast your primary spell %d times!", stats.primarySpellCasts)
+	elseif challenge == "Conduit of Purity" then
+        local charge = stats.chargeAccumulatedCombat or 0
+        message = string.format("Fun fact: Through constant motion, you generated %d Static Charge during combat!", math.floor(charge))
     elseif challenge == "Testament of Purity" and stats.smiteCasts then
         message = string.format("Fun fact: To uphold your testament, you cast Smite %d times!", stats.smiteCasts)
     elseif challenge == "Covenant of Purity" and stats.mindFlayCasts then
@@ -1517,237 +1521,196 @@ end
 function Purity:BuildOptionsMenu()
     if not self.optionsPane then return end
 
-    -- Clear any old options
-    if self.optionsPane.controls then
-        for _, control in ipairs(self.optionsPane.controls) do
-            control:Hide()
-        end
-    end
-    self.optionsPane.controls = {}
+    -- 1. INITIALIZATION: Create widgets only once
+    if not self.optionsPane.isInitialized then
+        self.optionsPane.widgets = {}
+        
+        -- Title
+        local title = self.optionsPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOP", self.optionsPane, "TOP", 0, -15)
+        title:SetTextColor(1, 0.82, 0)
+        title:SetText("Purity Options")
+        self.optionsPane.title = title
 
+        -- [Minimap Checkbox]
+        local minimapCheck = CreateFrame("CheckButton", "PurityMinimapIconCheck", self.optionsPane, "UICheckButtonTemplate")
+        local mmText = _G[minimapCheck:GetName() .. "Text"]
+        if mmText then
+            mmText:SetText("Show Minimap Button")
+            mmText:SetTextColor(1, 0.82, 0)
+            mmText:SetFontObject(GameFontNormalSmall)
+            mmText:ClearAllPoints()
+            mmText:SetPoint("LEFT", minimapCheck, "RIGHT", 2, 0)
+        end
+        minimapCheck:SetScript("OnClick", function(btn)
+            Purity_GlobalSettings.showMinimapIcon = btn:GetChecked()
+            Purity:UpdateMinimapIconVisibility()
+        end)
+        self.optionsPane.widgets.minimap = minimapCheck
+
+        -- [Blood Mage: Bar Mode]
+        local bloodBarCheck = CreateFrame("CheckButton", "PurityBloodBarModeCheck", self.optionsPane, "UICheckButtonTemplate")
+        local bbText = _G[bloodBarCheck:GetName() .. "Text"]
+        if bbText then
+            bbText:SetText("Separate Blood Bar Frame")
+            bbText:SetFontObject(GameFontNormalSmall)
+            bbText:ClearAllPoints()
+            bbText:SetPoint("LEFT", bloodBarCheck, "RIGHT", 2, 0)
+        end
+        bloodBarCheck:SetScript("OnClick", function(btn)
+            local newState = btn:GetChecked()
+            local status = newState and "Separate" or "Overlay"
+            print("|cffFFFF00Purity:|r Blood Bar mode set to: |cff00FF00" .. status .. "|r")
+            if Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.ApplyBarMode then
+                Purity.GlobalModules.BLOOD_MAGE_BARGAIN:ApplyBarMode(newState, true)
+            end
+        end)
+        self.optionsPane.widgets.bloodBar = bloodBarCheck
+
+        -- [Blood Mage: Log]
+        local bloodLogCheck = CreateFrame("CheckButton", "PurityBloodLogVisibleCheck", self.optionsPane, "UICheckButtonTemplate")
+        local blText = _G[bloodLogCheck:GetName() .. "Text"]
+        if blText then
+            blText:SetText("Show Blood Log")
+            blText:SetFontObject(GameFontNormalSmall)
+            blText:ClearAllPoints()
+            blText:SetPoint("LEFT", bloodLogCheck, "RIGHT", 2, 0)
+            blText:SetTextColor(1, 0.82, 0)
+        end
+        bloodLogCheck:SetScript("OnClick", function(btn)
+            local makeVisible = btn:GetChecked()
+            local db = Purity:GetDB()
+            db.bloodLogVisible = makeVisible
+            local mod = Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+            if mod then
+                if not mod.bloodLogFrame then mod:CreateBloodLogFrame() end
+                if mod.bloodLogFrame then
+                    if makeVisible then mod.bloodLogFrame:Show() else mod.bloodLogFrame:Hide() end
+                end
+            end
+        end)
+        self.optionsPane.widgets.bloodLog = bloodLogCheck
+
+        -- [Druid: Astrolabe]
+        local astrolabeCheck = CreateFrame("CheckButton", "PurityAstrolabeNumbersCheck", self.optionsPane, "UICheckButtonTemplate")
+        local asText = _G[astrolabeCheck:GetName() .. "Text"]
+        if asText then
+            asText:SetText("Show Astrolabe Numbers (X/2)")
+            asText:SetFontObject(GameFontNormalSmall)
+            asText:ClearAllPoints()
+            asText:SetPoint("LEFT", astrolabeCheck, "RIGHT", 2, 0)
+            asText:SetTextColor(1, 0.82, 0)
+        end
+        astrolabeCheck:SetScript("OnClick", function(btn)
+            local isChecked = btn:GetChecked()
+            local db = Purity:GetDB()
+            db.showAstrolabeNumbers = isChecked
+            if Purity.ClassModules and Purity.ClassModules.DRUID and Purity.ClassModules.DRUID.challenges.astrolabe then
+                Purity.ClassModules.DRUID.challenges.astrolabe:UpdateBalanceFrame()
+            end
+        end)
+        self.optionsPane.widgets.astrolabe = astrolabeCheck
+
+        -- [Mage: Conduit Bar]
+        local mageBarCheck = CreateFrame("CheckButton", "PurityMageBarDetachCheck", self.optionsPane, "UICheckButtonTemplate")
+        local mbText = _G[mageBarCheck:GetName() .. "Text"]
+        if mbText then
+            mbText:SetText("Detach & Unlock Charge Bar")
+            mbText:SetFontObject(GameFontNormalSmall)
+            mbText:ClearAllPoints()
+            mbText:SetPoint("LEFT", mageBarCheck, "RIGHT", 2, 0)
+            mbText:SetTextColor(1, 0.82, 0)
+        end
+        mageBarCheck:SetScript("OnClick", function(btn)
+            local isChecked = btn:GetChecked()
+            local db = Purity:GetDB()
+            db.mageBarDetached = isChecked
+            if Purity.ClassModules.MAGE and Purity.ClassModules.MAGE.challenges.conduit then
+                Purity.ClassModules.MAGE.challenges.conduit:ApplyBarMode(isChecked)
+            end
+        end)
+        self.optionsPane.widgets.mageBar = mageBarCheck
+
+        -- [Drunken Master Window]
+        local drunkCheck = CreateFrame("CheckButton", "PurityDrunkWindowCheck", self.optionsPane, "UICheckButtonTemplate")
+        local drText = _G[drunkCheck:GetName() .. "Text"]
+        if drText then
+            drText:SetText("Show Drunken Master Status Window")
+            drText:SetFontObject(GameFontNormalSmall)
+            drText:ClearAllPoints()
+            drText:SetPoint("LEFT", drunkCheck, "RIGHT", 2, 0)
+            drText:SetTextColor(1, 0.82, 0)
+        end
+        drunkCheck:SetScript("OnClick", function(btn)
+            if Purity.GlobalModules.DRUNK and Purity.GlobalModules.DRUNK.ToggleStatusFrame then
+                Purity.GlobalModules.DRUNK:ToggleStatusFrame()
+            end
+        end)
+        self.optionsPane.widgets.drunk = drunkCheck
+
+        self.optionsPane.isInitialized = true
+    end
+
+    -- 2. UPDATE: Refresh visibility and state based on current challenge
     local db = Purity:GetDB()
     local globalSettings = Purity_GlobalSettings
     local yOffset = -40
     local xOffset = 50
 
-    -- Add a title
-    if not self.optionsPane.title then
-         self.optionsPane.title = self.optionsPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-         self.optionsPane.title:SetPoint("TOP", self.optionsPane, "TOP", 0, -15)
-         self.optionsPane.title:SetTextColor(1, 0.82, 0)
-         table.insert(self.optionsPane.controls, self.optionsPane.title)
-    end
-    self.optionsPane.title:SetText("Purity Options")
-    self.optionsPane.title:Show()
-
-    -- Checkbox for Minimap Icon Visibility
-    local minimapCheck = CreateFrame("CheckButton", "PurityMinimapIconCheck", Purity.optionsPane, "UICheckButtonTemplate")
-    minimapCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
-    local minimapCheckText = _G[minimapCheck:GetName() .. "Text"]
-    if minimapCheckText then
-        minimapCheckText:SetText("Show Minimap Button")
-        minimapCheckText:SetTextColor(1, 0.82, 0) -- Ensure standard color
-        minimapCheckText:SetFontObject(GameFontNormalSmall) -- <<<< ENSURE FONT
-        minimapCheckText:ClearAllPoints() -- <<<< ENSURE ANCHOR
-        minimapCheckText:SetPoint("LEFT", minimapCheck, "RIGHT", 2, 0) -- <<<< ENSURE ANCHOR
-        minimapCheckText:Show() -- <<<< ENSURE SHOWN
-    end
-    minimapCheck:SetChecked(globalSettings.showMinimapIcon == nil or globalSettings.showMinimapIcon)
-    minimapCheck:SetScript("OnClick", function(self)
-        local showIcon = self:GetChecked()
-        Purity_GlobalSettings.showMinimapIcon = showIcon
-        Purity:UpdateMinimapIconVisibility()
-    end)
-    table.insert(self.optionsPane.controls, minimapCheck)
-    yOffset = yOffset - 30
-
-    -- Blood Mage Options Section
-    local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
-    if bloodMageModule then
-        -- Checkbox for Blood Bar Mode
-        local bloodBarCheck = CreateFrame("CheckButton", "PurityBloodBarModeCheck", Purity.optionsPane, "UICheckButtonTemplate")
-        bloodBarCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
-        local bloodBarCheckText = _G[bloodBarCheck:GetName() .. "Text"]
-        if bloodBarCheckText then
-             bloodBarCheckText:SetText("Separate Blood Bar Frame")
-             bloodBarCheckText:SetFontObject(GameFontNormalSmall) -- <<<< ENSURE FONT
-             bloodBarCheckText:ClearAllPoints() -- <<<< ENSURE ANCHOR
-             bloodBarCheckText:SetPoint("LEFT", bloodBarCheck, "RIGHT", 2, 0) -- <<<< ENSURE ANCHOR
-             bloodBarCheckText:Show() -- <<<< ENSURE SHOWN
-        end
-        bloodBarCheck:SetChecked(db.bloodBarIsSeparate or false)
-
-        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
-            bloodBarCheck:Enable()
-            if bloodBarCheckText then bloodBarCheckText:SetTextColor(1, 0.82, 0) end
-			bloodBarCheck:SetScript("OnClick", function(self)
-                local db = Purity:GetDB()
-                local newState = self:GetChecked()
-                local status = newState and "Separate" or "Overlay"
-                print("|cffFFFF00Purity:|r Blood Bar mode set to: |cff00FF00" .. status .. "|r")
-                if bloodMageModule.ApplyBarMode then
-                    bloodMageModule:ApplyBarMode(newState, true)
-                end
-            end)
-        else
-            bloodBarCheck:Disable()
-            if bloodBarCheckText then bloodBarCheckText:SetTextColor(0.5, 0.5, 0.5) end
-        end
-        table.insert(self.optionsPane.controls, bloodBarCheck)
-        yOffset = yOffset - 30
-
-        -- Checkbox for Blood Log Visibility
-        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
-            local bloodLogCheck = CreateFrame("CheckButton", "PurityBloodLogVisibleCheck", Purity.optionsPane, "UICheckButtonTemplate")
-            bloodLogCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
-            local bloodLogCheckText = _G[bloodLogCheck:GetName() .. "Text"]
-            if bloodLogCheckText then
-                 bloodLogCheckText:SetText("Show Blood Log")
-                 bloodLogCheckText:SetFontObject(GameFontNormalSmall) -- <<<< ENSURE FONT
-                 bloodLogCheckText:ClearAllPoints() -- <<<< ENSURE ANCHOR
-                 bloodLogCheckText:SetPoint("LEFT", bloodLogCheck, "RIGHT", 2, 0) -- <<<< ENSURE ANCHOR
-                 bloodLogCheckText:SetTextColor(1, 0.82, 0)
-                 bloodLogCheckText:Show() -- <<<< ENSURE SHOWN
-            end
-            bloodLogCheck:SetChecked(db.bloodLogVisible or false)
-
-            bloodLogCheck:SetScript("OnClick", function(self)
-                local db = Purity:GetDB()
-                local makeVisible = self:GetChecked()
-                db.bloodLogVisible = makeVisible
-
-                if not bloodMageModule.bloodLogFrame then
-                    bloodMageModule:CreateBloodLogFrame()
-                end
-
-                if bloodMageModule.bloodLogFrame then
-                    if makeVisible then
-                        bloodMageModule.bloodLogFrame:Show()
-                    else
-                        bloodMageModule.bloodLogFrame:Hide()
-                    end
-                end
-            end)
-            table.insert(self.optionsPane.controls, bloodLogCheck)
-            yOffset = yOffset - 30
-        end
-    else
-        local noBMAvailText = Purity.optionsPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        noBMAvailText:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
-        noBMAvailText:SetTextColor(0.6, 0.6, 0.6)
-        noBMAvailText:SetText("Blood Mage options require the challenge.")
-        table.insert(self.optionsPane.controls, noBMAvailText)
+    -- Helper to place widgets dynamically
+    local function PlaceWidget(widget)
+        widget:ClearAllPoints()
+        widget:SetPoint("TOPLEFT", self.optionsPane, "TOPLEFT", xOffset, yOffset)
+        widget:Show()
         yOffset = yOffset - 30
     end
 
-	-- Astrolabe Options (Druid)
-    if db and db.activeChallengeID == "Astrolabe of Purity" then
-        local astrolabeCheck = CreateFrame("CheckButton", "PurityAstrolabeNumbersCheck", Purity.optionsPane, "UICheckButtonTemplate")
-        astrolabeCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
-        
-        local text = _G[astrolabeCheck:GetName() .. "Text"]
-        if text then
-            text:SetText("Show Astrolabe Numbers (X/2)")
-            text:SetFontObject(GameFontNormalSmall)
-            text:ClearAllPoints()
-            text:SetPoint("LEFT", astrolabeCheck, "RIGHT", 2, 0)
-            text:SetTextColor(1, 0.82, 0)
-            text:Show()
-        end
-        
-        -- Default to true if nil
-        astrolabeCheck:SetChecked(db.showAstrolabeNumbers ~= false)
-
-        astrolabeCheck:SetScript("OnClick", function(self)
-            local isChecked = self:GetChecked()
-            local db = Purity:GetDB()
-            db.showAstrolabeNumbers = isChecked
-            
-            -- Force update the frame immediately
-            if Purity.ClassModules and Purity.ClassModules.DRUID then
-                local mod = Purity.ClassModules.DRUID
-                if mod.challenges and mod.challenges.astrolabe then
-                    mod.challenges.astrolabe:UpdateBalanceFrame()
-                end
-            end
-        end)
-        
-        table.insert(self.optionsPane.controls, astrolabeCheck)
-        yOffset = yOffset - 30
+    -- Hide everything first to ensure clean state
+    for _, widget in pairs(self.optionsPane.widgets) do
+        widget:Hide()
     end
-	
-	-- Mage Options (Conduit)
-    if db and db.activeChallengeID == "Conduit of Purity" then
-        local mageBarCheck = CreateFrame("CheckButton", "PurityMageBarDetachCheck", Purity.optionsPane, "UICheckButtonTemplate")
-        mageBarCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
-        
-        local text = _G[mageBarCheck:GetName() .. "Text"]
-        if text then
-            text:SetText("Detach & Unlock Charge Bar")
-            text:SetFontObject(GameFontNormalSmall)
-            text:ClearAllPoints()
-            text:SetPoint("LEFT", mageBarCheck, "RIGHT", 2, 0)
-            text:SetTextColor(1, 0.82, 0)
-            text:Show()
-        end
-        
-        mageBarCheck:SetChecked(db.mageBarDetached == true)
 
-        mageBarCheck:SetScript("OnClick", function(self)
-            local isChecked = self:GetChecked()
-            local db = Purity:GetDB()
-            db.mageBarDetached = isChecked
-            
-            -- Trigger the update immediately
-            if Purity.ClassModules.MAGE and Purity.ClassModules.MAGE.challenges.conduit then
-                Purity.ClassModules.MAGE.challenges.conduit:ApplyBarMode(isChecked)
-            end
-        end)
-        
-        table.insert(self.optionsPane.controls, mageBarCheck)
-        yOffset = yOffset - 30
+    -- [Always Visible Options]
+    local minBtn = self.optionsPane.widgets.minimap
+    minBtn:SetChecked(globalSettings.showMinimapIcon == nil or globalSettings.showMinimapIcon)
+    PlaceWidget(minBtn)
+
+    -- [Context-Sensitive Options]
+    local id = db.activeChallengeID
+
+    -- Blood Mage
+    if id == "BLOOD_MAGE_BARGAIN" then
+        local bbBtn = self.optionsPane.widgets.bloodBar
+        bbBtn:SetChecked(db.bloodBarIsSeparate or false)
+        PlaceWidget(bbBtn)
+
+        local blBtn = self.optionsPane.widgets.bloodLog
+        blBtn:SetChecked(db.bloodLogVisible or false)
+        PlaceWidget(blBtn)
     end
-	
-	-- Drunken Master Window Toggle
-    local drunkModule = Purity.GlobalModules and Purity.GlobalModules.DRUNK
-    if drunkModule then
-        local drunkCheck = CreateFrame("CheckButton", "PurityDrunkWindowCheck", Purity.optionsPane, "UICheckButtonTemplate")
-        drunkCheck:SetPoint("TOPLEFT", Purity.optionsPane, "TOPLEFT", xOffset, yOffset)
-        
-        local text = _G[drunkCheck:GetName() .. "Text"]
-        if text then
-            text:SetText("Show Drunken Master Status Window") -- Updated Label
-            text:SetFontObject(GameFontNormalSmall)
-            text:ClearAllPoints()
-            text:SetPoint("LEFT", drunkCheck, "RIGHT", 2, 0)
-            text:SetTextColor(1, 0.82, 0)
-            text:Show()
-        end
-        
-        -- Check if the frame is currently visible to set the box correctly
+
+    -- Druid: Astrolabe
+    if id == "Astrolabe of Purity" then
+        local asBtn = self.optionsPane.widgets.astrolabe
+        asBtn:SetChecked(db.showAstrolabeNumbers ~= false)
+        PlaceWidget(asBtn)
+    end
+
+    -- Mage: Conduit
+    if id == "Conduit of Purity" then
+        local mbBtn = self.optionsPane.widgets.mageBar
+        mbBtn:SetChecked(db.mageBarDetached == true)
+        PlaceWidget(mbBtn)
+    end
+
+    -- Drunken Master
+    -- FIX: Check specifically for the Drunk ID (usually "DRUNK")
+    if id == "DRUNK" then
+        local drBtn = self.optionsPane.widgets.drunk
         local isVisible = false
-        if DrunkenMasterStatusFrame and DrunkenMasterStatusFrame:IsShown() then
-            isVisible = true
-        end
-        drunkCheck:SetChecked(isVisible)
-
-        drunkCheck:SetScript("OnClick", function(self)
-            -- This function toggles the window and saves the preference
-            if drunkModule.ToggleStatusFrame then
-                drunkModule:ToggleStatusFrame()
-            end
-        end)
-        
-        table.insert(self.optionsPane.controls, drunkCheck)
-        yOffset = yOffset - 30
-    end
-
-    -- Fallback message if needed
-    if #self.optionsPane.controls == 2 then
-         local noOptionsText = Purity.optionsPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-         noOptionsText:SetPoint("TOP", Purity.optionsPane, "TOP", 0, yOffset)
-         noOptionsText:SetText("No other options currently available.")
-         table.insert(self.optionsPane.controls, noOptionsText)
+        if DrunkenMasterStatusFrame and DrunkenMasterStatusFrame:IsShown() then isVisible = true end
+        drBtn:SetChecked(isVisible)
+        PlaceWidget(drBtn)
     end
 end
 
@@ -3058,14 +3021,10 @@ SlashCmdList["PURITY"] = function(msg)
         local expectedSignature = Purity:GenerateVerificationHash(stringToSign)
 
         if inputSignature == expectedSignature then
-            -- VALID: Apply the changes
             db.status = "Passing"
             db.weaponInfractions = weaponInfractions
             db.physicalStrikes = physicalStrikes
             db.failureReason = nil
-            
-            -- IMPORTANT: We must now generate the *real* full signature 
-            -- so the website accepts this run later.
             db.dataSignature = Purity:CreateDataSignature(db)
             
             Purity:ActivateMonitoring()
@@ -3627,26 +3586,43 @@ local function Purity_OnTooltipSetSpell_Handler(self)
     local spellName, spellId = self:GetSpell()
     if not spellId then return end
 
+    -- [[ 1. FORBIDDEN SPELLS ]]
     if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(spellId) then
         local challengeName = Purity:GetDB().challengeTitle or "Purity Challenge"
-        self:AddLine(" ", 0, 0, 0, 0)
+        self:AddLine(" ")
         self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
         self:Show()
     end
 
+    -- [[ 2. BLOOD MAGE COSTS ]]
     local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
     if bloodMageModule and activeChallenge.id == bloodMageModule.id then
         if spellName and not bloodMageModule.healingSpells[spellName] then
             local bloodCost = bloodMageModule:GetBloodCostForSpell(spellId)
             if bloodCost and bloodCost > 0 then
                 local weakenedCost = math.max(1, math.floor(bloodCost * 2.0))
-                
-                -- This logic now shows only the current cost
                 local costToDisplay = bloodMageModule.sanguineWeaknessActive and weakenedCost or bloodCost
 
-                self:AddLine(" ", 0, 0, 0, 0)
+                self:AddLine(" ")
                 self:AddLine(costToDisplay .. " Blood", 1.0, 0.2, 0.2)
                 self:Show()
+            end
+        end
+    end
+
+    -- [[ 3. CONDUIT: BLINK ]]
+    if activeChallenge.challengeName == "Conduit of Purity" and spellName == "Blink" then
+        -- Loop through lines to find the description and append to it
+        for i = 1, self:NumLines() do
+            local line = _G[self:GetName() .. "TextLeft" .. i]
+            if line then
+                local text = line:GetText()
+                -- Blink's description always starts with "Teleports"
+                if text and string.find(text, "Teleports") then
+                    line:SetText(text .. " Instantly generates 20 Static Charge.")
+                    self:Show() -- Force the tooltip to resize for the wider text
+                    break
+                end
             end
         end
     end
@@ -3718,28 +3694,44 @@ GameTooltip.SetAction = function(self, actionSlot)
     local actionType, actionID = GetActionInfo(actionSlot)
 
     if actionType == "spell" then
+        local spellName = GetSpellInfo(actionID)
+
+        -- [[ 1. FORBIDDEN SPELLS ]]
         if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(actionID) then
             local challengeName = Purity:GetDB().challengeTitle or "Purity Challenge"
-            self:AddLine(" ", 0, 0, 0, 0)
+            self:AddLine(" ")
             self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
             self:Show()
         end
 
+        -- [[ 2. BLOOD MAGE COSTS ]]
         local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
         if bloodMageModule and activeChallenge.id == bloodMageModule.id then
-            local spellName = GetSpellInfo(actionID)
-
-            if not bloodMageModule.healingSpells[spellName] then
+            if spellName and not bloodMageModule.healingSpells[spellName] then
                 local bloodCost = bloodMageModule:GetBloodCostForSpell(actionID)
                 if bloodCost and bloodCost > 0 then
                     local weakenedCost = math.max(1, math.floor(bloodCost * 2.0))
-                    
-                    -- This logic also shows only the current cost
                     local costToDisplay = bloodMageModule.sanguineWeaknessActive and weakenedCost or bloodCost
 
-                    self:AddLine(" ", 0, 0, 0, 0)
+                    self:AddLine(" ")
                     self:AddLine(costToDisplay .. " Blood", 1.0, 0.2, 0.2)
                     self:Show()
+                end
+            end
+        end
+
+        -- [[ 3. CONDUIT: BLINK ]]
+        if activeChallenge.challengeName == "Conduit of Purity" and spellName == "Blink" then
+            -- Loop through lines to find the description
+            for i = 1, self:NumLines() do
+                local line = _G[self:GetName() .. "TextLeft" .. i]
+                if line then
+                    local text = line:GetText()
+                    if text and string.find(text, "Teleports") then
+                        line:SetText(text .. " Instantly generates 20 Static Charge.")
+                        self:Show()
+                        break
+                    end
                 end
             end
         end
