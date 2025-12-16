@@ -417,7 +417,7 @@ MageModule.challenges.conduit = {
                 cost = cost * (1.0 - self.talentMods.cost)
             end
             
-            tooltip:AddLine(math.floor(cost) .. " Static Charge")
+            tooltip:AddLine(math.floor(cost) .. " Static Charge", 1, 1, 1)
             if self.charge < (cost - 1) then tooltip:AddLine("Insufficient Charge", 1, 0.2, 0.2) end
             tooltip:Show()
         end)
@@ -465,6 +465,21 @@ MageModule.challenges.conduit = {
                     descFormat = " Increases Max Static Charge by %d."
                 elseif talentName == "Master of Elements" then
                     descFormat = " Additionally, criticals refund %d%% of Charge cost."
+				elseif talentName == "Arcane Concentration" then
+                    -- [[ ARCANE CONCENTRATION TEXT REPLACEMENT ]]
+                    for i = 2, tooltip:NumLines() do
+                        local line = _G[frameName .. "TextLeft" .. i]
+                        if line then
+                            local text = line:GetText()
+                            -- Use [Mm] to match "Mana" or "mana"
+                            if text and string.find(text, "[Mm]ana cost") then
+                                local newText = string.gsub(text, "[Mm]ana cost", "mana and Static Charge cost")
+                                line:SetText(newText)
+                            end
+                        end
+                    end
+                    tooltip:Show()
+                    return
                 else
                     return 
                 end
@@ -907,7 +922,7 @@ MageModule.challenges.conduit = {
                 cost = 0
                 tooltip:AddLine(math.floor(cost) .. " Static Charge (Clearcasting)")
             else
-                tooltip:AddLine(math.floor(cost) .. " Static Charge")
+                tooltip:AddLine(math.floor(cost) .. " Static Charge", 1, 1, 1)
                 if self.charge < (cost - 1) then tooltip:AddLine("Insufficient Charge", 1, 0.2, 0.2) end
             end
             
@@ -957,6 +972,21 @@ MageModule.challenges.conduit = {
                     descFormat = " Increases Max Static Charge by %d."
                 elseif talentName == "Master of Elements" then
                     descFormat = " Additionally, criticals refund %d%% of Charge cost."
+				elseif talentName == "Arcane Concentration" then
+                    -- [[ ARCANE CONCENTRATION TEXT REPLACEMENT ]]
+                    for i = 2, tooltip:NumLines() do
+                        local line = _G[frameName .. "TextLeft" .. i]
+                        if line then
+                            local text = line:GetText()
+                            -- Use [Mm] to match "Mana" or "mana"
+                            if text and string.find(text, "[Mm]ana cost") then
+                                local newText = string.gsub(text, "[Mm]ana cost", "mana and Static Charge cost")
+                                line:SetText(newText)
+                            end
+                        end
+                    end
+                    tooltip:Show()
+                    return
                 else
                     return 
                 end
