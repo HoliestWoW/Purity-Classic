@@ -242,6 +242,40 @@ local SacramentOfPurity = {
         }
     end,
 
+    InitializeOnPlayerEnterWorld = function(self)
+        if self.hooksInitialized then return end
+        
+        -- Helper: Check the ID directly against your list
+        local function CheckItem(itemID)
+            if itemID and self._manaItemSpellIDs[itemID] then
+                Purity:Violation("Used a forbidden Mana Item or Drink.")
+            end
+        end
+
+        -- 1. Hook Bag Usage (Right-Clicking items)
+        local function HookBagUse(bag, slot)
+            local itemInfo = C_Container.GetContainerItemInfo(bag, slot)
+            if itemInfo then CheckItem(itemInfo.itemID) end
+        end
+        
+        -- Hook both modern and legacy bag functions to be safe
+        if C_Container and C_Container.UseContainerItem then
+            hooksecurefunc(C_Container, "UseContainerItem", HookBagUse)
+        else
+            hooksecurefunc("UseContainerItem", HookBagUse)
+        end
+
+        -- 2. Hook Action Bar Usage (Pressing buttons)
+        hooksecurefunc("UseAction", function(slot)
+            local type, id = GetActionInfo(slot)
+            if type == "item" then 
+                CheckItem(id) 
+            end
+        end)
+        
+        self.hooksInitialized = true
+    end,
+
     EventHandler = function(self, event, ...)
         if event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName = CombatLogGetCurrentEventInfo()
@@ -260,11 +294,13 @@ local SacramentOfPurity = {
                 end
             end
 
+            -- Check Forbidden Class Spells (Summons, Dark Pact)
             if (subEvent == "SPELL_CAST_SUCCESS" or subEvent == "SPELL_SUMMON") then
                 if self:IsSpellForbidden(spellId) then
-                    Purity:Violation("Used a forbidden spell or item:\n" .. (spellName or "Unknown"))
+                    Purity:Violation("Used a forbidden spell:\n" .. (spellName or "Unknown"))
                 end
             end
+
         elseif event == "PLAYER_TALENT_UPDATE" then
             local numTabs = GetNumTalentTabs()
             for t = 1, numTabs do

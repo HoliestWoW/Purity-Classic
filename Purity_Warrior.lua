@@ -236,7 +236,10 @@ WarriorModule.challenges.bulwark = {
     end,
 
     EventHandler = function(self, event, ...)
-        if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        if event == "PLAYER_EQUIPMENT_CHANGED" then
+            Purity:CheckWeaponState()
+            
+        elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, _, _, _, _, destGUID, _, _, _, missType = CombatLogGetCurrentEventInfo()
             if destGUID == UnitGUID("player") and subEvent == "SWING_MISSED" and missType == "BLOCK" then
                 local db = Purity:GetDB()

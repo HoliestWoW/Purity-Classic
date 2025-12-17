@@ -165,20 +165,20 @@ DruidModule.challenges.astrolabe = {
     end,
 	
 	StartForcedUpdates = function(self)
-        if self.updateFrame then return end -- Already running
+        if self.updateFrame then return end 
 
         self.updateFrame = CreateFrame("Frame")
         self.updateTimer = 0
         
+        local challenge = self
+        
         self.updateFrame:SetScript("OnUpdate", function(f, elapsed)
-            -- Only run this heavy logic if we are actually fighting
             if UnitAffectingCombat("player") then
-                self.updateTimer = self.updateTimer + elapsed
+                challenge.updateTimer = challenge.updateTimer + elapsed
                 
-                -- Force an update every 0.1 seconds (10 times a second)
-                if self.updateTimer > 0.1 then
-                    self:UpdateActionbarOverlay()
-                    self.updateTimer = 0
+                if challenge.updateTimer > 0.1 then
+                    challenge:UpdateActionbarOverlay()
+                    challenge.updateTimer = 0
                 end
             end
         end)
@@ -216,17 +216,16 @@ DruidModule.challenges.astrolabe = {
     end,
 
     UpdateActionbarOverlay = function(self)
-        local schoolToDim = nil
-        if UnitAffectingCombat("player") then
-            schoolToDim = self.lastDamageSpellSchool
-        end
+        local db = Purity:GetDB()
+        local balance = db and db.astrolabeBalance or 0
+        
+        -- Cap logic for Astrolabe mechanics
+        local dimNature = (balance >= 2)
+        local dimArcane = (balance <= -2)
 
         local barNames = {
-            "ActionButton", 
-            "MultiBarBottomLeftButton", 
-            "MultiBarBottomRightButton", 
-            "MultiBarRightButton", 
-            "MultiBarLeftButton"
+            "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", 
+            "MultiBarRightButton", "MultiBarLeftButton"
         }
 
         for _, barName in ipairs(barNames) do
@@ -234,32 +233,37 @@ DruidModule.challenges.astrolabe = {
                 local button = _G[barName..i]
                 local cooldownFrame = _G[barName..i.."Cooldown"]
                 
-                -- Verify the button and cooldown frame exist before acting
                 if button and cooldownFrame then
                     local actionSlot = button.action
                     local actionType, spellId = GetActionInfo(actionSlot)
                     
                     if actionType == "spell" then
+                        -- 1. Check Astrolabe Dynamic Bans (Balance Cap)
                         local isNature = self.natureDamageSpells[spellId]
                         local isArcane = self.arcaneDamageSpells[spellId]
-                        local shouldDim = (schoolToDim == "Nature" and isNature) or (schoolToDim == "Arcane" and isArcane)
-                        
-                        if shouldDim then
-                            -- FORCE RED: High duration to ensure it overrides GCD swipes
+                        local isForbiddenByBalance = (dimNature and isNature) or (dimArcane and isArcane)
+
+                        -- 2. Check Permanent Bans (Resto/Feral)
+                        local isForbiddenPermanently = self.forbiddenFeralSpells[spellId] or self.forbiddenRestoSpells[spellId]
+
+                        if isForbiddenByBalance or isForbiddenPermanently then
+                            -- FORCE RED OVERLAY
+                            -- We use GetTime() as start to force the 'swipe' to always be full
                             CooldownFrame_Set(cooldownFrame, GetTime(), 3600, 1)
                             if cooldownFrame.SetDrawEdge then cooldownFrame:SetDrawEdge(false) end
                             if cooldownFrame.SetDrawSwipe then cooldownFrame:SetDrawSwipe(true) end
                             if cooldownFrame.SetHideCountdownNumbers then cooldownFrame:SetHideCountdownNumbers(true) end
                         else
-                            -- RESTORE REAL: If not dimmed, show the actual game state (GCD)
+                            -- RESTORE REAL COOLDOWN
                             local start, duration, enabled = GetSpellCooldown(spellId)
                             if start and duration then
                                 CooldownFrame_Set(cooldownFrame, start, duration, enabled)
                                 if cooldownFrame.SetHideCountdownNumbers then cooldownFrame:SetHideCountdownNumbers(false) end
+                            else
+                                CooldownFrame_Set(cooldownFrame, 0, 0, 0)
                             end
                         end
                     else
-                        -- Cleanup for non-spells
                         CooldownFrame_Set(cooldownFrame, 0, 0, 0)
                     end
                 end
@@ -267,16 +271,35 @@ DruidModule.challenges.astrolabe = {
         end
     end,
 
+    StartForcedUpdates = function(self)
+        if self.updateFrame then return end 
+
+        self.updateFrame = CreateFrame("Frame")
+        self.updateTimer = 0
+        
+        local challenge = self
+        
+        self.updateFrame:SetScript("OnUpdate", function(f, elapsed)
+            challenge.updateTimer = challenge.updateTimer + elapsed
+            
+            if challenge.updateTimer > 0.1 then
+                challenge:UpdateActionbarOverlay()
+                challenge.updateTimer = 0
+            end
+        end)
+    end,
+
     IsSpellForbidden = function(self, spellId) 
         if self.forbiddenFeralSpells[spellId] or self.forbiddenRestoSpells[spellId] then return true end
         
         if not UnitAffectingCombat("player") then return false end
-        if not self.lastDamageSpellSchool then return false end
-        
-        if self.lastDamageSpellSchool == "Nature" and self.natureDamageSpells[spellId] then
+
+        local balance = Purity:GetDB().astrolabeBalance or 0
+
+        if balance >= 2 and self.natureDamageSpells[spellId] then
             return true
         end
-        if self.lastDamageSpellSchool == "Arcane" and self.arcaneDamageSpells[spellId] then
+        if balance <= -2 and self.arcaneDamageSpells[spellId] then
             return true
         end
 
@@ -540,26 +563,24 @@ DruidModule.challenges.astrolabe = {
             local isNature = self.natureDamageSpells[spellId]
             local isArcane = self.arcaneDamageSpells[spellId]
             
-            -- Ignore spells that aren't part of the challenge
             if not (isNature or isArcane) then return end
             
-            -- Ensure DB value exists
             if not db.astrolabeBalance then db.astrolabeBalance = 0 end
 
-            -- 1. INSTANT UPDATE: Update balance immediately upon casting
             if subEvent == "SPELL_CAST_SUCCESS" then
                 
                 if isNature then
                     db.astrolabeBalance = db.astrolabeBalance + 1
+                    self.lastDamageSpellSchool = "Nature"
                 elseif isArcane then
                     db.astrolabeBalance = db.astrolabeBalance - 1
+                    self.lastDamageSpellSchool = "Arcane"
                 end
 
                 self:UpdateBalanceFrame()
                 self:UpdateVignette()
+                self:UpdateActionbarOverlay()
 
-                -- FAIL CONDITION: >2 or <-2
-                -- We check this ON CAST now. If you try to cast a 3rd one, you fail instantly.
                 if db.astrolabeBalance > 2 then
                     Purity:Violation("Nature Overload! The Astrolabe shattered.\nMax 2 consecutive charges allowed.")
                 elseif db.astrolabeBalance < -2 then
@@ -569,24 +590,16 @@ DruidModule.challenges.astrolabe = {
                 if not db.challengeStats then db.challengeStats = {} end
                 db.challengeStats.celestialCasts = (db.challengeStats.celestialCasts or 0) + 1
 
-            -- 2. REFUND MECHANIC: If it missed/dodged/resisted, undo the change
             elseif subEvent == "SPELL_MISSED" then
-                -- Note: 'missType' tells us why (DODGE, RESIST, etc), but we refund regardless.
-                
                 if isNature then
-                    -- Refund the +1 (Subtract 1)
                     db.astrolabeBalance = db.astrolabeBalance - 1
-                    -- (Optional) Notify user they got a refund
-                    -- print("Nature spell missed! Charge refunded.")
                 elseif isArcane then
-                    -- Refund the -1 (Add 1)
                     db.astrolabeBalance = db.astrolabeBalance + 1
-                    -- print("Arcane spell missed! Charge refunded.")
                 end
                 
-                -- Update visuals immediately to show the refund
                 self:UpdateBalanceFrame()
                 self:UpdateVignette()
+                self:UpdateActionbarOverlay()
             end
         end
     end,

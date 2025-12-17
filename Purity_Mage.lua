@@ -278,7 +278,7 @@ MageModule.challenges.conduit = {
     activeCast = nil, 
     
     ignoredSpells = {
-        ["Shoot"] = true, ["Attack"] = true, ["Hearthstone"] = true, ["Astral Recall"] = true, ["Blink"] = true,
+        ["Shoot"] = true, ["Attack"] = true, ["Hearthstone"] = true, ["Astral Recall"] = true, ["Blink"] = true, ["Evocation"] = true,
     },
 
     GetRulesText = function()
@@ -344,40 +344,35 @@ MageModule.challenges.conduit = {
                 local nameTalent, _, _, _, rank = GetTalentInfo(t, i)
                 
                 -- ARCANE: Arcane Meditation (Passive Decay Reduction)
-                -- "Meditation stabilizes the flow." -> Reduces decay by 10/20/30%
                 if nameTalent == "Arcane Meditation" and rank > 0 then
                     self.talentMods.decay = rank * 0.10 
                 end
                 
                 -- ARCANE: Arcane Mind (Capacity)
-                -- "Expands the vessel." -> +2 Max Charge per rank
                 if nameTalent == "Arcane Mind" and rank > 0 then
                     self.maxCharge = 100 + (rank * 2)
                 end
                 
                 -- FROST: Frost Channeling (Generation Speed)
-                -- "Low Resistance = Fast Flow." -> +10/20/30% Gen
                 if nameTalent == "Frost Channeling" and rank > 0 then
                     self.talentMods.gen = rank * 0.10 
                 end
                 
                 -- FROST: Permafrost (Efficiency / Cost)
-                -- "Superconductor = No Waste." -> -10/20/30% Cost
+                -- "Superconductor = No Waste." -> -10/20/30% Cost (Applied to Frost Spells only)
                 if nameTalent == "Permafrost" and rank > 0 then
                     self.talentMods.cost = rank * 0.10
                 end
                 
                 -- FIRE: Burning Soul (Grace Period)
-                -- "High Resistance = Stops Discharge." -> 0.33/0.66/1.0s Grace
                 if nameTalent == "Burning Soul" and rank > 0 then
-                    local values = { 0.33, 0.66, 1.0 }
+                    local values = { 0.75, 1.5 }
                     self.talentMods.grace = values[rank]
                 end
 
                 -- FIRE: Master of Elements (Crit Refund)
-                -- "Pressure Release." -> 10/20/30% Refund on Crit
                 if nameTalent == "Master of Elements" and rank > 0 then
-                    self.talentMods.refund = rank * 0.10
+                    self.talentMods.refund = rank * 0.20
                 end
             end
         end
@@ -423,17 +418,31 @@ MageModule.challenges.conduit = {
             elseif castTime and castTime > 0 then cost = castTime / 100
             else cost = 15 end
             
-            -- Apply Cost Mod (Now includes Permafrost)
-            if self.talentMods and self.talentMods.cost > 0 then
+            -- Apply Cost Mod (FROST SPELLS ONLY)
+            if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[id] then
                 cost = cost * (1.0 - self.talentMods.cost)
             end
             
-            tooltip:AddLine(math.floor(cost) .. " Static Charge", 1, 1, 1)
-            if self.charge < (cost - 1) then tooltip:AddLine("Insufficient Charge", 1, 0.2, 0.2) end
+            -- [[ CLEARCASTING CHECK ]]
+            local isClearcasting = false
+            for i=1, 40 do
+                local buffName = UnitBuff("player", i)
+                if not buffName then break end
+                if buffName == "Clearcasting" then isClearcasting = true; break end
+            end
+            
+            if isClearcasting then
+                cost = 0
+                tooltip:AddLine(math.floor(cost) .. " Static Charge (Clearcasting)")
+            else
+                tooltip:AddLine(math.floor(cost) .. " Static Charge", 1, 1, 1)
+                if self.charge < (cost - 1) then tooltip:AddLine("Insufficient Charge", 1, 0.2, 0.2) end
+            end
+            
             tooltip:Show()
         end)
         
-        -- 2. Talent Description Hook
+        -- 2. Talent Description Rewrite (Manual Replacement)
         if not self.talentHooked then
             hooksecurefunc(GameTooltip, "SetTalent", function(tooltip)
                 local db = Purity:GetDB()
@@ -441,113 +450,106 @@ MageModule.challenges.conduit = {
                 
                 local frameName = tooltip:GetName()
                 if not frameName then return end
+                
+                -- Get Talent Name
                 local line1 = _G[frameName .. "TextLeft1"]
                 if not line1 then return end
                 local talentName = line1:GetText()
                 if not talentName then return end
 
-                local currentRank, maxRank = 0, 0
-                local found = false
-                
+                -- Get Current Rank
+                local currentRank = 0
                 for t = 1, GetNumTalentTabs() do
                     for i = 1, GetNumTalents(t) do
-                        local name, _, _, _, rank, max = GetTalentInfo(t, i)
+                        local name, _, _, _, rank = GetTalentInfo(t, i)
                         if name == talentName then
-                            currentRank = rank; maxRank = max; found = true; break
+                            currentRank = rank
+                            break
                         end
                     end
-                    if found then break end
                 end
-                
-                if not found then return end
 
-                local descFormat = ""
-                local isFlat = false
-                
-                if talentName == "Arcane Meditation" then
-                    descFormat = " Reduces Static Decay by %d%%." -- Changed to Decay
-                elseif talentName == "Frost Channeling" then
-                    descFormat = " Increases Static Charge generation by %d%%."
-                elseif talentName == "Permafrost" then
-                     descFormat = " Reduces Static Charge cost by %d%%." -- Changed to Cost
-                elseif talentName == "Burning Soul" then
-                    isFlat = true -- Grace Period
-                elseif talentName == "Arcane Mind" then
-                    descFormat = " Increases Max Static Charge by %d."
-                elseif talentName == "Master of Elements" then
-                    descFormat = " Additionally, criticals refund %d%% of Charge cost."
-				elseif talentName == "Arcane Concentration" then
-                    -- [[ ARCANE CONCENTRATION TEXT REPLACEMENT ]]
+                -- [[ REWRITE DATA ]]
+                local talentData = {
+                    ["Arcane Meditation"] = {
+                        match = "Mana regeneration to continue",
+                        text = "Allows %d%% of your Mana regeneration to continue while casting. Reduces Static Decay by %d%%.",
+                        vars = function(r) return r*5, r*10 end
+                    },
+                    ["Frost Channeling"] = {
+                        match = "threat caused by your Frost spells",
+                        text = "Reduces the mana cost of your Frost spells by %d%% and reduces the threat caused by your Frost spells by %d%%. Increases Static Charge generation by %d%%.",
+                        vars = function(r) return r*5, r*10, r*10 end
+                    },
+                    ["Permafrost"] = {
+                        match = "target's speed",
+                        text = "Increases the duration of your Chill effects by %d sec and reduces the target's speed by an additional %d%%. Reduces Static Charge cost of Frost spells by %d%%.",
+                        vars = function(r) return r*1, r*4, r*10 end
+                    },
+                    ["Arcane Mind"] = {
+                        match = "maximum Mana",
+                        text = "Increases your maximum Mana by %d%%. Increases Max Static Charge by %d.",
+                        vars = function(r) return r*2, r*2 end
+                    },
+                    ["Master of Elements"] = {
+                        match = "base mana cost",
+                        text = "Your Fire and Frost spell criticals will refund %d%% of their base mana cost. Additionally, criticals refund %d%% of Charge cost.",
+                        vars = function(r) return r*10, r*20 end
+                    },
+                    ["Burning Soul"] = {
+                        match = "not lose casting time",
+                        text = "Gives your Fire spells a %d%% chance to not lose casting time when you take damage and reduces the threat caused by your Fire spells by %d%%. Delays Static Decay by %s sec.",
+                        vars = function(r) 
+                            local p = {35, 70}
+                            local t = {15, 30}
+                            local d = {"0.75", "1.5"} -- Updated text values
+                            return p[r] or 0, t[r] or 0, d[r] or "0"
+                        end
+                    }
+                }
+
+                if talentName == "Arcane Concentration" then
                     for i = 2, tooltip:NumLines() do
                         local line = _G[frameName .. "TextLeft" .. i]
                         if line then
                             local text = line:GetText()
-                            -- Use [Mm] to match "Mana" or "mana"
                             if text and string.find(text, "[Mm]ana cost") then
-                                local newText = string.gsub(text, "[Mm]ana cost", "mana and Static Charge cost")
-                                line:SetText(newText)
+                                line:SetText(string.gsub(text, "[Mm]ana cost", "mana and Static Charge cost"))
                             end
                         end
                     end
                     tooltip:Show()
                     return
-                else
-                    return 
                 end
 
-                local numLines = tooltip:NumLines()
-                local nextRankLineIndex = nil
-                for i = 2, numLines do
-                    local line = _G[frameName .. "TextLeft" .. i]
-                    if line and line:GetText() and string.find(line:GetText(), "Next rank") then nextRankLineIndex = i; break end
-                end
-
-                if isFlat and talentName == "Burning Soul" then
-                    local values = { "0.33", "0.66", "1.0" }
-                    local fmt = " Delays Static Decay by %s sec."
+                local data = talentData[talentName]
+                if data then
+                    local passedNextRank = false
                     
-                    if currentRank == 0 then
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(fmt, values[1])) end
-                    elseif currentRank == maxRank then
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(fmt, values[3])) end
-                    else
-                        if nextRankLineIndex then
-                            local currentDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex - 1)]
-                            if currentDescLine then currentDescLine:SetText(currentDescLine:GetText() .. string.format(fmt, values[currentRank])) end
-                            local nextDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex + 1)]
-                            if nextDescLine then nextDescLine:SetText(nextDescLine:GetText() .. string.format(fmt, values[currentRank+1])) end
+                    for i = 2, tooltip:NumLines() do
+                        local line = _G[frameName .. "TextLeft" .. i]
+                        if line then
+                            local text = line:GetText()
+                            if text then
+                                if text == "Next rank:" then
+                                    passedNextRank = true
+                                elseif string.find(text, data.match, 1, true) then
+                                    local rankToUse = currentRank
+                                    if currentRank == 0 then
+                                        rankToUse = 1 
+                                    elseif passedNextRank then
+                                        rankToUse = currentRank + 1 
+                                    end
+                                    
+                                    local v1, v2, v3 = data.vars(rankToUse)
+                                    local newText = string.format(data.text, v1, v2, v3)
+                                    line:SetText(newText)
+                                end
+                            end
                         end
                     end
-                else
-                    local perRankPct = 0
-                    if talentName == "Arcane Meditation" then perRankPct = 10
-                    elseif talentName == "Frost Channeling" then perRankPct = 10
-                    elseif talentName == "Permafrost" then perRankPct = 10
-                    elseif talentName == "Arcane Mind" then perRankPct = 2
-                    elseif talentName == "Master of Elements" then perRankPct = 10 end
-
-                    if currentRank == 0 then
-                        local bonus = perRankPct
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(descFormat, bonus)) end
-                    elseif currentRank == maxRank then
-                        local bonus = currentRank * perRankPct
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(descFormat, bonus)) end
-                    else
-                        if nextRankLineIndex then
-                            local currentBonus = currentRank * perRankPct
-                            local currentDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex - 1)]
-                            if currentDescLine then currentDescLine:SetText(currentDescLine:GetText() .. string.format(descFormat, currentBonus)) end
-                            local nextBonus = (currentRank + 1) * perRankPct
-                            local nextDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex + 1)]
-                            if nextDescLine then nextDescLine:SetText(nextDescLine:GetText() .. string.format(descFormat, nextBonus)) end
-                        end
-                    end
+                    tooltip:Show()
                 end
-                tooltip:Show() 
             end)
             self.talentHooked = true
         end
@@ -580,11 +582,21 @@ MageModule.challenges.conduit = {
         f.hitbox:SetScript("OnEnter", function(frame)
             GameTooltip_SetDefaultAnchor(GameTooltip, UIParent)
             GameTooltip:SetText("Charge Bar", 1, 1, 1)
+            
             local _, spirit = UnitStat("player", 5)
-            local currentGenRate = challenge.genRate + (spirit * 0.05)
-            GameTooltip:AddLine("Power flows through motion. Movement generates charge based on your speed, with " .. string.format("%.1f", currentGenRate) .. " charge/sec being the base rate (1.0x speed). Standing still decays 4 charge per sec. Spells cost charge to cast. Casting with insufficient charge breaks the vow.", 1, 0.82, 0, true)
+            
+            local baseGen = challenge.genRate + (spirit * 0.05)
+            local genMult = 1.0 + (challenge.talentMods and challenge.talentMods.gen or 0)
+            local currentGen = baseGen * genMult
+
+            local baseDecay = challenge.decayRate
+            local decayMult = 1.0 - (challenge.talentMods and challenge.talentMods.decay or 0)
+            local currentDecay = baseDecay * decayMult
+            
+            GameTooltip:AddLine("Power flows through motion. Movement generates charge based on your speed, with " .. string.format("%.1f", currentGen) .. " charge/sec being the base rate (1.0x speed). Standing still decays " .. string.format("%.1f", currentDecay) .. " charge per sec. Spells cost charge to cast. Casting with insufficient charge breaks the vow.", 1, 0.82, 0, true)
             GameTooltip:Show()
         end)
+		
         f.hitbox:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
         
         f.bg = f:CreateTexture(nil, "BACKGROUND")
@@ -764,7 +776,8 @@ MageModule.challenges.conduit = {
                     cost = 15 
                 end
                 
-                if self.talentMods and self.talentMods.cost > 0 then
+                -- [[ COST MODIFIER (Frost Spells Only) ]]
+                if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[spellId] then
                     cost = cost * (1.0 - self.talentMods.cost)
                 end
 
@@ -845,8 +858,8 @@ MageModule.challenges.conduit = {
                                 cost = 15
                             end
                             
-                            -- [[ APPLY COST MODIFIER ]]
-                            if self.talentMods and self.talentMods.cost > 0 then
+                            -- [[ COST MODIFIER (Frost Spells Only) ]]
+                            if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[spellId] then
                                 cost = cost * (1.0 - self.talentMods.cost)
                             end
 
@@ -891,172 +904,6 @@ MageModule.challenges.conduit = {
                     end
                 end
             end
-        end
-    end,
-
-    SetupTooltip = function(self)
-        -- 1. Standard Spell Cost Hook
-        GameTooltip:HookScript("OnTooltipSetSpell", function(tooltip)
-            local name, id = tooltip:GetSpell()
-            if not name then return end
-            
-            local db = Purity:GetDB()
-            if not db or db.activeChallengeID ~= "Conduit of Purity" then return end
-
-            if self.ignoredSpells[name] then return end
-            
-            local isMageSpell = learnableFireSpells[id] or learnableFrostSpells[id] or learnableArcaneSpells[id]
-            if not isMageSpell then return end
-            
-            local cost = 0
-            local _, _, _, castTime = GetSpellInfo(id)
-            
-            if name == "Arcane Missiles" or name == "Blizzard" then cost = 30
-            elseif string.find(name, "Teleport:") then cost = 90
-            elseif castTime and castTime > 0 then cost = castTime / 100
-            else cost = 15 end
-            
-            -- Apply Cost Mod
-            if self.talentMods and self.talentMods.cost > 0 then
-                cost = cost * (1.0 - self.talentMods.cost)
-            end
-            
-            -- [[ CLEARCASTING CHECK ]]
-            local isClearcasting = false
-            for i=1, 40 do
-                local buffName = UnitBuff("player", i)
-                if not buffName then break end
-                if buffName == "Clearcasting" then isClearcasting = true; break end
-            end
-            
-            if isClearcasting then
-                cost = 0
-                tooltip:AddLine(math.floor(cost) .. " Static Charge (Clearcasting)")
-            else
-                tooltip:AddLine(math.floor(cost) .. " Static Charge", 1, 1, 1)
-                if self.charge < (cost - 1) then tooltip:AddLine("Insufficient Charge", 1, 0.2, 0.2) end
-            end
-            
-            tooltip:Show()
-        end)
-        
-        -- 2. Talent Description Hook
-        if not self.talentHooked then
-            hooksecurefunc(GameTooltip, "SetTalent", function(tooltip)
-                local db = Purity:GetDB()
-                if not db or db.activeChallengeID ~= "Conduit of Purity" then return end
-                
-                local frameName = tooltip:GetName()
-                if not frameName then return end
-                local line1 = _G[frameName .. "TextLeft1"]
-                if not line1 then return end
-                local talentName = line1:GetText()
-                if not talentName then return end
-
-                local currentRank, maxRank = 0, 0
-                local found = false
-                
-                for t = 1, GetNumTalentTabs() do
-                    for i = 1, GetNumTalents(t) do
-                        local name, _, _, _, rank, max = GetTalentInfo(t, i)
-                        if name == talentName then
-                            currentRank = rank; maxRank = max; found = true; break
-                        end
-                    end
-                    if found then break end
-                end
-                
-                if not found then return end
-
-                local descFormat = ""
-                local isFlat = false
-                
-                if talentName == "Arcane Meditation" then
-                    descFormat = " Reduces Static Decay by %d%%." 
-                elseif talentName == "Frost Channeling" then
-                    descFormat = " Increases Static Charge generation by %d%%."
-                elseif talentName == "Permafrost" then
-                     descFormat = " Reduces Static Charge cost by %d%%."
-                elseif talentName == "Burning Soul" then
-                    isFlat = true 
-                elseif talentName == "Arcane Mind" then
-                    descFormat = " Increases Max Static Charge by %d."
-                elseif talentName == "Master of Elements" then
-                    descFormat = " Additionally, criticals refund %d%% of Charge cost."
-				elseif talentName == "Arcane Concentration" then
-                    -- [[ ARCANE CONCENTRATION TEXT REPLACEMENT ]]
-                    for i = 2, tooltip:NumLines() do
-                        local line = _G[frameName .. "TextLeft" .. i]
-                        if line then
-                            local text = line:GetText()
-                            -- Use [Mm] to match "Mana" or "mana"
-                            if text and string.find(text, "[Mm]ana cost") then
-                                local newText = string.gsub(text, "[Mm]ana cost", "mana and Static Charge cost")
-                                line:SetText(newText)
-                            end
-                        end
-                    end
-                    tooltip:Show()
-                    return
-                else
-                    return 
-                end
-
-                local numLines = tooltip:NumLines()
-                local nextRankLineIndex = nil
-                for i = 2, numLines do
-                    local line = _G[frameName .. "TextLeft" .. i]
-                    if line and line:GetText() and string.find(line:GetText(), "Next rank") then nextRankLineIndex = i; break end
-                end
-
-                if isFlat and talentName == "Burning Soul" then
-                    local values = { "0.33", "0.66", "1.0" }
-                    local fmt = " Delays Static Decay by %s sec."
-                    
-                    if currentRank == 0 then
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(fmt, values[1])) end
-                    elseif currentRank == maxRank then
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(fmt, values[3])) end
-                    else
-                        if nextRankLineIndex then
-                            local currentDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex - 1)]
-                            if currentDescLine then currentDescLine:SetText(currentDescLine:GetText() .. string.format(fmt, values[currentRank])) end
-                            local nextDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex + 1)]
-                            if nextDescLine then nextDescLine:SetText(nextDescLine:GetText() .. string.format(fmt, values[currentRank+1])) end
-                        end
-                    end
-                else
-                    local perRankPct = 0
-                    if talentName == "Arcane Meditation" then perRankPct = 10
-                    elseif talentName == "Frost Channeling" then perRankPct = 10
-                    elseif talentName == "Permafrost" then perRankPct = 10
-                    elseif talentName == "Arcane Mind" then perRankPct = 2
-                    elseif talentName == "Master of Elements" then perRankPct = 10 end
-
-                    if currentRank == 0 then
-                        local bonus = perRankPct
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(descFormat, bonus)) end
-                    elseif currentRank == maxRank then
-                        local bonus = currentRank * perRankPct
-                        local fontString = _G[frameName .. "TextLeft" .. numLines]
-                        if fontString then fontString:SetText(fontString:GetText() .. string.format(descFormat, bonus)) end
-                    else
-                        if nextRankLineIndex then
-                            local currentBonus = currentRank * perRankPct
-                            local currentDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex - 1)]
-                            if currentDescLine then currentDescLine:SetText(currentDescLine:GetText() .. string.format(descFormat, currentBonus)) end
-                            local nextBonus = (currentRank + 1) * perRankPct
-                            local nextDescLine = _G[frameName .. "TextLeft" .. (nextRankLineIndex + 1)]
-                            if nextDescLine then nextDescLine:SetText(nextDescLine:GetText() .. string.format(descFormat, nextBonus)) end
-                        end
-                    end
-                end
-                tooltip:Show() 
-            end)
-            self.talentHooked = true
         end
     end,
 
@@ -1243,7 +1090,8 @@ MageModule.challenges.conduit = {
             cost = 15 
         end
         
-        if self.talentMods and self.talentMods.cost > 0 then
+        -- [[ COST MODIFIER (Frost Spells Only) ]]
+        if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[spellId] then
             cost = cost * (1.0 - self.talentMods.cost)
         end
         
@@ -1283,7 +1131,6 @@ MageModule.challenges.conduit = {
             local unit = ...
             if unit ~= "player" then return end
             
-            -- If we started a cast and paid for it, REFUND it now.
             if self.activeCast then
                 if self.activeCast.isViolation then
                     self:HideWarning()
@@ -1298,20 +1145,43 @@ MageModule.challenges.conduit = {
             return
         end
         
-        -- COMBAT LOG (For Master of Elements / Blink)
+        -- COMBAT LOG
         if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-            local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, logSpellId, spellName, _, _, _, _, _, _, _, critical = CombatLogGetCurrentEventInfo()
+            local _, subEvent, _, sourceGUID, _, _, _, destGUID, _, _, _, logSpellId, spellName, _, _, _, _, _, _, _, critical = CombatLogGetCurrentEventInfo()
+            
+            -- TRACK AURA REMOVAL (Check Dest = Player)
+            -- This catches the buff falling off immediately for Instant/Channeled spells
+            if destGUID == UnitGUID("player") and subEvent == "SPELL_AURA_REMOVED" and spellName == "Clearcasting" then
+                self.lastClearcastRemoveTime = GetTime()
+            end
+
             if sourceGUID == UnitGUID("player") then
                 -- Master of Elements Refund
                 if subEvent == "SPELL_DAMAGE" and critical and self.talentMods and self.talentMods.refund > 0 then
-                    local isMageSpell = learnableFireSpells[logSpellId] or learnableFrostSpells[logSpellId] or learnableArcaneSpells[logSpellId]
-                    if isMageSpell then
-                        local cost = 15 -- Base proxy
+                    local refundSpells = {
+                        ["Pyroblast"] = true, ["Fireball"] = true, ["Scorch"] = true, 
+                        ["Fire Blast"] = true, ["Flamestrike"] = true, ["Blast Wave"] = true,
+                        ["Frostbolt"] = true, ["Cone of Cold"] = true, ["Blizzard"] = true
+                    }
+
+                    if refundSpells[spellName] then
+                        local cost = 0
                         local _, _, _, castTime = GetSpellInfo(logSpellId)
+                        
+                        -- Smart Cost Calculation
+                        if not castTime or castTime == 0 then
+                            _, _, _, castTime = GetSpellInfo(spellName)
+                        end
+
                         if spellName == "Arcane Missiles" or spellName == "Blizzard" then cost = 30
                         elseif string.find(spellName, "Teleport:") then cost = 90
-                        elseif castTime and castTime > 0 then cost = castTime / 100 end
-                        if self.talentMods.cost > 0 then cost = cost * (1.0 - self.talentMods.cost) end
+                        elseif castTime and castTime > 0 then cost = castTime / 100
+                        else cost = 15 end
+                        
+                        local isFrost = (spellName == "Frostbolt" or spellName == "Cone of Cold" or spellName == "Blizzard")
+                        if self.talentMods.cost > 0 and isFrost then 
+                             cost = cost * (1.0 - self.talentMods.cost) 
+                        end
                         
                         self.charge = self.charge + (cost * self.talentMods.refund)
                         db.mageCharge = self.charge
@@ -1329,60 +1199,57 @@ MageModule.challenges.conduit = {
             return
         end
 
-        -- [[ 1. PRE-CAST SNAPSHOT ]]
-        -- Fires immediately when button is pressed. Captures mana for BOTH Instant and Cast-Time.
-        if event == "UNIT_SPELLCAST_SENT" then
-            local unit = ...
-            if unit == "player" then
-                self.manaSnapshot = UnitPower("player", 0)
-            end
-            return
-        end
-
-        -- [[ 2. CAST START (The Deposit) ]]
-        if event == "UNIT_SPELLCAST_START" then
+        -- HANDLE START & CHANNEL START
+        if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
             local unit, _, spellId = ...
             if unit ~= "player" then return end
             
             local spellName, _, _, castTime = GetSpellInfo(spellId)
             
-            if castTime and castTime > 0 then
-                -- Calculate Upfront Cost
+            local isChannel = (event == "UNIT_SPELLCAST_CHANNEL_START")
+            if (castTime and castTime > 0) or isChannel then
                 local status, cost = self:GetProjectedCost(spellName, castTime, spellId)
                 
-                -- Note: GetProjectedCost returns 0 if Clearcasting is up, so we don't double dip.
-                if status == "VIOLATION" then
-                    self.activeCast = { name = spellName, cost = cost, isViolation = true, paid = 0 }
+                -- Check for Clearcasting LIVE
+                local isFree = false
+                for i=1, 40 do
+                    local name = UnitBuff("player", i)
+                    if name == "Clearcasting" then isFree = true; break end
+                end
+
+                -- Check Recent Removal (Ghost Clearcast)
+                -- If we don't see the buff, but it disappeared < 0.5s ago, IT COUNTS.
+                if not isFree and self.lastClearcastRemoveTime and (GetTime() - self.lastClearcastRemoveTime) < 0.5 then
+                    isFree = true
+                end
+
+                if isFree then cost = 0 end
+
+                if status == "VIOLATION" and cost > 0 then
+                    self.activeCast = { name = spellName, cost = cost, isViolation = true, paid = 0, isClearcast = isFree }
                     self:ShowWarning()
                     PlaySound(SOUNDKIT.RAID_WARNING)
                 else
-                    -- Valid cast: DEDUCT CHARGE NOW
                     self.charge = self.charge - cost
                     if self.charge < 0 then self.charge = 0 end
                     db.mageCharge = self.charge
                     self:UpdateBar()
-                    
-                    self.activeCast = { name = spellName, cost = cost, isViolation = false, paid = cost }
+                    self.activeCast = { name = spellName, cost = cost, isViolation = false, paid = cost, isClearcast = isFree }
                 end
             end
 
-        -- [[ 3. CAST SUCCESS (The Settlement) ]]
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             local unit, _, spellId = ...
             if unit ~= "player" then return end
             
-            -- [[ FIX: DEBOUNCE DOUBLE EVENTS ]]
             local now = GetTime()
-            if self.lastSuccessID == spellId and self.lastSuccessTime and (now - self.lastSuccessTime) < 0.5 then
-                return
-            end
+            if self.lastSuccessID == spellId and self.lastSuccessTime and (now - self.lastSuccessTime) < 0.5 then return end
             self.lastSuccessID = spellId
             self.lastSuccessTime = now
             
             local spellName = GetSpellInfo(spellId)
             local _, _, _, castTime = GetSpellInfo(spellId)
             
-            -- If ignored or not mage spell, clear and exit
             local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
             if not spellName or self.ignoredSpells[spellName] or not isMageSpell then 
                 self.activeCast = nil
@@ -1390,31 +1257,40 @@ MageModule.challenges.conduit = {
                 return 
             end
 
-            -- DETERMINE IF IT WAS FREE (Clearcasting Check)
-            -- We compare Current Mana vs Snapshot from UNIT_SPELLCAST_SENT
+            -- Determine if it was free
             local wasFree = false
-            if self.manaSnapshot then
-                local currentMana = UnitPower("player", 0)
-                -- If mana didn't go down (or went up due to regen), it was free.
-                if (self.manaSnapshot - currentMana) <= 0 then 
-                    wasFree = true 
+            
+            if self.activeCast then
+                -- Path A: Active Cast Record
+                if self.activeCast.isClearcast then wasFree = true end
+                
+                -- Backup Check (Race Condition Safety)
+                if not wasFree and self.lastClearcastRemoveTime and (now - self.lastClearcastRemoveTime) < 0.5 then
+                    wasFree = true
+                end
+            else
+                -- Path B: Instant Spell (No Start Event)
+                for i=1, 40 do
+                    local name = UnitBuff("player", i)
+                    if name == "Clearcasting" then wasFree = true; break end
+                end
+                
+                -- Check Recent Removal
+                if not wasFree and self.lastClearcastRemoveTime and (now - self.lastClearcastRemoveTime) < 0.5 then
+                    wasFree = true
                 end
             end
 
-            -- LOGIC BRANCHING
             if self.activeCast then
-                -- [[ PATH A: Cast-Time Spell (Already Paid) ]]
                 if self.activeCast.isViolation then
                     self:HideWarning()
                     Purity:Violation("Started cast " .. spellName .. " with insufficient Static Charge.")
                 else
-                    -- Refund Check
                     if wasFree and self.activeCast.paid > 0 then
                         self.charge = self.charge + self.activeCast.paid
                         db.mageCharge = self.charge
                         self:UpdateBar()
                     elseif not wasFree and self.activeCast.paid == 0 then
-                        -- Late Fee (Clearcasting ended early or was predicted wrong)
                         local lateFee = 30 
                         if self.activeCast.cost > 0 then lateFee = self.activeCast.cost end
                         self.charge = self.charge - lateFee
@@ -1424,21 +1300,18 @@ MageModule.challenges.conduit = {
                     end
                 end
             else
-                -- [[ PATH B: Instant Spell (Not Yet Paid) ]]
-                
-                -- Safety: If it has a cast time but we missed the Start, DO NOT charge here.
+                -- INSTANT SPELL PATH
                 if castTime and castTime > 0 then
-                    self.activeCast = nil
-                    self.manaSnapshot = nil
-                    return
+                    self.activeCast = nil; self.manaSnapshot = nil; return
                 end
 
-                -- Pay NOW
                 local purityCost = 0
                 if spellName == "Arcane Missiles" or spellName == "Blizzard" then purityCost = 30
                 else purityCost = 15 end 
                 
-                if self.talentMods and self.talentMods.cost > 0 then purityCost = purityCost * (1.0 - self.talentMods.cost) end
+                if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[spellId] then 
+                    purityCost = purityCost * (1.0 - self.talentMods.cost) 
+                end
                 
                 if wasFree then purityCost = 0 end
 
@@ -1452,7 +1325,6 @@ MageModule.challenges.conduit = {
                     end
                 end
             end
-            
             self.activeCast = nil
             self.manaSnapshot = nil
         end

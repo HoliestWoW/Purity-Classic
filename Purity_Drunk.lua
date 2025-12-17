@@ -53,23 +53,15 @@ function DrunkModule:GetRulesText()
     }
 end
 
--- This is our single, unified event handler
-local function DrunkModule_EventHandler(event, ...)
+local function DrunkModule_EventHandler(self, event, ...)
     local db = Purity:GetDB()
 
-    -- FIXED: Switched to CHAT_MSG_SYSTEM to correctly catch chat log text
     if event == "CHAT_MSG_SYSTEM" then
-        -- FIXED: ... expands to individual args, not a table. 
-        -- The first arg of CHAT_MSG_SYSTEM is the message string.
         local message = ... 
         
         if message then
-            -- Check if the message starts with "You" to filter out other players
-            -- Using ^ anchor ensures it is at the start of the string
             if string.find(message, "^You") then
-                
-                -- Check for status changes
-                -- Using string.find is safer than exact equality (==) for chat messages
+
                 if string.find(message, "completely smashed") then
                     DrunkModule:SetDrunkState("Smashed")
                 elseif string.find(message, "feel drunk") then
@@ -84,9 +76,7 @@ local function DrunkModule_EventHandler(event, ...)
     
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = ...
-        
-        -- IDs for the "Apprentice" rank of each primary profession.
-        -- These IDs return the localized name (e.g., "Alchemy" or "Alchemie")
+
         local professionSpellIDs = {
             2259, -- Alchemy
             2018, -- Blacksmithing
@@ -253,8 +243,7 @@ function DrunkModule:InitializeOnPlayerEnterWorld()
 end
 
 function DrunkModule:EventHandler(event, ...)
-    -- This function allows the main Purity addon to forward events to our handler
-    DrunkModule_EventHandler(event, ...)
+    DrunkModule_EventHandler(nil, event, ...)
 end
 
 function DrunkModule:GetChallengeSpecifier() return nil end
