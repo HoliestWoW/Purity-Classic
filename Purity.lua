@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "10.1.3"
+Purity.Version = "10.1.4"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -3628,42 +3628,51 @@ local function Purity_OnTooltipSetSpell_Handler(self)
     end
 end
 
-local function Purity_GeneralTooltip_OnShow_Handler(self)
+local function Purity_OnTooltipSetItem_Handler(self)
     if Purity.isActionTooltip then return end
 
     local activeChallenge = Purity:GetActiveChallengeObject()
-    if not activeChallenge then return end
+    if not activeChallenge or not activeChallenge.IsItemForbidden then return end
+    
     local db = Purity:GetDB()
     if not db then return end
 
     local _, itemLink = self:GetItem()
-    if itemLink and activeChallenge.IsItemForbidden and activeChallenge:IsItemForbidden(itemLink) then
+    
+    if itemLink and activeChallenge:IsItemForbidden(itemLink) then
         local challengeName = db.challengeTitle or "Purity Challenge"
-        self:AddLine(" ", 0, 0, 0, 0)
+        
+        self:AddLine(" ")
         self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
+        
         self:Show()
-        return
     end
+end
 
-    if activeChallenge.id == "BLOOD_MAGE_BARGAIN" then
-        local left1 = _G[self:GetName() .. "TextLeft1"]
-        if left1 then
-            local text = left1:GetText()
-            if text then
-                if text == STAT_SPIRIT or text:find("Spirit") then
-                    self:AddLine("Reduces blood cost of your spells.")
-                    self:Show()
-                elseif text == STAT_STAMINA or text:find("Stamina") then
-                    self:AddLine("Increases your blood pool.")
-                    self:Show()
-                end
+GameTooltip:HookScript("OnTooltipSetItem", Purity_OnTooltipSetItem_Handler)
+GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
+
+local function Purity_GeneralTooltip_OnShow_Handler(self)
+    if Purity.isActionTooltip then return end
+
+    local activeChallenge = Purity:GetActiveChallengeObject()
+    if not activeChallenge or activeChallenge.id ~= "BLOOD_MAGE_BARGAIN" then return end
+
+    -- Keep only the Blood Mage / Stat logic here
+    local left1 = _G[self:GetName() .. "TextLeft1"]
+    if left1 then
+        local text = left1:GetText()
+        if text then
+            if text == STAT_SPIRIT or (text.find and text:find("Spirit")) then
+                self:AddLine("Reduces blood cost of your spells.")
+                self:Show()
+            elseif text == STAT_STAMINA or (text.find and text:find("Stamina")) then
+                self:AddLine("Increases your blood pool.")
+                self:Show()
             end
         end
     end
 end
-
-GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
-GameTooltip:HookScript("OnShow", Purity_GeneralTooltip_OnShow_Handler)
 
 hooksecurefunc(GameTooltip, "SetTalent", function(self, tabIndex, talentIndex)
     local activeChallenge = Purity:GetActiveChallengeObject()
