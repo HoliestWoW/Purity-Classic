@@ -84,9 +84,9 @@ local learnableArcaneSpells = {
     -- Mana Shield (Ranks 1-6)
     [1463] = true, [8494] = true, [8495] = true, [10191] = true, [10192] = true, [10193] = true,
     -- Conjure Food (Ranks 1-7)
-    [587] = true, [1113] = true, [1114] = true, [1487] = true, [8075] = true, [8076] = true, [22895] = true,
+    [587] = true, [597] = true, [990] = true, [6129] = true, [10144] = true, [10145] = true, [28612] = true,
     -- Conjure Water (Ranks 1-7)
-    [5504] = true, [2288] = true, [2136] = true, [3772] = true, [8077] = true, [8078] = true, [8079] = true,
+    [5504] = true, [5505] = true, [5506] = true, [6127] = true, [10138] = true, [10139] = true, [10140] = true,
     -- Conjure Mana Gems (Agate, Jade, Citrine, Ruby)
     [759] = true, [3552] = true, [10053] = true, [10054] = true,
     -- Teleports (SW, IF, Darn, Org, UC, TB)
@@ -407,7 +407,7 @@ MageModule.challenges.conduit = {
             local cost = 0
             local _, _, _, castTime = GetSpellInfo(id)
             
-            if name == "Arcane Missiles" or name == "Blizzard" or name == "Evocation" then cost = 30
+            if name == "Arcane Missiles" or name == "Blizzard" then cost = 30
             elseif string.find(name, "Teleport:") then cost = 90
             elseif castTime and castTime > 0 then cost = castTime / 100
             else cost = 15 end
@@ -743,7 +743,7 @@ MageModule.challenges.conduit = {
                 local cost = 0
                 local _, _, _, castTime = GetSpellInfo(spellId)
                 
-                if spellName == "Arcane Missiles" or spellName == "Blizzard" or spellName == "Evocation" then 
+                if spellName == "Arcane Missiles" or spellName == "Blizzard" then 
                     cost = 30
                 elseif string.find(spellName, "Teleport:") then 
                     cost = 90
@@ -824,7 +824,7 @@ MageModule.challenges.conduit = {
                             local cost = 0
                             local _, _, _, castTime = GetSpellInfo(spellId)
                             
-                            if spellName == "Arcane Missiles" or spellName == "Blizzard" or spellName == "Evocation" then
+                            if spellName == "Arcane Missiles" or spellName == "Blizzard" then
                                 cost = 30
                             elseif string.find(spellName, "Teleport:") then
                                 cost = 90
@@ -900,7 +900,7 @@ MageModule.challenges.conduit = {
             local cost = 0
             local _, _, _, castTime = GetSpellInfo(id)
             
-            if name == "Arcane Missiles" or name == "Blizzard" or name == "Evocation" then cost = 30
+            if name == "Arcane Missiles" or name == "Blizzard" then cost = 30
             elseif string.find(name, "Teleport:") then cost = 90
             elseif castTime and castTime > 0 then cost = castTime / 100
             else cost = 15 end
@@ -1222,7 +1222,7 @@ MageModule.challenges.conduit = {
         if not isMageSpell then return "SAFE", 0 end
         
         local cost = 0
-        if spellName == "Arcane Missiles" or spellName == "Blizzard" or spellName == "Evocation" then 
+        if spellName == "Arcane Missiles" or spellName == "Blizzard" then 
             cost = 30
         elseif string.find(spellName, "Teleport:") then 
             cost = 90
@@ -1271,7 +1271,7 @@ MageModule.challenges.conduit = {
 
         -- SPELL FAILURE / INTERRUPT (REFUND)
         if event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_FAILED" then
-            local unit = ... 
+            local unit = ...
             if unit ~= "player" then return end
             
             -- If we started a cast and paid for it, REFUND it now.
@@ -1285,20 +1285,21 @@ MageModule.challenges.conduit = {
                 end
             end
             self.activeCast = nil
+            self.manaAtStart = nil
             return
         end
         
         -- COMBAT LOG (For Master of Elements / Blink)
         if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-            local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName, _, _, _, _, _, _, _, critical = CombatLogGetCurrentEventInfo()
+            local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, logSpellId, spellName, _, _, _, _, _, _, _, critical = CombatLogGetCurrentEventInfo()
             if sourceGUID == UnitGUID("player") then
                 -- Master of Elements Refund
                 if subEvent == "SPELL_DAMAGE" and critical and self.talentMods and self.talentMods.refund > 0 then
-                    local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
+                    local isMageSpell = learnableFireSpells[logSpellId] or learnableFrostSpells[logSpellId] or learnableArcaneSpells[logSpellId]
                     if isMageSpell then
                         local cost = 15 -- Base proxy
-                        local _, _, _, castTime = GetSpellInfo(spellId)
-                        if spellName == "Arcane Missiles" or spellName == "Blizzard" or spellName == "Evocation" then cost = 30
+                        local _, _, _, castTime = GetSpellInfo(logSpellId)
+                        if spellName == "Arcane Missiles" or spellName == "Blizzard" then cost = 30
                         elseif string.find(spellName, "Teleport:") then cost = 90
                         elseif castTime and castTime > 0 then cost = castTime / 100 end
                         if self.talentMods.cost > 0 then cost = cost * (1.0 - self.talentMods.cost) end
@@ -1316,12 +1317,14 @@ MageModule.challenges.conduit = {
                     self:UpdateBar()
                 end
             end
+            return
         end
 
         -- MAIN SPELLCAST MONITORING
         if event == "UNIT_SPELLCAST_START" then
             local unit, _, spellId = ...
             if unit ~= "player" then return end
+            
             local spellName, _, _, castTime = GetSpellInfo(spellId)
             
             -- SNAPSHOT MANA (Used for Clearcasting Check at end)
@@ -1329,17 +1332,16 @@ MageModule.challenges.conduit = {
 
             if castTime and castTime > 0 then
                 -- Calculate Upfront Cost
-                -- (Note: GetProjectedCost returns 0 if it sees Clearcasting buff, so we 'pay' 0)
                 local status, cost = self:GetProjectedCost(spellName, castTime, spellId)
                 
                 if status == "VIOLATION" then
-                    -- Mark as violation, don't deduct (you have nothing to take)
                     self.activeCast = { name = spellName, cost = cost, isViolation = true, paid = 0 }
                     self:ShowWarning()
                     PlaySound(SOUNDKIT.RAID_WARNING)
                 else
-                    -- Valid cast: DEDUCT CHARGE NOW (Up-front)
+                    -- Valid cast: DEDUCT CHARGE NOW
                     self.charge = self.charge - cost
+                    if self.charge < 0 then self.charge = 0 end
                     db.mageCharge = self.charge
                     self:UpdateBar()
                     
@@ -1356,23 +1358,62 @@ MageModule.challenges.conduit = {
             
             -- If ignored or not mage spell, clear and exit
             local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
-            if self.ignoredSpells[spellName] or not isMageSpell then 
+            if not spellName or self.ignoredSpells[spellName] or not isMageSpell then 
                 self.activeCast = nil
+                self.manaAtStart = nil
                 return 
             end
 
             -- 1. Check if it was FREE (Mana Check)
             local currentMana = UnitPower("player", 0)
-            local manaSpent = (self.manaAtStart or currentMana) - currentMana
-            local wasFree = (manaSpent <= 0)
+            local wasFree = false
+            
+            if self.manaAtStart then
+                -- We have a snapshot from START, so we can verify if mana was spent
+                local manaSpent = self.manaAtStart - currentMana
+                if manaSpent <= 0 then wasFree = true end
+                self.manaAtStart = nil -- Reset the snapshot
+            else
+                -- Instant spells (like Fire Blast) skip START, so manaAtStart is nil.
+                -- We assume these are NOT free by default so they charge correctly.
+                wasFree = false
+            end
 
-            -- 2. Handle Instant Casts (No Start Event)
-            if not self.activeCast then
-                -- We treat instants as pay-on-success since they have no duration to "decay" during.
+            -- 2. DECISION TREE
+            if self.activeCast then
+                -- [[ PATH A: Cast-Time Spell (Already Paid) ]]
+                if self.activeCast.isViolation then
+                    self:HideWarning()
+                    Purity:Violation("Started cast " .. spellName .. " with insufficient Static Charge.")
+                else
+                    -- Refund Check
+                    if wasFree and self.activeCast.paid > 0 then
+                        self.charge = self.charge + self.activeCast.paid
+                        db.mageCharge = self.charge
+                        self:UpdateBar()
+                    elseif not wasFree and self.activeCast.paid == 0 then
+                        -- Late Fee (Clearcasting ended early or was predicted wrong)
+                        local lateFee = 30 
+                        if self.activeCast.cost > 0 then lateFee = self.activeCast.cost end
+                        self.charge = self.charge - lateFee
+                        if self.charge < 0 then self.charge = 0 end 
+                        db.mageCharge = self.charge
+                        self:UpdateBar()
+                    end
+                end
+            else
+                -- [[ PATH B: Instant Spell (Not Yet Paid) ]]
+                
+                -- Safety: If it has a cast time but we missed the Start, DO NOT charge here.
+                if castTime and castTime > 0 then
+                    self.activeCast = nil
+                    return
+                end
+
+                -- Pay NOW
                 local purityCost = 0
-                if spellName == "Arcane Missiles" or spellName == "Blizzard" or spellName == "Evocation" then purityCost = 30
-                elseif string.find(spellName, "Teleport:") then purityCost = 90
-                else purityCost = 15 end -- Standard Instant Cost
+                if spellName == "Arcane Missiles" or spellName == "Blizzard" then purityCost = 30
+                else purityCost = 15 end 
                 
                 if self.talentMods and self.talentMods.cost > 0 then purityCost = purityCost * (1.0 - self.talentMods.cost) end
                 
@@ -1384,45 +1425,6 @@ MageModule.challenges.conduit = {
                     self.charge = self.charge - purityCost
                     db.mageCharge = self.charge
                     self:UpdateBar()
-                end
-                return
-            end
-
-            -- 3. Handle Cast-Time Spells (Verification & Refund)
-            if self.activeCast.isViolation then
-                -- You started illegally. Even if it was free, you broke the rule at the start.
-                self:HideWarning()
-                Purity:Violation("Started cast " .. spellName .. " with insufficient Static Charge.")
-            else
-                -- We started validly and PAID upfront.
-                if wasFree then
-                    -- CASE: It turned out to be free (Clearcasting), but we paid for it.
-                    -- REFUND THE COST.
-                    if self.activeCast.paid > 0 then
-                        self.charge = self.charge + self.activeCast.paid
-                        db.mageCharge = self.charge
-                        self:UpdateBar()
-                    end
-                else
-                    -- CASE: It cost mana (Normal).
-                    -- If we paid 0 upfront (because we THOUGHT it was free/saw buff), but spent mana...
-                    -- We must charge now. (Late Payment)
-                    if self.activeCast.paid == 0 then
-                        -- Recalculate what the cost should have been
-                        local realCost = self.activeCast.cost
-                        if realCost == 0 then realCost = 30 end -- Fallback if projected was 0
-                        
-                        self.charge = self.charge - realCost
-                        if self.charge < 0 then 
-                             -- You tricked the system, but now you are broke.
-                             -- Technically a violation, but we'll just floor at 0 to be kind?
-                             -- Or fail? Let's fail strictly.
-                             Purity:Violation("Cast " .. spellName .. " with insufficient Static Charge (Clearcasting failed).")
-                        end
-                        db.mageCharge = self.charge
-                        self:UpdateBar()
-                    end
-                    -- If we paid > 0 upfront and spent mana, everything is correct. Do nothing.
                 end
             end
             
