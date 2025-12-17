@@ -179,7 +179,7 @@ Purity.ChallengeCoefficients = {
 	["Fisherman's Folly"] = 4.32,
 	["Libram of Purity"] = 4.25,
 	["Conduit of Purity"] = 4.10,
-	["Tome of Purity (Arcane)"] = 4.05,
+	["Crackling Tome of Purity"] = 4.05,
 	["Astrolabe of Purity"] = 4.00,
 	["Flame of Purity"] = 3.91,
 	["Sacrament of Purity"] = 3.85,
@@ -193,8 +193,8 @@ Purity.ChallengeCoefficients = {
 	["Bulwark of Purity"] = 2.75,
 	["Communion of Purity"] = 2.68,
 	["Grimoire of Purity"] = 2.25,
-	["Tome of Purity (Fire)"] = 2.27,
-	["Tome of Purity (Frost)"] = 2.14,
+	["Burnt Tome of Purity"] = 2.27,
+	["Frozen Tome of Purity"] = 2.14,
 	["Foil of Purity"] = 2.00
 }
 
@@ -615,7 +615,7 @@ function Purity:DisplayCompletionStats()
         message = string.format("Fun fact: During your challenge, you Charged or Intercepted %d times!", stats.chargeInterceptCasts)
     elseif challenge == "Bulwark of Purity" and stats.blocks then
         message = string.format("Fun fact: As an ardent protector, you successfully blocked %d attacks!", stats.blocks)
-    elseif challenge == "Tome of Purity" and stats.primarySpellCasts then
+    elseif db.activeChallengeID == "Tome of Purity" and stats.primarySpellCasts then
         message = string.format("Fun fact: During your studies, you cast your primary spell %d times!", stats.primarySpellCasts)
 	elseif challenge == "Conduit of Purity" then
         local charge = stats.chargeAccumulatedCombat or 0
@@ -1999,13 +1999,13 @@ function Purity.CreateCoreUI()
         end
 
         local db = Purity:GetDB()
-        if challengeData.SaveData then challengeData:SaveData() end
-
+        
         db.isOptedIn = true
         db.status = "Passing"
         db.startDate = date("%Y-%m-%d %H:%M:%S")
         db.playerGUID = UnitGUID("player")
-        db.challengeTitle = challengeData.challengeName
+        db.challengeTitle = challengeData.challengeName 
+        if challengeData.SaveData then challengeData:SaveData() end
         db.addonVersion = Purity.Version
 		db.isAwaitingInitialUptimeSync = true
 		Purity:SilentRequestTimePlayed()

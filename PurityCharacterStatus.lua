@@ -372,7 +372,7 @@ function UpdateCharacterPurity()
 		elseif db.challengeTitle == "Conduit of Purity" then
             statValue = math.floor(db.challengeStats.chargeAccumulatedCombat or 0)
             statName = "Combat Charge Gen:"
-		elseif db.challengeTitle == "Tome of Purity" then
+		elseif db.activeChallengeID == "Tome of Purity" then
 			statValue = db.challengeStats and db.challengeStats.primarySpellCasts or 0
 			local spec = db.mageData and db.mageData.specialization
 			if spec == "Fire" then

@@ -143,17 +143,18 @@ MageModule.challenges.tome = {
 
     RegisterEvents = function(self)
         if not self.eventFrame then self.eventFrame = CreateFrame("Frame") end
-        self.eventFrame:UnregisterAllEvents() 
-        self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-        self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SENT", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_START", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_FAILED", "player")
         self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+        self.eventFrame:RegisterEvent("UNIT_AURA")
         self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
             if event == "PLAYER_TALENT_UPDATE" then
                 self:CheckTalents()
             else
-                local unit, _, _, _, _, spellId = ...
-                if event == "UNIT_SPELLCAST_CHANNEL_STOP" then spellId = select(3, ...) end
-                if spellId then self:EventHandler(event, unit, spellId) end
+                self:EventHandler(event, ...)
             end
         end)
     end,
@@ -238,8 +239,18 @@ MageModule.challenges.tome = {
         end
     end,
 
-    EventHandler = function(self, event, unit, spellId)
+    EventHandler = function(self, event, unit, ...)
         if unit ~= "player" then return end
+        
+        local spellId
+        if event == "UNIT_SPELLCAST_SENT" then
+             local _, _, id = ...
+             spellId = id
+        else
+             local _, id = ...
+             spellId = id
+        end
+
         if self:IsSpellForbidden(spellId) then
             local spellName = GetSpellInfo(spellId)
             Purity:Violation("Cast forbidden spell: " .. (spellName or "Unknown"))
@@ -375,10 +386,10 @@ MageModule.challenges.conduit = {
     
     RegisterConduitEvents = function(self)
         if not self.eventFrame then self.eventFrame = CreateFrame("Frame") end
-        self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
-        self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-        self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
-        self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_START", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_FAILED", "player")
         self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
         self.eventFrame:RegisterEvent("UNIT_AURA")
         self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
@@ -1236,8 +1247,6 @@ MageModule.challenges.conduit = {
             cost = cost * (1.0 - self.talentMods.cost)
         end
         
-        -- [[ Clearcasting Projection ]]
-        -- If we have the buff now, we assume it will be used.
         local isClearcasting = false
         for i=1, 40 do
             local name = UnitBuff("player", i)
@@ -1285,7 +1294,7 @@ MageModule.challenges.conduit = {
                 end
             end
             self.activeCast = nil
-            self.manaAtStart = nil
+            self.manaSnapshot = nil
             return
         end
         
@@ -1320,20 +1329,28 @@ MageModule.challenges.conduit = {
             return
         end
 
-        -- MAIN SPELLCAST MONITORING
+        -- [[ 1. PRE-CAST SNAPSHOT ]]
+        -- Fires immediately when button is pressed. Captures mana for BOTH Instant and Cast-Time.
+        if event == "UNIT_SPELLCAST_SENT" then
+            local unit = ...
+            if unit == "player" then
+                self.manaSnapshot = UnitPower("player", 0)
+            end
+            return
+        end
+
+        -- [[ 2. CAST START (The Deposit) ]]
         if event == "UNIT_SPELLCAST_START" then
             local unit, _, spellId = ...
             if unit ~= "player" then return end
             
             local spellName, _, _, castTime = GetSpellInfo(spellId)
             
-            -- SNAPSHOT MANA (Used for Clearcasting Check at end)
-            self.manaAtStart = UnitPower("player", 0) 
-
             if castTime and castTime > 0 then
                 -- Calculate Upfront Cost
                 local status, cost = self:GetProjectedCost(spellName, castTime, spellId)
                 
+                -- Note: GetProjectedCost returns 0 if Clearcasting is up, so we don't double dip.
                 if status == "VIOLATION" then
                     self.activeCast = { name = spellName, cost = cost, isViolation = true, paid = 0 }
                     self:ShowWarning()
@@ -1349,9 +1366,18 @@ MageModule.challenges.conduit = {
                 end
             end
 
+        -- [[ 3. CAST SUCCESS (The Settlement) ]]
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             local unit, _, spellId = ...
             if unit ~= "player" then return end
+            
+            -- [[ FIX: DEBOUNCE DOUBLE EVENTS ]]
+            local now = GetTime()
+            if self.lastSuccessID == spellId and self.lastSuccessTime and (now - self.lastSuccessTime) < 0.5 then
+                return
+            end
+            self.lastSuccessID = spellId
+            self.lastSuccessTime = now
             
             local spellName = GetSpellInfo(spellId)
             local _, _, _, castTime = GetSpellInfo(spellId)
@@ -1360,26 +1386,22 @@ MageModule.challenges.conduit = {
             local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
             if not spellName or self.ignoredSpells[spellName] or not isMageSpell then 
                 self.activeCast = nil
-                self.manaAtStart = nil
+                self.manaSnapshot = nil
                 return 
             end
 
-            -- 1. Check if it was FREE (Mana Check)
-            local currentMana = UnitPower("player", 0)
+            -- DETERMINE IF IT WAS FREE (Clearcasting Check)
+            -- We compare Current Mana vs Snapshot from UNIT_SPELLCAST_SENT
             local wasFree = false
-            
-            if self.manaAtStart then
-                -- We have a snapshot from START, so we can verify if mana was spent
-                local manaSpent = self.manaAtStart - currentMana
-                if manaSpent <= 0 then wasFree = true end
-                self.manaAtStart = nil -- Reset the snapshot
-            else
-                -- Instant spells (like Fire Blast) skip START, so manaAtStart is nil.
-                -- We assume these are NOT free by default so they charge correctly.
-                wasFree = false
+            if self.manaSnapshot then
+                local currentMana = UnitPower("player", 0)
+                -- If mana didn't go down (or went up due to regen), it was free.
+                if (self.manaSnapshot - currentMana) <= 0 then 
+                    wasFree = true 
+                end
             end
 
-            -- 2. DECISION TREE
+            -- LOGIC BRANCHING
             if self.activeCast then
                 -- [[ PATH A: Cast-Time Spell (Already Paid) ]]
                 if self.activeCast.isViolation then
@@ -1407,6 +1429,7 @@ MageModule.challenges.conduit = {
                 -- Safety: If it has a cast time but we missed the Start, DO NOT charge here.
                 if castTime and castTime > 0 then
                     self.activeCast = nil
+                    self.manaSnapshot = nil
                     return
                 end
 
@@ -1419,16 +1442,19 @@ MageModule.challenges.conduit = {
                 
                 if wasFree then purityCost = 0 end
 
-                if self.charge < (purityCost - 1) then
-                    Purity:Violation("Cast " .. spellName .. " with insufficient Static Charge.")
-                else
-                    self.charge = self.charge - purityCost
-                    db.mageCharge = self.charge
-                    self:UpdateBar()
+                if purityCost > 0 then
+                    if self.charge < (purityCost - 1) then
+                        Purity:Violation("Cast " .. spellName .. " with insufficient Static Charge.")
+                    else
+                        self.charge = self.charge - purityCost
+                        db.mageCharge = self.charge
+                        self:UpdateBar()
+                    end
                 end
             end
             
             self.activeCast = nil
+            self.manaSnapshot = nil
         end
     end,
 }
