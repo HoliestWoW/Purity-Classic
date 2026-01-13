@@ -1042,7 +1042,7 @@ EventHandler = function(self, event, ...)
 		self:UpdateBarText()
 	end
 
-	if event == "UNIT_SPELLCAST_CHANNEL_START" then
+	--[[if event == "UNIT_SPELLCAST_CHANNEL_START" then
         local unitTarget, castGUID, spellId = ...
         if unitTarget == "player" and spellId then
 			local spellName = GetSpellInfo(spellId)
@@ -1053,7 +1053,7 @@ EventHandler = function(self, event, ...)
                 end
             end
         end
-	end
+	end--]]
 
         if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_ENTER_COMBAT" then
             if self.regenFrame then self.regenFrame:Hide() end
@@ -1110,7 +1110,7 @@ EventHandler = function(self, event, ...)
                         elseif subEvent == "RANGE_DAMAGE" then
                             local targetCPS = 0.005
                             
-                            local _, _, _, _, _, rangedSpeed = UnitRangedDamage("player")
+                            local rangedSpeed = UnitRangedDamage("player")
                             if not rangedSpeed or rangedSpeed == 0 then rangedSpeed = 2.0 end
                             local attackCostPercent = rangedSpeed * targetCPS
                             
