@@ -1,0 +1,33 @@
+## Interface: 20505
+## Title: Purity
+## Notes: An addon for WoW TBC leveling challenges.
+## Author: HoliestWoW
+## Version: 10.1.5
+## IconTexture: Interface\AddOns\Purity\Media\PurityLogo.tga
+## SavedVariables: Purity_MinimapIconDB, Purity_GlobalSettings
+## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
+
+# Libraries
+Libs/LibStub/LibStub.lua
+Libs/AceGUI-3.0/AceGUI-3.0.xml
+
+## OptionalDeps: LibDataBroker-1.1, LibDBIcon-1.0
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+
+# Addon Core
+Purity.lua
+Purity_Mage.lua
+Purity_Priest.lua
+Purity_Paladin.lua
+Purity_Warlock.lua
+Purity_Warrior.lua
+Purity_Shaman.lua
+Purity_Druid.lua
+Purity_Rogue.lua
+Purity_Hunter.lua
+Purity_Fishing.lua
+Purity_Ascetic.lua
+PurityCharacterStatus.lua
+Purity_Drunk.lua
+Purity_BloodMage.lua

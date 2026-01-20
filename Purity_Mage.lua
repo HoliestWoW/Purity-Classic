@@ -31,90 +31,15 @@ local function IsIDInForbiddenTree(id, forbiddenTreeName)
 end
 
 local learnableFireSpells = {
-    -- Fireball (Ranks 1-12)
-    [133] = true, [143] = true, [145] = true, [3140] = true, [8400] = true, [8401] = true, [8402] = true, [10148] = true, [10149] = true, [10150] = true, [10151] = true, [25306] = true,
-    -- Fire Blast (Ranks 1-7)
-    [2136] = true, [2137] = true, [2138] = true, [8412] = true, [8404] = true, [8413] = true, [10197] = true, [10199] = true,
-    -- Flamestrike (Ranks 1-6)
-    [2120] = true, [2121] = true, [8422] = true, [8423] = true, [10215] = true, [10216] = true,
-    -- Scorch (Ranks 1-7)
-    [2948] = true, [8444] = true, [8445] = true, [8446] = true, [10205] = true, [10206] = true, [10207] = true,
-    -- Pyroblast (Ranks 1-8)
-    [11366] = true, [12505] = true, [12522] = true, [12523] = true, [12524] = true, [12525] = true, [12526] = true, [18809] = true,
-    -- Blast Wave (Ranks 1-5)
-    [11113] = true, [13018] = true, [13019] = true, [13020] = true, [13021] = true,
-    -- Fire Ward (Ranks 1-5)
-    [543] = true, [8457] = true, [8458] = true, [10223] = true, [10225] = true,
-    -- Combustion
-    [11129] = true,
+    [33933] = true,	[33043] = true,	[33938] = true,	[27079] = true,	[38692] = true,	[27074] = true,	[27128] = true,	[27132] = true,	[27070] = true,	[27133] = true,	[27073] = true,	[33042] = true,	[27086] = true,	[30482] = true,	[27078] = true,	[13021] = true,	[18809] = true,	[10225] = true,	[10151] = true,	[25306] = true,	[10207] = true,	[33041] = true,	[10216] = true,	[12526] = true,	[10199] = true,	[10150] = true,	[13020] = true,	[10206] = true,	[10223] = true,	[12525] = true,	[10149] = true,	[10215] = true,	[10197] = true,	[10205] = true,	[13019] = true,	[12524] = true,	[10148] = true,	[8458] = true,	[8423] = true,	[8446] = true,	[8413] = true,	[13018] = true,	[12523] = true,	[8402] = true,	[8445] = true,	[8422] = true,	[12522] = true,	[8412] = true,	[8457] = true,	[8401] = true,	[8444] = true,	[12505] = true,	[8400] = true,	[2121] = true,	[2138] = true,	[2948] = true,	[543] = true,	[3140] = true,	[2120] = true,	[2137] = true,	[145] = true,	[2136] = true,	[143] = true,	[133] = true,	[11113] = true,	[31641] = true,	[31642] = true,	[11083] = true,	[12351] = true,	[11129] = true,	[11115] = true,	[11367] = true,	[11368] = true,	[31661] = true,	[31656] = true,	[31657] = true,	[31658] = true,	[31659] = true,	[31660] = true,	[11124] = true,	[12378] = true,	[12398] = true,	[12399] = true,	[12400] = true,	[11100] = true,	[12353] = true,	[11103] = true,	[12357] = true,	[12358] = true,	[12359] = true,	[12360] = true,	[11069] = true,	[12338] = true,	[12339] = true,	[12340] = true,	[12341] = true,	[29074] = true,	[29075] = true,	[29076] = true,	[31638] = true,	[31639] = true,	[31640] = true,	[11366] = true,	[34293] = true,	[34295] = true,	[34296] = true,
 }
 
 local learnableFrostSpells = {
-    -- Frostbolt (Ranks 1-11)
-    [116] = true, [205] = true, [837] = true, [7322] = true, [8406] = true, [8407] = true, [8408] = true, [10179] = true, [10180] = true, [10181] = true, [25304] = true,
-    -- Frost Nova (Ranks 1-4)
-    [122] = true, [865] = true, [6131] = true, [10230] = true,
-    -- Frost Armor (Ranks 1-3)
-    [168] = true, [7300] = true, [7301] = true,
-    -- Ice Armor (Ranks 1-4)
-    [7302] = true, [7320] = true, [10219] = true, [10220] = true,
-    -- Blizzard (Ranks 1-6)
-    [10] = true, [6141] = true, [8427] = true, [10185] = true, [10186] = true, [10187] = true,
-    -- Cone of Cold (Ranks 1-5)
-    [120] = true, [8492] = true, [10159] = true, [10160] = true, [10161] = true,
-    -- Frost Ward (Ranks 1-5)
-    [6143] = true, [8461] = true, [8462] = true, [10177] = true, [28609] = true,
-    -- Ice Barrier (Ranks 1-4)
-    [11426] = true, [13031] = true, [13032] = true, [13033] = true,
-    -- Ice Block
-    [11958] = true,
+    [33405] = true,	[32796] = true,	[38697] = true,	[27072] = true,	[27124] = true,	[27085] = true,	[27088] = true,	[30455] = true,	[27087] = true,	[27134] = true,	[27071] = true,	[10187] = true,	[28609] = true,	[25304] = true,	[10220] = true,	[13033] = true,	[10161] = true,	[10181] = true,	[10230] = true,	[13032] = true,	[10186] = true,	[10177] = true,	[10160] = true,	[10180] = true,	[10219] = true,	[13031] = true,	[10185] = true,	[10179] = true,	[10159] = true,	[8462] = true,	[6131] = true,	[7320] = true,	[8408] = true,	[8427] = true,	[8492] = true,	[8461] = true,	[8407] = true,	[7302] = true,	[45438] = true,	[6141] = true,	[120] = true,	[865] = true,	[8406] = true,	[6143] = true,	[10] = true,	[7301] = true,	[7322] = true,	[837] = true,	[7300] = true,	[122] = true,	[205] = true,	[116] = true,	[168] = true,	[11958] = true,	[31682] = true,	[31683] = true,	[31684] = true,	[31685] = true,	[31686] = true,	[11160] = true,	[12518] = true,	[12519] = true,	[11071] = true,	[12496] = true,	[12497] = true,	[11426] = true,	[11207] = true,	[12672] = true,	[15047] = true,	[15052] = true,	[15053] = true,	[12472] = true,	[11151] = true,	[12952] = true,	[12953] = true,	[31687] = true,
 }
 
 local learnableArcaneSpells = {
-    -- Arcane Missiles (Ranks 1-8)
-    [5143] = true, [5144] = true, [5145] = true, [8416] = true, [8417] = true, [10211] = true, [10212] = true, [25345] = true,
-    -- Arcane Explosion (Ranks 1-6)
-    [1449] = true, [8437] = true, [8438] = true, [8439] = true, [10201] = true, [10202] = true,
-    -- Arcane Intellect (Ranks 1-5)
-    [1459] = true, [1460] = true, [1461] = true, [10156] = true, [10157] = true,
-    -- Arcane Brilliance
-    [23028] = true,
-    -- Mage Armor
-    [6117] = true, [22782] = true, [22783] = true,
-    -- Mana Shield (Ranks 1-6)
-    [1463] = true, [8494] = true, [8495] = true, [10191] = true, [10192] = true, [10193] = true,
-    -- Conjure Food (Ranks 1-7)
-    [587] = true, [597] = true, [990] = true, [6129] = true, [10144] = true, [10145] = true, [28612] = true,
-    -- Conjure Water (Ranks 1-7)
-    [5504] = true, [5505] = true, [5506] = true, [6127] = true, [10138] = true, [10139] = true, [10140] = true,
-    -- Conjure Mana Gems (Agate, Jade, Citrine, Ruby)
-    [759] = true, [3552] = true, [10053] = true, [10054] = true,
-    -- Teleports (SW, IF, Darn, Org, UC, TB)
-    [3561] = true, [3562] = true, [3565] = true, [3567] = true, [3563] = true, [3566] = true,
-    -- Portals (SW, IF, Darn, Org, UC, TB)
-    [10059] = true, [11416] = true, [11419] = true, [11417] = true, [11418] = true, [11420] = true,
-    -- Amplify Magic (Ranks 1-4)
-    [1008] = true, [8455] = true, [10169] = true, [10170] = true,
-    -- Dampen Magic (Ranks 1-5)
-    [604] = true, [8450] = true, [8451] = true, [10173] = true, [10174] = true,
-    -- Detect Magic
-    [2855] = true,
-    -- Remove Lesser Curse
-    [475] = true,
-    -- Polymorph (Sheep Ranks 1-4, Pig, Turtle)
-    [118] = true, [12824] = true, [12825] = true, [12826] = true, [28272] = true, [28271] = true,
-    -- Blink
-    [1953] = true,
-    -- Slow Fall
-    [130] = true,
-    -- Counterspell
-    [2139] = true,
-    -- Evocation
-    [12051] = true,
-    -- Presence of Mind
-    [12043] = true,
-    -- Arcane Power
-    [12042] = true,
+    [27127] = true,	[27082] = true,	[27126] = true,	[38704] = true,	[33717] = true,	[27090] = true,	[43987] = true,	[30449] = true,	[33946] = true,	[38699] = true,	[27125] = true,	[27101] = true,	[66] = true,	[27131] = true,	[33944] = true,	[37420] = true,	[33691] = true,	[35717] = true,	[30451] = true,	[27130] = true,	[27075] = true,	[27080] = true,	[25345] = true,	[28612] = true,	[10140] = true,	[10174] = true,	[10193] = true,	[12826] = true,	[28271] = true,	[28272] = true,	[33690] = true,	[35715] = true,	[10054] = true,	[22783] = true,	[23028] = true,	[10157] = true,	[10212] = true,	[10170] = true,	[10202] = true,	[10145] = true,	[10192] = true,	[10139] = true,	[11419] = true,	[11420] = true,	[10211] = true,	[10053] = true,	[10173] = true,	[10201] = true,	[22782] = true,	[10191] = true,	[10169] = true,	[10156] = true,	[10144] = true,	[8417] = true,	[10138] = true,	[12825] = true,	[32266] = true,	[11416] = true,	[11417] = true,	[32267] = true,	[10059] = true,	[11418] = true,	[8439] = true,	[3552] = true,	[8451] = true,	[8495] = true,	[49361] = true,	[49360] = true,	[49358] = true,	[49359] = true,	[6117] = true,	[8416] = true,	[6129] = true,	[8455] = true,	[8438] = true,	[6127] = true,	[3565] = true,	[3566] = true,	[1461] = true,	[759] = true,	[8494] = true,	[5145] = true,	[2139] = true,	[8450] = true,	[8437] = true,	[990] = true,	[1953] = true,	[5506] = true,	[12051] = true,	[1463] = true,	[12824] = true,	[32271] = true,	[3562] = true,	[3567] = true,	[32272] = true,	[3561] = true,	[3563] = true,	[1008] = true,	[475] = true,	[5144] = true,	[1449] = true,	[1460] = true,	[597] = true,	[604] = true,	[130] = true,	[5505] = true,	[5143] = true,	[118] = true,	[587] = true,	[5504] = true,	[1459] = true,	[11213] = true,	[12574] = true,	[12575] = true,	[12576] = true,	[12577] = true,	[11222] = true,	[12839] = true,	[12840] = true,	[12841] = true,	[12842] = true,	[11232] = true,	[12500] = true,	[12501] = true,	[12502] = true,	[12503] = true,	[12042] = true,	[11210] = true,	[12592] = true,	[29438] = true,	[29439] = true,	[29440] = true,	[29441] = true,	[29444] = true,	[29445] = true,	[29446] = true,	[29447] = true,	[31589] = true,
 }
 
 local MageModule = {

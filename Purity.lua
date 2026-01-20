@@ -90,7 +90,7 @@ Purity.GlobalModules = {}
 Purity.selectedChallenge = nil
 Purity.hasUIBeenCreated = false
 
-local MAX_PLAYER_LEVEL = 60
+local MAX_PLAYER_LEVEL = 70
 local isMonitoring = false
 local weaponTimer = nil
 local purityRuntimeTicker = nil
@@ -157,17 +157,35 @@ function Base64.encode(data)
     return encoded_string
 end
 
-local hidePlayedTimeCounter = 0
-if Purity.OriginalDisplayDisplayTimePlayed == nil then
-    Purity.OriginalDisplayDisplayTimePlayed = ChatFrame_DisplayTimePlayed
-    ChatFrame_DisplayTimePlayed = function(...)
-        if hidePlayedTimeCounter > 0 then
-            hidePlayedTimeCounter = hidePlayedTimeCounter - 1
-            return
+local HIDE_RTP_CHAT_MSG_BUFFER = 0
+local HIDE_RTP_CHAT_MSG_BUFFER_MAX = 5
+
+-- Filter the CHAT_MSG_SYSTEM event directly
+ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(frame, event, message, ...)
+    if HIDE_RTP_CHAT_MSG_BUFFER > 0 then
+        -- Get the localized global strings and strip the "%s" variable
+        -- "Total time played: %s" -> "Total time played: "
+        local totalPrefix = string.gsub(TIME_PLAYED_TOTAL, "%%s", "") 
+        local levelPrefix = string.gsub(TIME_PLAYED_LEVEL, "%%s", "")
+
+        -- Check if the message starts with "Total time played"
+        if string.find(message, totalPrefix, 1, true) then
+            -- Hide this line, but don't decrement buffer yet (the "Level" line comes next)
+            return true 
         end
-        return Purity.OriginalDisplayDisplayTimePlayed(...)
+
+        -- Check if the message starts with "Time played this level"
+        if string.find(message, levelPrefix, 1, true) then
+            -- This is the second message, so we decrement the buffer now
+            HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER - 1
+            if HIDE_RTP_CHAT_MSG_BUFFER < 0 then HIDE_RTP_CHAT_MSG_BUFFER = 0 end
+            
+            return true -- Hide message
+        end
     end
-end
+    
+    return false, message, ...
+end)
 
 Purity.ChallengeCoefficients = {
 	["Path of the Unburdened"] = 5.00,
@@ -408,7 +426,11 @@ function Purity:GetActiveChallengeObject()
 end
 
 function Purity:SilentRequestTimePlayed()
-    hidePlayedTimeCounter = hidePlayedTimeCounter + 1
+    -- Increment the buffer so the filter knows to hide the next set of messages
+    HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER + 1
+    if HIDE_RTP_CHAT_MSG_BUFFER > HIDE_RTP_CHAT_MSG_BUFFER_MAX then
+        HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER_MAX
+    end
     RequestTimePlayed()
 end
 
@@ -3307,6 +3329,33 @@ local function OnPlayerLogin()
 	Purity:StartModifierMonitor()
     C_ChatInfo.RegisterAddonMessagePrefix(Purity.ADDON_PREFIX)
 	
+	if not Purity.Original_ChatFrame1_AddMessage then
+        Purity.Original_ChatFrame1_AddMessage = ChatFrame1.AddMessage
+    end
+
+    ChatFrame1.AddMessage = function(self, text, ...)
+        -- Check if we are expecting to hide messages (Buffer > 0)
+        if HIDE_RTP_CHAT_MSG_BUFFER > 0 and text then
+             -- Strip the "%s" from the global strings to match the text
+             local totalPrefix = string.gsub(TIME_PLAYED_TOTAL, "%%s", "") 
+             local levelPrefix = string.gsub(TIME_PLAYED_LEVEL, "%%s", "")
+             
+             -- Hide "Total time played"
+             if string.find(text, totalPrefix, 1, true) then
+                 return 
+             end
+             
+             -- Hide "Time played this level" and decrement the buffer
+             if string.find(text, levelPrefix, 1, true) then
+                 HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER - 1
+                 if HIDE_RTP_CHAT_MSG_BUFFER < 0 then HIDE_RTP_CHAT_MSG_BUFFER = 0 end
+                 return 
+             end
+        end
+        -- If not hidden, pass it to the real chat frame
+        return Purity.Original_ChatFrame1_AddMessage(self, text, ...)
+    end
+	
     CharacterFrame:HookScript("OnShow", function()
         Purity:UpdateCharacterFrameClassName()
     end)
@@ -3401,12 +3450,13 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         local currentDB = Purity:GetDB()
         local currentGUID = UnitGUID("player")
         
+        -- MIGRATION LOGIC: Check for GUID Mismatch (Transfer)
         if currentDB.playerGUID and currentDB.playerGUID ~= currentGUID then
-            Purity:InternalResetChallenge()
-            currentDB = Purity:GetDB()
+            -- Instead of resetting immediately, we attempt to migrate the data
+            Purity:AttemptDataMigration(currentDB, currentGUID)
         end
-	
-	    Purity.CreateCoreUI()
+    
+        Purity.CreateCoreUI()
         
         C_Timer.After(7, function()
              JoinChannelByName("PurityUsers", "a-unique-password")
@@ -3439,13 +3489,46 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
             end
         end
 
-        Purity:SilentRequestTimePlayed()
+        local currentDB = Purity:GetDB()
+        if not currentDB.isMigrating then
+             Purity:SilentRequestTimePlayed()
+        end
+        
         self:UnregisterEvent("PLAYER_ENTERING_WORLD")
         return
 
 	elseif event == "TIME_PLAYED_MSG" then
-		local totalTime, _ = ...
-		local currentDB = Purity:GetDB()
+        local totalTime, _ = ...
+        local currentDB = Purity:GetDB()
+        
+        -- MIGRATION LOGIC: Handle the time check
+        if currentDB.isMigrating then
+            local storedTime = currentDB.totalPlayedTime or 0
+            local diff = totalTime - storedTime
+            
+            -- 4. Check for 15 minutes (900 seconds) max missing time
+            -- We allow a small negative diff just in case of slight server clock variations, but mostly check positive gap.
+            if diff <= 900 then
+                -- 5. Update GUID and Hash
+                currentDB.playerGUID = UnitGUID("player")
+                currentDB.addonVersion = Purity.Version
+                
+                -- Regenerate the signature with the NEW GUID and NEW Version
+                currentDB.dataSignature = Purity:CreateDataSignature(currentDB)
+                
+                -- Clear migration flag
+                currentDB.isMigrating = nil
+                
+                print("|cff00FF00Purity:|r Data successfully migrated to TBC! Your GUID has been updated and your challenge continues.")
+            else
+                -- Fail: Too much missing time implies unmonitored play during transfer
+                print("|cffFF0000Purity:|r Migration failed! Time discrepancy is too large (" .. diff .. " seconds). Limit is 15 minutes. Challenge reset.")
+                currentDB.isMigrating = nil
+                Purity:InternalResetChallenge()
+                currentDB.playerGUID = UnitGUID("player") -- Set new GUID for fresh start
+            end
+            return -- Stop processing standard time updates for this specific event
+        end
 		if totalTime then
 			currentDB.totalPlayedTime = totalTime
             currentDB.addonRuntimeAtLastPlayedSync = currentDB.addonRuntime
@@ -3482,6 +3565,42 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         return
     end
 end)
+
+function Purity:AttemptDataMigration(db, newGUID)
+    -- 1. Check if the stored data is valid (integrity check using OLD GUID)
+    -- We must verify the data signature matches the OLD GUID before we allow a transfer.
+    -- We try the current signature method and older versions just in case.
+    
+    local oldSignature = db.dataSignature
+    local isValid = false
+
+    -- Try checking integrity using V3, V2, and V1 signatures
+    if Purity:CreateDataSignature(db) == oldSignature then isValid = true end
+    if not isValid and Purity:CreateDataSignature_V3(db) == oldSignature then isValid = true end
+    if not isValid and Purity:CreateDataSignature_V2(db) == oldSignature then isValid = true end
+    if not isValid and Purity:CreateDataSignature_V1(db) == oldSignature then isValid = true end
+
+    -- 2. "Make sure it's an era file" (Check version/format validity)
+    -- If the hash validation passed, we know it's a valid Purity file. 
+    -- We can also check if the status is active.
+    if db.status == "Failed" or db.status == "Not Participating" then
+        isValid = false 
+    end
+
+    if not isValid then
+        print("|cffFF0000Purity:|r Transfer detected, but data verification failed (Hash Mismatch or Inactive Run). Challenge reset.")
+        Purity:InternalResetChallenge()
+        -- Update to new GUID after reset so they can start fresh
+        db.playerGUID = newGUID
+        return
+    end
+
+    -- 3. Trigger Time Check
+    -- If hash is good, we flag for migration and request time played to ensure no gaps.
+    print("|cffFFFF00Purity:|r Character transfer detected. Verifying play time integrity...")
+    db.isMigrating = true 
+    Purity:SilentRequestTimePlayed() 
+end
 
 Purity.isActionTooltip = false
 
