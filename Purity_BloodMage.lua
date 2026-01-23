@@ -997,6 +997,36 @@ ManageBloodRegen = function(self)
             end)
             self.playerFrameTooltipHooked = true
         end
+        -- [[ SPIRIT TOOLTIP HOOK (Cross-Version: Vanilla & TBC) ]]
+        if not self.spiritTooltipHooked then
+            -- TBC Logic: Specific Frame + Exact Numbers
+            if _G["PlayerStatFrameLeft5"] then
+                local module = self
+                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", function(frame)
+                    local db = Purity:GetDB()
+                    if db.isOptedIn and db.activeChallengeID == module.id then
+                        local _, spirit = UnitStat("player", 5)
+                        local efficiency = spirit * 12 -- Calculates the raw efficiency bonus
+
+                        GameTooltip:AddLine("Increases Blood efficiency by " .. efficiency .. ".", 1, 0.82, 0)
+                        GameTooltip:Show()
+                    end
+                end)
+            
+            -- Era Logic: Global Hook + Vague Text
+            else
+                hooksecurefunc("PaperDollStatTooltip", function(unit, stat)
+                    if unit == "player" and stat == 5 then -- 5 is Spirit
+                        local db = Purity:GetDB()
+                        if db.isOptedIn and db.activeChallengeID == self.id then
+                            GameTooltip:AddLine("Increases Blood efficiency.", 1, 0.82, 0)
+                            GameTooltip:Show()
+                        end
+                    end
+                end)
+            end
+            self.spiritTooltipHooked = true
+        end
     end,
     
     IsSpellForbidden = function(self, spellId) return false end,

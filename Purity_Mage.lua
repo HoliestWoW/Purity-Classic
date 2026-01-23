@@ -271,7 +271,34 @@ MageModule.challenges.conduit = {
                 end
             end
         end)
-        
+        -- [[ SPIRIT TOOLTIP HOOK (Cross-Version: Vanilla & TBC) ]]
+        if not self.spiritTooltipHooked then
+            -- TBC Logic: Specific Frame + Exact Numbers
+            if _G["PlayerStatFrameLeft5"] then
+                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", function(frame)
+                    local db = Purity:GetDB()
+                    if db.activeChallengeID == "Conduit of Purity" then
+                        local _, spirit = UnitStat("player", 5)
+                        local bonus = spirit * 0.05
+                        GameTooltip:AddLine("Increases Static Charge generation by " .. string.format("%.0f", bonus) .. " Per Second", 1, 0.82, 0)
+                        GameTooltip:Show()
+                    end
+                end)
+            
+            -- Era Logic: Global Hook + Vague Text
+            else
+                hooksecurefunc("PaperDollStatTooltip", function(unit, stat)
+                    if unit == "player" and stat == 5 then -- 5 is Spirit
+                        local db = Purity:GetDB()
+                        if db.activeChallengeID == "Conduit of Purity" then
+                            GameTooltip:AddLine("Increases Static Charge generation.", 1, 0.82, 0)
+                            GameTooltip:Show()
+                        end
+                    end
+                end)
+            end
+            self.spiritTooltipHooked = true
+        end
         self.isInitialized = true
     end,
     
@@ -1138,6 +1165,16 @@ MageModule.challenges.conduit = {
         local db = Purity:GetDB()
         local BUFFER = 2.0 -- The tolerance margin
         
+        -- [[ COMBAT START RELEASE VALVE ]]
+        -- This is the critical fix. When combat starts, we immediately wipe 
+        -- all keybind blocks so you don't get stuck in the "Black Hole" dummy state.
+        if event == "PLAYER_REGEN_DISABLED" then
+            if self.bindFrame then
+                ClearOverrideBindings(self.bindFrame)
+            end
+            return
+        end
+
         -- VISUALS UPDATE
         if event == "SPELL_UPDATE_COOLDOWN" or event == "UNIT_AURA" then
             self:UpdateActionbarOverlay()
@@ -1248,7 +1285,7 @@ MageModule.challenges.conduit = {
                 if status == "VIOLATION" and cost > 0 then
                     self.activeCast = { name = spellName, cost = cost, isViolation = true, paid = 0, isClearcast = isFree }
                     self:ShowWarning()
-                    PlaySound(SOUNDKIT.RAID_WARNING)
+                    -- Note: Audio is handled by ShowWarning
                 else
                     self.charge = self.charge - cost
                     if self.charge < 0 then self.charge = 0 end -- Clamp to 0
