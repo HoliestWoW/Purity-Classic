@@ -231,6 +231,23 @@ MageModule.challenges.conduit = {
 
         self:CreateChargeBar()
         self:CreateWarningUI()
+        
+        -- [[ 1. BLOCKING INFRASTRUCTURE ]]
+        -- The "Black Hole" button that eats clicks
+        if not self.dummyButton then
+            self.dummyButton = CreateFrame("Button", "PurityDummyButton", UIParent, "SecureActionButtonTemplate")
+            self.dummyButton:Hide()
+        end
+        -- The frame that holds the override bindings
+        if not self.bindFrame then 
+            self.bindFrame = CreateFrame("Frame", "PurityBindFrame", UIParent) 
+        end
+        
+        -- Delay execution to ensure ActionBars are loaded
+        C_Timer.After(1.0, function()
+            self:CreateBlockers()
+        end)
+        
         self:CheckTalents()
         self:StartMonitor()
         self:SetupTooltip()
@@ -310,6 +327,7 @@ MageModule.challenges.conduit = {
         self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         self.eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
         self.eventFrame:RegisterEvent("UNIT_SPELLCAST_FAILED", "player")
+        self.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED") 
         self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
         self.eventFrame:RegisterEvent("UNIT_AURA")
         self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
@@ -564,6 +582,82 @@ MageModule.challenges.conduit = {
 
         self.chargeFrame = f
     end,
+	
+	PlayLowChargeSound = function(self)
+		local now = GetTime()
+        -- If we played a sound less than 2 seconds ago, do nothing
+        if self.lastSoundTime and (now - self.lastSoundTime) < 2.0 then
+            return
+        end
+        self.lastSoundTime = now
+        local voiceLines = {
+                    ["Gnome"]    = { Male = 1717, Female = 1772 },
+                    ["Human"]    = { Male = 1883, Female = 2584 },
+                    ["Dwarf"]    = { Male = 1607, Female = 1662 },
+                    ["NightElf"] = { Male = 2126, Female = 2237 },
+					["Draenei"] = { Male = 9485 , Female = 9484 },
+                    ["Scourge"]  = { Male = 2181, Female = 2182 }, -- Undead
+                    ["Tauren"]   = { Male = 2412, Female = 2413 },
+                    ["Orc"]      = { Male = 2292, Female = 2349 },
+                    ["Troll"]    = { Male = 1828, Female = 1938 },
+					["BloodElf"] = { Male = 9569 , Female = 9570 },
+                }
+
+        local _, raceEn = UnitRace("player")
+        local sex = UnitSex("player")
+        local genderKey = (sex == 3) and "Female" or "Male"
+
+        -- Fallback for Undead
+        if raceEn == "Undead" then raceEn = "Scourge" end
+
+        local raceTable = voiceLines[raceEn]
+        if raceTable and raceTable[genderKey] then
+            PlaySound(raceTable[genderKey], "Master") 
+        end
+    end,
+	
+	CreateBlockers = function(self)
+        local barNames = { "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "MultiBarRightButton", "MultiBarLeftButton" }
+        
+        for _, barName in ipairs(barNames) do
+            for i = 1, 12 do
+                local buttonName = barName .. i
+                local button = _G[buttonName]
+                
+                if button then
+                    if not button.purityBlocker then 
+                        local blocker = CreateFrame("Frame", nil, button)
+                        blocker:SetAllPoints(button)
+                        
+                        blocker:SetFrameStrata("FULLSCREEN_DIALOG") 
+                        blocker:SetFrameLevel(9999) 
+                        
+                        blocker:EnableMouse(true) 
+                        blocker:Hide() 
+                        
+                        blocker.bg = blocker:CreateTexture(nil, "OVERLAY")
+                        blocker.bg:SetAllPoints(true)
+                        blocker.bg:SetColorTexture(0, 0, 0, 0.7) 
+                        
+                        blocker:SetScript("OnEnter", function(self)
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            GameTooltip:SetText("Insufficient Charge", 1, 0.2, 0.2)
+                            GameTooltip:Show()
+                        end)
+                        blocker:SetScript("OnLeave", function(self)
+                            GameTooltip:Hide()
+                        end)
+                        
+                        blocker:SetScript("OnMouseDown", function()
+                            self:PlayLowChargeSound()
+                        end)
+
+                        button.purityBlocker = blocker
+                    end
+                end
+            end
+        end
+    end,
 
     ApplyBarMode = function(self, isDetached)
         if not self.chargeFrame then return end
@@ -750,6 +844,13 @@ MageModule.challenges.conduit = {
 
     UpdateActionbarOverlay = function(self)
         local barNames = { "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "MultiBarRightButton", "MultiBarLeftButton" }
+        
+        -- [[ STEP 1: RESET ALL BINDS (Out of Combat Only) ]]
+        -- We wipe the slate clean every update (while safe) to handle rapid charge changes.
+        if self.bindFrame and not InCombatLockdown() then
+            ClearOverrideBindings(self.bindFrame)
+        end
+
         for _, barName in ipairs(barNames) do
             for i = 1, 12 do
                 local button = _G[barName..i]
@@ -764,7 +865,8 @@ MageModule.challenges.conduit = {
 
                     local actionSlot = button.action
                     local actionType, spellId = GetActionInfo(actionSlot)
-                    
+                    local shouldBlock = false 
+
                     if actionType == "spell" then
                         local spellName = GetSpellInfo(spellId)
                         local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
@@ -773,25 +875,18 @@ MageModule.challenges.conduit = {
                             local cost = 0
                             local _, _, _, castTime = GetSpellInfo(spellId)
                             
-                            if spellName == "Arcane Missiles" or spellName == "Blizzard" then
-                                cost = 30
-                            elseif string.find(spellName, "Teleport:") then
-                                cost = 90
-                            elseif castTime and castTime > 0 then
-                                cost = castTime / 100
-                            else
-                                cost = 15
-                            end
+                            if spellName == "Arcane Missiles" or spellName == "Blizzard" then cost = 30
+                            elseif string.find(spellName, "Teleport:") then cost = 90
+                            elseif castTime and castTime > 0 then cost = castTime / 100
+                            else cost = 15 end
                             
-                            -- [[ COST MODIFIER (Frost Spells Only) ]]
                             if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[spellId] then
                                 cost = cost * (1.0 - self.talentMods.cost)
                             end
 
-                            -- [[ CLEARCASTING VISUAL CHECK ]]
                             local isClearcasting = false
-                            for i=1, 40 do
-                                local buffName = UnitBuff("player", i)
+                            for j=1, 40 do
+                                local buffName = UnitBuff("player", j)
                                 if not buffName then break end
                                 if buffName == "Clearcasting" then isClearcasting = true; break end
                             end
@@ -799,20 +894,23 @@ MageModule.challenges.conduit = {
 
                             button.purityCost:SetText(math.floor(cost))
                             
-                            if self.charge < (cost - 1) and cost > 0 then
+                            if self.charge < cost and cost > 0 then
+                                shouldBlock = true
+                                -- VISUALS
                                 CooldownFrame_Set(cooldownFrame, GetTime(), 3600, 1)
                                 if cooldownFrame.SetDrawEdge then cooldownFrame:SetDrawEdge(false) end
                                 if cooldownFrame.SetDrawSwipe then cooldownFrame:SetDrawSwipe(true) end
                                 if cooldownFrame.SetHideCountdownNumbers then cooldownFrame:SetHideCountdownNumbers(true) end
                                 button.purityCost:SetTextColor(1, 0.1, 0.1) 
                             else
+                                -- RESET VISUALS
                                 local start, duration, enabled = GetSpellCooldown(spellId)
                                 if start and duration then
                                     CooldownFrame_Set(cooldownFrame, start, duration, enabled)
                                     if cooldownFrame.SetHideCountdownNumbers then cooldownFrame:SetHideCountdownNumbers(false) end
                                 end
                                 if cost == 0 and isClearcasting then
-                                    button.purityCost:SetTextColor(0.2, 1, 0.2) -- Green for free
+                                    button.purityCost:SetTextColor(0.2, 1, 0.2)
                                 else
                                     button.purityCost:SetTextColor(1, 1, 1)
                                 end
@@ -826,6 +924,30 @@ MageModule.challenges.conduit = {
                     else
                         CooldownFrame_Set(cooldownFrame, 0, 0, 0)
                         if button.purityCost then button.purityCost:Hide() end
+                    end
+
+                    -- [[ STEP 2: VISUAL BLOCKER (Always Safe) ]]
+                    if button.purityBlocker then
+                        if button.purityBlocker:IsShown() ~= shouldBlock then
+                            button.purityBlocker:SetShown(shouldBlock)
+                        end
+                    end
+
+                    -- [[ STEP 3: KEYBIND BLOCKER (OOC ONLY) ]]
+                    if shouldBlock and self.bindFrame and not InCombatLockdown() then
+                        -- Check for Keybind
+                        local key = GetBindingKey("ACTIONBUTTON"..i)
+                        
+                        -- Add Multibar Support if needed
+                        if barName == "MultiBarBottomLeftButton" then key = GetBindingKey("MULTIACTIONBAR1BUTTON"..i) end
+                        if barName == "MultiBarBottomRightButton" then key = GetBindingKey("MULTIACTIONBAR2BUTTON"..i) end
+                        if barName == "MultiBarRightButton" then key = GetBindingKey("MULTIACTIONBAR3BUTTON"..i) end
+                        if barName == "MultiBarLeftButton" then key = GetBindingKey("MULTIACTIONBAR4BUTTON"..i) end
+
+                        if key then
+                            -- Redirect to dummy button
+                            SetOverrideBindingClick(self.bindFrame, true, key, "PurityDummyButton")
+                        end
                     end
                 end
             end
@@ -956,32 +1078,7 @@ MageModule.challenges.conduit = {
         if self.warningFrame then
             -- Only play audio if the warning isn't already visible (prevents spam)
             if not self.warningFrame:IsShown() then
-                
-                -- [[ SOUND KIT ID LOOKUP TABLE ]]
-                -- IDs provided by user for "Spell Not Ready"
-                local voiceLines = {
-                    ["Gnome"]    = { Male = 1717, Female = 1772 },
-                    ["Human"]    = { Male = 1883, Female = 2584 },
-                    ["Dwarf"]    = { Male = 1607, Female = 1662 }, -- Added 1607 for Male (Standard Match)
-                    ["NightElf"] = { Male = 2126, Female = 2237 },
-                    ["Scourge"]  = { Male = 2181, Female = 2182 }, -- Undead
-                    ["Tauren"]   = { Male = 2412, Female = 2413 },
-                    ["Orc"]      = { Male = 2292, Female = 2349 },
-                    ["Troll"]    = { Male = 1828, Female = 1938 },
-                }
-
-                local _, raceEn = UnitRace("player")
-                local sex = UnitSex("player")
-                local genderKey = (sex == 3) and "Female" or "Male"
-
-                -- Fallback for Undead (UnitRace can return "Undead" or "Scourge")
-                if raceEn == "Undead" then raceEn = "Scourge" end
-
-                local raceTable = voiceLines[raceEn]
-                if raceTable and raceTable[genderKey] then
-                    -- Play the internal Sound Kit ID (automatically cycles variations)
-                    PlaySound(raceTable[genderKey], "Master") 
-                end
+                self:PlayLowChargeSound()
             end
 
             self.warningFrame:Show()
@@ -999,6 +1096,8 @@ MageModule.challenges.conduit = {
     end,
 
     GetProjectedCost = function(self, spellName, castTimeMs, spellId)
+        local BUFFER = 2.0 -- The tolerance margin (prevents instant failure on tiny dips)
+
         if self.ignoredSpells[spellName] then return "SAFE", 0 end
         
         local isMageSpell = learnableFireSpells[spellId] or learnableFrostSpells[spellId] or learnableArcaneSpells[spellId]
@@ -1015,7 +1114,6 @@ MageModule.challenges.conduit = {
             cost = 15 
         end
         
-        -- [[ COST MODIFIER (Frost Spells Only) ]]
         if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[spellId] then
             cost = cost * (1.0 - self.talentMods.cost)
         end
@@ -1027,7 +1125,9 @@ MageModule.challenges.conduit = {
         end
         if isClearcasting then cost = 0 end
 
-        if self.charge < (cost - 1) then
+        local effectiveThreshold = math.max(0, cost - BUFFER)
+
+        if self.charge < effectiveThreshold then
             return "VIOLATION", cost
         else
             return "SAFE", cost
@@ -1036,6 +1136,7 @@ MageModule.challenges.conduit = {
     
     EventHandler = function(self, event, ...)
         local db = Purity:GetDB()
+        local BUFFER = 2.0 -- The tolerance margin
         
         -- VISUALS UPDATE
         if event == "SPELL_UPDATE_COOLDOWN" or event == "UNIT_AURA" then
@@ -1074,8 +1175,6 @@ MageModule.challenges.conduit = {
         if event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, _, _, destGUID, _, _, _, logSpellId, spellName, _, _, _, _, _, _, _, critical = CombatLogGetCurrentEventInfo()
             
-            -- TRACK AURA REMOVAL (Check Dest = Player)
-            -- This catches the buff falling off immediately for Instant/Channeled spells
             if destGUID == UnitGUID("player") and subEvent == "SPELL_AURA_REMOVED" and spellName == "Clearcasting" then
                 self.lastClearcastRemoveTime = GetTime()
             end
@@ -1093,7 +1192,6 @@ MageModule.challenges.conduit = {
                         local cost = 0
                         local _, _, _, castTime = GetSpellInfo(logSpellId)
                         
-                        -- Smart Cost Calculation
                         if not castTime or castTime == 0 then
                             _, _, _, castTime = GetSpellInfo(spellName)
                         end
@@ -1135,15 +1233,12 @@ MageModule.challenges.conduit = {
             if (castTime and castTime > 0) or isChannel then
                 local status, cost = self:GetProjectedCost(spellName, castTime, spellId)
                 
-                -- Check for Clearcasting LIVE
                 local isFree = false
                 for i=1, 40 do
                     local name = UnitBuff("player", i)
                     if name == "Clearcasting" then isFree = true; break end
                 end
 
-                -- Check Recent Removal (Ghost Clearcast)
-                -- If we don't see the buff, but it disappeared < 0.5s ago, IT COUNTS.
                 if not isFree and self.lastClearcastRemoveTime and (GetTime() - self.lastClearcastRemoveTime) < 0.5 then
                     isFree = true
                 end
@@ -1156,7 +1251,7 @@ MageModule.challenges.conduit = {
                     PlaySound(SOUNDKIT.RAID_WARNING)
                 else
                     self.charge = self.charge - cost
-                    if self.charge < 0 then self.charge = 0 end
+                    if self.charge < 0 then self.charge = 0 end -- Clamp to 0
                     db.mageCharge = self.charge
                     self:UpdateBar()
                     self.activeCast = { name = spellName, cost = cost, isViolation = false, paid = cost, isClearcast = isFree }
@@ -1182,25 +1277,19 @@ MageModule.challenges.conduit = {
                 return 
             end
 
-            -- Determine if it was free
             local wasFree = false
             
             if self.activeCast then
-                -- Path A: Active Cast Record
                 if self.activeCast.isClearcast then wasFree = true end
-                
-                -- Backup Check (Race Condition Safety)
                 if not wasFree and self.lastClearcastRemoveTime and (now - self.lastClearcastRemoveTime) < 0.5 then
                     wasFree = true
                 end
             else
-                -- Path B: Instant Spell (No Start Event)
                 for i=1, 40 do
                     local name = UnitBuff("player", i)
                     if name == "Clearcasting" then wasFree = true; break end
                 end
                 
-                -- Check Recent Removal
                 if not wasFree and self.lastClearcastRemoveTime and (now - self.lastClearcastRemoveTime) < 0.5 then
                     wasFree = true
                 end
@@ -1219,7 +1308,7 @@ MageModule.challenges.conduit = {
                         local lateFee = 30 
                         if self.activeCast.cost > 0 then lateFee = self.activeCast.cost end
                         self.charge = self.charge - lateFee
-                        if self.charge < 0 then self.charge = 0 end 
+                        if self.charge < 0 then self.charge = 0 end -- Clamp to 0
                         db.mageCharge = self.charge
                         self:UpdateBar()
                     end
@@ -1241,10 +1330,17 @@ MageModule.challenges.conduit = {
                 if wasFree then purityCost = 0 end
 
                 if purityCost > 0 then
-                    if self.charge < (purityCost - 1) then
+                    -- [[ BUFFER LOGIC ]]
+                    local effectiveThreshold = math.max(0, purityCost - BUFFER)
+
+                    if self.charge < effectiveThreshold then
+                        -- You were significantly below cost (e.g. 0 charge for 15 cost).
                         Purity:Violation("Cast " .. spellName .. " with insufficient Static Charge.")
                     else
+                        -- You were within the buffer (e.g. 14 charge for 15 cost).
+                        -- Allow cast, but clamp charge to 0.
                         self.charge = self.charge - purityCost
+                        if self.charge < 0 then self.charge = 0 end
                         db.mageCharge = self.charge
                         self:UpdateBar()
                     end
