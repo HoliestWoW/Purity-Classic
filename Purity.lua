@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "10.1.5"
+Purity.Version = "11.0.0"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -90,7 +90,18 @@ Purity.GlobalModules = {}
 Purity.selectedChallenge = nil
 Purity.hasUIBeenCreated = false
 
-local MAX_PLAYER_LEVEL = 70
+local _, _, _, interfaceVersion = GetBuildInfo()
+local MAX_PLAYER_LEVEL = 60 -- Default to Classic Era / SoD / Hardcore
+
+if interfaceVersion >= 20000 and interfaceVersion < 30000 then
+    MAX_PLAYER_LEVEL = 70 -- TBC Classic
+elseif interfaceVersion >= 30000 and interfaceVersion < 40000 then
+    MAX_PLAYER_LEVEL = 80 -- WotLK Classic
+elseif interfaceVersion >= 40000 and interfaceVersion < 50000 then
+	MAX_PLAYER_LEVEL = 85 -- Cata Classic
+elseif interfaceVersion >= 50000 then
+    MAX_PLAYER_LEVEL = 90 -- MoP Classic
+end
 local isMonitoring = false
 local weaponTimer = nil
 local purityRuntimeTicker = nil
@@ -191,11 +202,14 @@ Purity.ChallengeCoefficients = {
 	["Path of the Unburdened"] = 5.00,
 	["Path of Resilience"] = 4.86,
     ["The Blood Mage's Bargain"] = 4.65,
+	["The Glass Heart (Extreme)"] = 4.50,
 	["Quiver of Purity"] = 4.45,
 	["Path of Humility"] = 4.40,
 	["Brand of Purity"] = 4.35,
 	["Fisherman's Folly"] = 4.32,
+	["Shroud of Purity"] = 3.95,
 	["Libram of Purity"] = 4.25,
+	["Tether of Purity"] = 3.80,
 	["Conduit of Purity"] = 4.10,
 	["Crackling Tome of Purity"] = 4.05,
 	["Astrolabe of Purity"] = 4.00,
@@ -205,6 +219,7 @@ Purity.ChallengeCoefficients = {
 	["Bond of Purity"] = 3.80,
 	["Testament of Purity"] = 3.77,
     ["The Drunken Master"] = 3.65,
+	["The Glass Heart (Hard)"] = 3.50,
 	["Oath of Purity"] = 3.23,
 	["Contract of Purity"] = 3.20,
 	["Covenant of Purity"] = 3.00,
@@ -340,6 +355,8 @@ function Purity:GetCurrentChallengeInfo()
         elseif specifier == "HARD" then challengeKey = "Path of the Unburdened" end
     elseif challengeTitle == "Tome of Purity" and specifier then
         challengeKey = string.format("Tome of Purity (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
+    elseif challengeTitle == "The Glass Heart" and specifier then
+        challengeKey = string.format("The Glass Heart (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
     end
 
     local coefficient = Purity.ChallengeCoefficients[challengeKey] or 1.0
@@ -594,6 +611,9 @@ function Purity:BuildChallengeTypeMap()
                 self.ChallengeTypeMap["Path of Humility"] = "Global"
                 self.ChallengeTypeMap["Path of Resilience"] = "Global"
                 self.ChallengeTypeMap["Path of the Unburdened"] = "Global"
+            elseif module.challengeName == "The Glass Heart" then
+                self.ChallengeTypeMap["The Glass Heart (Hard)"] = "Global"
+                self.ChallengeTypeMap["The Glass Heart (Extreme)"] = "Global"
             elseif module.challengeName then
                 self.ChallengeTypeMap[module.challengeName] = "Global"
             end
@@ -670,6 +690,8 @@ function Purity:DisplayCompletionStats()
         local fishCount = stats.totalCatches or 0
         local trunkCount = stats.trunksFished or 0
         message = string.format("Fun fact: During your folly, you had %d successful catches, including %d trunks!", fishCount, trunkCount)        message = string.format("Fun fact: During your folly, you had %d successful catches, including %d trunks!", fishCount, trunkCount)
+	elseif challenge == "The Glass Heart" and stats.lowestGlassHP then
+        message = string.format("Fun fact: You walked the razor's edge! The closest your Glass Heart came to shattering was at %.1f%% integrity.", stats.lowestGlassHP)
     elseif challenge == "The Ascetic's Path" and stats.forbiddenItemsSold then
         message = string.format("Fun fact: On your path of self-denial, you sold %d items that you were forbidden to equip!", stats.forbiddenItemsSold)
     end
@@ -1612,6 +1634,24 @@ function Purity:BuildOptionsMenu()
             end
         end)
         self.optionsPane.widgets.bloodLog = bloodLogCheck
+		
+		-- [Glass Heart: Log]
+        local glassLogCheck = CreateFrame("CheckButton", "PurityGlassLogVisibleCheck", self.optionsPane, "UICheckButtonTemplate")
+        local glText = _G[glassLogCheck:GetName() .. "Text"]
+        if glText then
+            glText:SetText("Show Glass Heart Damage Log")
+            glText:SetFontObject(GameFontNormalSmall)
+            glText:ClearAllPoints()
+            glText:SetPoint("LEFT", glassLogCheck, "RIGHT", 2, 0)
+            glText:SetTextColor(1, 0.82, 0)
+        end
+        glassLogCheck:SetScript("OnClick", function(btn)
+            local mod = Purity.GlobalModules["GLASS_HEART"]
+            if mod then
+                mod:ToggleLog()
+            end
+        end)
+        self.optionsPane.widgets.glassLog = glassLogCheck
 
         -- [Druid: Astrolabe]
         local astrolabeCheck = CreateFrame("CheckButton", "PurityAstrolabeNumbersCheck", self.optionsPane, "UICheckButtonTemplate")
@@ -1709,6 +1749,14 @@ function Purity:BuildOptionsMenu()
         local blBtn = self.optionsPane.widgets.bloodLog
         blBtn:SetChecked(db.bloodLogVisible or false)
         PlaceWidget(blBtn)
+    end
+	
+	-- Glass Heart
+    if id == "GLASS_HEART" then
+        local glBtn = self.optionsPane.widgets.glassLog
+        -- Ensure the button updates to match the current DB state
+        glBtn:SetChecked(db.glassLogVisible or false)
+        PlaceWidget(glBtn)
     end
 
     -- Druid: Astrolabe
@@ -3115,6 +3163,13 @@ SlashCmdList["PURITY"] = function(msg)
             print("|cffFFFF00Purity:|r Blood Log is only available for the Blood Mage challenge.")
         end
         return
+		
+	elseif command == "glasslog" then
+        if Purity.GlobalModules["GLASS_HEART"] then
+            Purity.GlobalModules["GLASS_HEART"]:ToggleLog()
+        else
+            print("|cffFFFF00Purity:|r Glass Heart module not loaded.")
+        end
 		
     else
         Purity:SilentRequestTimePlayed()

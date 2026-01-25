@@ -2,7 +2,7 @@
 ## Title: Purity
 ## Notes: An addon for WoW Classic leveling challenges.
 ## Author: HoliestWoW
-## Version: 10.1.5
+## Version: 11.0.0
 ## SavedVariables: Purity_MinimapIconDB, Purity_GlobalSettings
 ## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
 
@@ -30,3 +30,4 @@ Purity_Ascetic.lua
 PurityCharacterStatus.lua
 Purity_Drunk.lua
 Purity_BloodMage.lua
+Purity_GlassHeart.lua

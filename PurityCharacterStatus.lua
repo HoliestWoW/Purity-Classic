@@ -394,6 +394,18 @@ function UpdateCharacterPurity()
 		elseif db.challengeTitle == "Astrolabe of Purity" then statValue = db.challengeStats.celestialCasts; statName = "Celestial/Nature Spells Cast:"
 		elseif db.challengeTitle == "Contract of Purity" then statValue = db.challengeStats.sinisterStrikeCasts; statName = "Sinister Strikes:"
 		elseif db.challengeTitle == "Foil of Purity" then statValue = db.challengeStats.riposteCasts; statName = "Ripostes:"
+		elseif db.challengeTitle == "Shroud of Purity" then 
+            statValue = db.challengeStats.vanishesUsed; statName = "Vanishes Used:"
+        elseif db.challengeTitle == "Tether of Purity" then 
+            statValue = math.floor(db.challengeStats.connectionGenerated or 0); statName = "Connection Generated:"
+		elseif db.challengeTitle == "The Glass Heart" then
+			if db.challengeStats and db.challengeStats.lowestGlassHP then
+				statValue = string.format("%.1f%%", db.challengeStats.lowestGlassHP)
+				statName = "Lowest HP Reached:"
+			else
+				statValue = "100.0%"
+				statName = "Lowest HP Reached:"
+			end
 		elseif db.challengeTitle == "Bond of Purity" then statValue = db.challengeStats.mendPetCasts; statName = "Mend Pet Casts:"
 		elseif db.challengeTitle == "Quiver of Purity" then statValue = db.challengeStats.aimedShotCasts; statName = "Aimed Shots Fired:"
 		elseif db.challengeTitle == "The Ascetic's Path" then statValue = db.challengeStats.forbiddenItemsSold; statName = "Potential Upgrades Sold:"
