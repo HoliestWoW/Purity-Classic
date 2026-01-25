@@ -189,19 +189,21 @@ ShamanModule.challenges.tether = {
         self:StartMonitor()
         self:RegisterEvents()
         self.isInitialized = true
-    end, -- << COMMA ADDED HERE
+    end,
 
-    -- [[ NATIVE TOOLTIPS (No Newlines) ]]
     SetupTooltips = function(self)
+        -- 1. Helper function for finding and appending text
         local function AppendToDescription(tooltip, keyword, textToAppend)
             local frameName = tooltip:GetName()
-            for i = 1, tooltip:NumLines() do
+            for i = 2, tooltip:NumLines() do -- Start at 2 to skip Name
                 local line = _G[frameName .. "TextLeft" .. i]
                 if line then
                     local text = line:GetText()
-                    if text and string.find(text, keyword) then
-                        line:SetText(text .. " " .. textToAppend)
-                        tooltip:Show()
+                    -- Case-insensitive match for the keyword
+                    if text and string.find(string.lower(text), string.lower(keyword)) then
+                        -- Append in GOLD color
+                        line:SetText(text .. "|cffffd100" .. textToAppend .. "|r")
+                        tooltip:Show() -- Resize frame
                         return true
                     end
                 end
@@ -218,26 +220,36 @@ ShamanModule.challenges.tether = {
 
             if name == "Ghost Wolf" then
                 if self.talentMods.wolfGen then
-                    AppendToDescription(tooltip, "Wolf", "Generates Connection while moving.")
+                    AppendToDescription(tooltip, "Wolf", " Generates Connection while moving.")
                 end
             elseif string.find(name, "Totem") then
                 local range = self.maxRange or 20
                 -- Totem descriptions usually start with "Summons"
-                AppendToDescription(tooltip, "Summons", "Creates a Tether Zone (" .. range .. " yds).")
+                AppendToDescription(tooltip, "Summons", " Creates a Tether Zone (" .. range .. " yds).")
             end
         end
 
-        local function OnSetTalent(tooltip, tabIndex, talentIndex)
+        -- 2. TALENT TOOLTIP HOOK (Safe Text Scraping Method)
+        local function OnSetTalent(tooltip)
             local db = Purity:GetDB()
             if db.activeChallengeID ~= "Tether of Purity" then return end
 
-            local name = GetTalentInfo(tabIndex, talentIndex)
+            -- Safe Name Retrieval
+            local frameName = tooltip:GetName()
+            if not frameName then return end
+
+            local line1 = _G[frameName .. "TextLeft1"]
+            if not line1 then return end
+            
+            local name = line1:GetText()
             if not name then return end
 
             if name == "Totemic Mastery" then
-                AppendToDescription(tooltip, "range", "Increases Tether Connection range by 10 yards.")
+                -- Keyword "radius" usually appears in the description
+                AppendToDescription(tooltip, "radius", " Increases Tether Connection range by 10 yards.")
             elseif name == "Improved Ghost Wolf" then
-                AppendToDescription(tooltip, "cast", "Allows Ghost Wolf to maintain Connection away from totems.")
+                -- Keyword "cast" usually appears in "reduces the cast time"
+                AppendToDescription(tooltip, "cast", " Allows Ghost Wolf to maintain Connection away from totems.")
             end
         end
 

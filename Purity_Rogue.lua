@@ -235,9 +235,10 @@ RogueModule.challenges.shroud = {
         self:RegisterEvents()
         
         self.isInitialized = true
-    end, -- << COMMA ADDED HERE
+    end,
 
     SetupTooltips = function(self)
+        -- 1. SPELL TOOLTIP HOOK
         local function OnTooltipSetSpell(tooltip)
             local db = Purity:GetDB()
             if db.activeChallengeID ~= "Shroud of Purity" then return end
@@ -260,22 +261,50 @@ RogueModule.challenges.shroud = {
             tooltip:Show()
         end
         
-        local function OnSetTalent(tooltip, tabIndex, talentIndex)
+        -- 2. TALENT TOOLTIP HOOK (Seamless Integration)
+        -- We scan existing lines for specific keywords and append our text in GOLD.
+        local function OnSetTalent(tooltip)
             local db = Purity:GetDB()
             if db.activeChallengeID ~= "Shroud of Purity" then return end
 
-            local name = GetTalentInfo(tabIndex, talentIndex)
+            -- Safe Name Retrieval (Avoiding Crash API)
+            local frameName = tooltip:GetName()
+            if not frameName then return end
+
+            local line1 = _G[frameName .. "TextLeft1"]
+            if not line1 then return end
+            
+            local name = line1:GetText()
             if not name then return end
 
-            -- Color: Light Blue for Talents
-            local r, g, b = 0.6, 0.8, 1.0
-
+            -- Define what to search for and what to append
+            local appendData = nil
+            
             if name == "Master of Deception" then
-                tooltip:AddLine("Reduces Exposure generation while visible.", r, g, b)
+                appendData = {
+                    keyword = "detect you", -- Matches standard description text
+                    text = " Reduces Exposure generation while visible."
+                }
             elseif name == "Camouflage" then
-                 tooltip:AddLine("Increases Exposure decay rate while Stealthed.", r, g, b)
+                appendData = {
+                    keyword = "stealthed", -- Matches "speed while stealthed"
+                    text = " Increases Exposure decay rate while Stealthed."
+                }
             end
-            tooltip:Show()
+
+            if appendData then
+                for i = 2, tooltip:NumLines() do
+                    local line = _G[frameName .. "TextLeft" .. i]
+                    if line then
+                        local text = line:GetText()
+                        if text and string.find(string.lower(text), appendData.keyword) then
+                            -- Append text in GOLD (|cffffd100)
+                            line:SetText(text .. "|cffffd100" .. appendData.text .. "|r")
+                        end
+                    end
+                end
+                tooltip:Show() -- Refresh frame size
+            end
         end
 
         if not self.tooltipsHooked then
