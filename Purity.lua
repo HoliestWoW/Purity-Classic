@@ -2490,7 +2490,7 @@ function Purity:PerformSecurityAudit(db)
     local isValid = (Purity:CreateDataSignature_Legacy(db) == oldSignature)
 
     if not isValid then
-        if Purity:CreateDataSignature_V3(db) == oldSignature then isValid = true end
+        if Purity:CreateDataSignature(db) == oldSignature then isValid = true end
     end
 
     if not isValid and db.status ~= "Not Participating" then
@@ -3735,11 +3735,9 @@ function Purity:AttemptDataMigration(db, newGUID)
     local oldSignature = db.dataSignature
     local isValid = false
 
-    -- Try checking integrity using V3, V2, and V1 signatures
+    -- Try checking integrity using Current and Legacy signatures
     if Purity:CreateDataSignature(db) == oldSignature then isValid = true end
-    if not isValid and Purity:CreateDataSignature_V3(db) == oldSignature then isValid = true end
-    if not isValid and Purity:CreateDataSignature_V2(db) == oldSignature then isValid = true end
-    if not isValid and Purity:CreateDataSignature_V1(db) == oldSignature then isValid = true end
+    if not isValid and Purity:CreateDataSignature_Legacy(db) == oldSignature then isValid = true end
 
     -- 2. "Make sure it's an era file" (Check version/format validity)
     -- If the hash validation passed, we know it's a valid Purity file. 
