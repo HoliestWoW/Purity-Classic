@@ -270,29 +270,42 @@ MageModule.challenges.conduit = {
                 end
             end
         end)
-        -- [[ SPIRIT TOOLTIP HOOK (Cross-Version: Vanilla & TBC) ]]
+        -- [[ SPIRIT TOOLTIP HOOK (Cross-Version: Vanilla & TBC & Era 1.15) ]]
         if not self.spiritTooltipHooked then
-            -- TBC Logic: Specific Frame + Exact Numbers
+            local module = self
+
+            -- Helper function to calculate the bonus
+            local function AddSpiritInfo(frame)
+                local db = Purity:GetDB()
+                if db.activeChallengeID == "Conduit of Purity" then
+                    local _, spirit = UnitStat("player", 5)
+                    
+                    -- Math derived from StartMonitor: 
+                    -- Base Gen is 8.0. Spirit adds (Spirit * 0.05)
+                    local baseGen = 8.0
+                    local spiritBonus = spirit * 0.05
+                    
+                    -- Calculate percentage increase relative to the base rate
+                    local percentIncrease = (spiritBonus / baseGen) * 100
+
+                    GameTooltip:AddLine(string.format("Increases Static Charge generation by %.1f/sec (+%.1f%%).", spiritBonus, percentIncrease), 1, 0.82, 0)
+                    GameTooltip:Show()
+                end
+            end
+
+            -- Logic A: TBC Classic (Specific Frame Name)
             if _G["PlayerStatFrameLeft5"] then
-                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", function(frame)
-                    local db = Purity:GetDB()
-                    if db.activeChallengeID == "Conduit of Purity" then
-                        local _, spirit = UnitStat("player", 5)
-                        local bonus = spirit * 0.05
-                        GameTooltip:AddLine("Increases Static Charge generation by " .. string.format("%.0f", bonus) .. " Per Second", 1, 0.82, 0)
-                        GameTooltip:Show()
-                    end
-                end)
+                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", AddSpiritInfo)
             
-            -- Era Logic: Global Hook + Vague Text
+            -- Logic B: Classic Era 1.15.x (Standard CharacterStatFrame5)
+            elseif _G["CharacterStatFrame5"] then
+                _G["CharacterStatFrame5"]:HookScript("OnEnter", AddSpiritInfo)
+
+            -- Logic C: Fallback Global Hook (Old Vanilla / Private Servers)
             else
                 hooksecurefunc("PaperDollStatTooltip", function(unit, stat)
                     if unit == "player" and stat == 5 then -- 5 is Spirit
-                        local db = Purity:GetDB()
-                        if db.activeChallengeID == "Conduit of Purity" then
-                            GameTooltip:AddLine("Increases Static Charge generation.", 1, 0.82, 0)
-                            GameTooltip:Show()
-                        end
+                        AddSpiritInfo()
                     end
                 end)
             end

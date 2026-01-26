@@ -997,31 +997,49 @@ ManageBloodRegen = function(self)
             end)
             self.playerFrameTooltipHooked = true
         end
-        -- [[ SPIRIT TOOLTIP HOOK (Cross-Version: Vanilla & TBC) ]]
+        -- [[ SPIRIT TOOLTIP HOOK (Cross-Version: Vanilla & TBC & Era 1.15) ]]
         if not self.spiritTooltipHooked then
-            -- TBC Logic: Specific Frame + Exact Numbers
-            if _G["PlayerStatFrameLeft5"] then
-                local module = self
-                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", function(frame)
-                    local db = Purity:GetDB()
-                    if db.isOptedIn and db.activeChallengeID == module.id then
-                        local _, spirit = UnitStat("player", 5)
-                        local efficiency = spirit * 12 -- Calculates the raw efficiency bonus
+            local module = self
+            
+            -- Helper function to calculate the percentage
+            local function AddSpiritInfo(frame)
+                local db = Purity:GetDB()
+                if db.isOptedIn and db.activeChallengeID == module.id then
+                    local level = UnitLevel("player")
+                    local _, spirit = UnitStat("player", 5)
+                    local powerType = UnitPowerType("player") -- 0=Mana, 1=Rage, 3=Energy
 
-                        GameTooltip:AddLine("Increases Blood efficiency by " .. efficiency .. ".", 1, 0.82, 0)
+                    -- Replicate the formula from _GetBloodCostInternal
+                    local baseDivisor = (powerType == 0 and 200) or (powerType == 3 and 500) or 100
+                    local scaledDivisor = baseDivisor + (level * 20) -- The divisor if you had 0 Spirit
+                    
+                    local spiritBonus = spirit * 12 -- The module.spiritFactor is 12
+                    local totalDivisor = scaledDivisor + spiritBonus
+
+                    if totalDivisor > 0 then
+                        -- Calculate how much lower the cost is compared to 0 Spirit
+                        -- CostRatio = (1/Total) / (1/Scaled) = Scaled / Total
+                        local reduction = (1 - (scaledDivisor / totalDivisor)) * 100
+                        
+                        GameTooltip:AddLine(string.format("Reduces Blood costs by %.1f%%.", reduction), 1, 0.82, 0)
                         GameTooltip:Show()
                     end
-                end)
+                end
+            end
+
+            -- Logic A: TBC Classic (Specific Frame Name)
+            if _G["PlayerStatFrameLeft5"] then
+                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", AddSpiritInfo)
             
-            -- Era Logic: Global Hook + Vague Text
+            -- Logic B: Classic Era 1.15.x (Standard CharacterStatFrame5)
+            elseif _G["CharacterStatFrame5"] then
+                _G["CharacterStatFrame5"]:HookScript("OnEnter", AddSpiritInfo)
+
+            -- Logic C: Fallback Global Hook (Old Vanilla / Private Servers)
             else
                 hooksecurefunc("PaperDollStatTooltip", function(unit, stat)
                     if unit == "player" and stat == 5 then -- 5 is Spirit
-                        local db = Purity:GetDB()
-                        if db.isOptedIn and db.activeChallengeID == self.id then
-                            GameTooltip:AddLine("Increases Blood efficiency.", 1, 0.82, 0)
-                            GameTooltip:Show()
-                        end
+                        AddSpiritInfo()
                     end
                 end)
             end
