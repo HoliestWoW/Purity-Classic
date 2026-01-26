@@ -1222,21 +1222,30 @@ function Purity:UpdateRosterWindow()
         
         local shortName = string.match(tostring(playerName), "([^-]+)") or playerName
         
-        local colorData = RAID_CLASS_COLORS[class] or {r=1, g=1, b=1}
-		
-	    local displayClassName = class
-        if data.challenge == Purity.GlobalModules.BLOOD_MAGE_BARGAIN.challengeName and class == "PALADIN" then
-            displayClassName = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].name
-            local hex = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].colorHex
-            colorData.r = tonumber(hex:sub(1, 2), 16) / 255
-            colorData.g = tonumber(hex:sub(3, 4), 16) / 255
-            colorData.b = tonumber(hex:sub(5, 6), 16) / 255
+        -- FIX START: Don't modify the table directly. Copy values to local variables.
+        local classColor = RAID_CLASS_COLORS[class] or {r=1, g=1, b=1}
+        local r, g, b = classColor.r, classColor.g, classColor.b
+        
+        local displayClassName = class
+
+        -- Check strictly for the BMB challenge AND Paladin class
+        if challenge == "The Blood Mage's Bargain" and class == "PALADIN" then
+            if Purity.BLOODMAGE_CLASS_OVERRIDES and Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"] then
+                displayClassName = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].name
+                local hex = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].colorHex
+                -- Override ONLY the local variables, leaving the global table alone
+                r = tonumber(hex:sub(1, 2), 16) / 255
+                g = tonumber(hex:sub(3, 4), 16) / 255
+                b = tonumber(hex:sub(5, 6), 16) / 255
+            end
         end
+        -- FIX END
 
         local nameLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         nameLabel:SetPoint("TOPLEFT", Purity.rosterPane, "TOPLEFT", 20, yOffset)
         nameLabel:SetWidth(columnWidths[1]); nameLabel:SetJustifyH("LEFT")
-        nameLabel:SetText(shortName); nameLabel:SetTextColor(colorData.r, colorData.g, colorData.b)
+        nameLabel:SetText(shortName)
+        nameLabel:SetTextColor(r, g, b) -- Use the local variables
         table.insert(Purity.rosterPane.lines, nameLabel)
 
         local levelLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -1248,11 +1257,8 @@ function Purity:UpdateRosterWindow()
         local classLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         classLabel:SetPoint("LEFT", levelLabel, "RIGHT", 0, 0)
         classLabel:SetWidth(columnWidths[3]); classLabel:SetJustifyH("LEFT")
-
-        -- *** THE FIX IS HERE: Convert the text to uppercase ***
         classLabel:SetText(string.upper(tostring(displayClassName))); 
-        
-        classLabel:SetTextColor(colorData.r, colorData.g, colorData.b) 
+        classLabel:SetTextColor(r, g, b) -- Use the local variables
         table.insert(Purity.rosterPane.lines, classLabel)
 
         local challengeLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -1266,8 +1272,8 @@ function Purity:UpdateRosterWindow()
         statusLabel:SetWidth(columnWidths[5]); statusLabel:SetJustifyH("LEFT")
         statusLabel:SetText(status)
         table.insert(Purity.rosterPane.lines, statusLabel)
-		
-		if status == "Passing" then
+        
+        if status == "Passing" then
             statusLabel:SetTextColor(0.1, 1.0, 0.1) -- Green
         elseif status == "Failed" then
             statusLabel:SetTextColor(1.0, 0.1, 0.1) -- Red
@@ -2483,6 +2489,35 @@ function Purity:GetRawStatusData()
     return data
 end
 
+function Purity:IsOathBreaker(name)
+    if not name then return false end
+    
+    -- Strip realm if present for comparison
+    local shortName = string.match(name, "([^-]+)") or name
+
+    -- 1. Check Self (Direct DB lookup)
+    if shortName == UnitName("player") then
+        local db = Purity:GetDB()
+        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and 
+           (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+            return true
+        end
+        return false
+    end
+
+    -- 2. Check Roster (Other players)
+    -- We try exact match first, then Name-Realm, then just Name
+    local rosterData = Purity.roster and (Purity.roster[name] or Purity.roster[name .. "-" .. GetRealmName()] or Purity.roster[shortName])
+    
+    if rosterData and rosterData.class == "PALADIN" and 
+       rosterData.challenge == "The Blood Mage's Bargain" and
+       (rosterData.status == "Passing" or rosterData.status == "Temporary Failure - Uptime") then
+        return true
+    end
+
+    return false
+end
+
 function Purity:PerformSecurityAudit(db)
     print("|cffFFFF00Purity:|r Addon update detected (v" .. (db.addonVersion or "Unknown") .. " -> v" .. Purity.Version .. "). Performing security audit...")
 
@@ -3370,68 +3405,96 @@ function Purity_Tooltip_OnShow(self)
 end
 
 local function Purity_TooltipOnUpdateHandler(self)
-    local unit = select(2, self:GetUnit())
-    local statusBar = GameTooltipStatusBar
-    
-    if not (unit and UnitIsPlayer(unit)) then return end
+    local _, unit = self:GetUnit()
+    if not unit or not UnitIsPlayer(unit) then return end
 
-    local unitName = UnitName(unit)
-    local rosterData
-    for key, data in pairs(Purity.roster) do
-        if key:match("([^-]+)") == unitName then
-            rosterData = data
-            break
+    local isOathBreaker = false
+    local currentBlood, maxBlood
+
+    -- 1. Identify if this is an Oath Breaker (Self or Roster)
+    if UnitIsUnit(unit, "player") then
+        local db = Purity:GetDB()
+        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and 
+           (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+            isOathBreaker = true
+            currentBlood = db.bloodPoolCurrent
+            maxBlood = db.bloodPoolMax
+        end
+    else
+        local name = UnitName(unit)
+        local shortName = name and name:match("([^-]+)")
+        local data = Purity.roster and (Purity.roster[name] or Purity.roster[shortName] or Purity.roster[name .. "-" .. GetRealmName()])
+        
+        if data and data.challenge == "The Blood Mage's Bargain" and 
+           (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+            isOathBreaker = true
+            currentBlood = data.bloodPoolCurrent
+            maxBlood = data.bloodPoolMax
         end
     end
 
-    local isBloodMage = (rosterData and rosterData.challenge == "The Blood Mage's Bargain" and (rosterData.status == "Passing" or rosterData.status == "Temporary Failure - Uptime"))
-    local _, unitClass = UnitClass(unit)
-    local unitClassToken = string.upper(unitClass or "")
-
-    if isBloodMage then
-        if unitClassToken == "PALADIN" then
-            local line = _G[self:GetName() .. "TextLeft2"]
-            if line then
-                local overrideData = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
-                local newClassName = overrideData.name
-                local newColorHex = overrideData.colorHex
-                local levelText = UnitLevel(unit) == -1 and "??" or UnitLevel(unit)
-                
-                line:SetText("Level " .. levelText .. " " .. UnitRace(unit) .. " " .. "|cffFFFFFF" .. newClassName .. "|r|cffFFFFFF (Player)|r")
+    if isOathBreaker then
+        -- 2. FIX NAME: Force Red Color
+        -- We strip existing color codes first to ensure our Red sticks
+        local line1 = _G[self:GetName() .. "TextLeft1"]
+        if line1 then
+            local text = line1:GetText()
+            -- Only update if it's not already red (prevents flickering)
+            if text and not text:find("ffFF0000") then
+                 local cleanText = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+                 line1:SetText("|cffFF0000" .. cleanText .. "|r")
             end
         end
 
-        if statusBar and statusBar:IsShown() and rosterData.bloodPoolCurrent and rosterData.bloodPoolMax then
-			statusBar:Show()
-            statusBar:SetStatusBarColor(0.8, 0.1, 0.1)
-            statusBar:SetMinMaxValues(0, rosterData.bloodPoolMax)
-            statusBar:SetValue(rosterData.bloodPoolCurrent)
-            if statusBar.Text then statusBar.Text:SetText(math.floor(rosterData.bloodPoolCurrent) .. " / " .. rosterData.bloodPoolMax) end
+        -- 3. FIX CLASS: Rename Paladin -> Oath Breaker
+        for i = 2, self:NumLines() do
+            local line = _G[self:GetName() .. "TextLeft" .. i]
+            if line then
+                local text = line:GetText()
+                if text and text:find("Paladin") then
+                     local override = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
+                     local newText = text:gsub("Paladin", "|cff" .. override.colorHex .. override.name .. "|r")
+                     line:SetText(newText)
+                end
+            end
         end
-        local padding = 30
+
+        -- 4. FIX HEALTH BAR: Force Show & Update
+        local statusBar = GameTooltipStatusBar
+        if statusBar then
+            -- Force the bar to show if the UI hid it (common for Self)
+            if not statusBar:IsShown() then statusBar:Show() end
+            
+            statusBar:SetStatusBarColor(0.8, 0.1, 0.1) -- Red
+            
+            -- Ensure values are applied
+            if currentBlood and maxBlood and maxBlood > 0 then
+                statusBar:SetMinMaxValues(0, maxBlood)
+                statusBar:SetValue(currentBlood)
+                
+                -- Force text update (e.g., "100 / 100")
+                if statusBar.Text then
+                    statusBar.Text:SetText(math.floor(currentBlood) .. " / " .. maxBlood)
+                    statusBar.Text:Show() 
+                end
+            end
+        end
+
+        -- 5. FIX SIZE: Manually Resize Background
+        -- We calculate the widest line of text and force the tooltip to that width
+        local padding = 20
         local maxWidth = 0
         for i = 1, self:NumLines() do
             local leftLine = _G[self:GetName() .. "TextLeft" .. i]
             if leftLine and leftLine:IsShown() then
-                local textWidth = leftLine:GetStringWidth()
-                if textWidth > maxWidth then
-                    maxWidth = textWidth
-                end
+                local w = leftLine:GetStringWidth()
+                if w > maxWidth then maxWidth = w end
             end
         end
+        
+        -- Apply width if it's larger than current (prevents cutting off "Oath Breaker")
         if maxWidth > 0 and (maxWidth + padding) > self:GetWidth() then
             self:SetWidth(maxWidth + padding)
-        end
-		
-    else
-        if statusBar and statusBar:IsShown() then
-            statusBar:SetStatusBarColor(0.1, 0.8, 0.1)
-        end
-        if unitClassToken == "PALADIN" then
-            local line = _G[self:GetName() .. "TextLeft2"]
-            if line and line:GetText() and line:GetText():find("Oath Breaker") then
-                self:SetUnit(unit)
-            end
         end
     end
 end
@@ -3480,61 +3543,70 @@ end
 local function OnPlayerLogin()
     Purity:EnforceDefaultClassColors()
     Purity:BuildChallengeTypeMap()
-	Purity:StartModifierMonitor()
+    Purity:StartModifierMonitor()
     C_ChatInfo.RegisterAddonMessagePrefix(Purity.ADDON_PREFIX)
-	
-	if not Purity.Original_ChatFrame1_AddMessage then
-        Purity.Original_ChatFrame1_AddMessage = ChatFrame1.AddMessage
-    end
-
-    ChatFrame1.AddMessage = function(self, text, ...)
-        -- Check if we are expecting to hide messages (Buffer > 0)
-        if HIDE_RTP_CHAT_MSG_BUFFER > 0 and text then
-             -- Strip the "%s" from the global strings to match the text
-             local totalPrefix = string.gsub(TIME_PLAYED_TOTAL, "%%s", "") 
-             local levelPrefix = string.gsub(TIME_PLAYED_LEVEL, "%%s", "")
-             
-             -- Hide "Total time played"
-             if string.find(text, totalPrefix, 1, true) then
-                 return 
-             end
-             
-             -- Hide "Time played this level" and decrement the buffer
-             if string.find(text, levelPrefix, 1, true) then
-                 HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER - 1
-                 if HIDE_RTP_CHAT_MSG_BUFFER < 0 then HIDE_RTP_CHAT_MSG_BUFFER = 0 end
-                 return 
-             end
-        end
-        -- If not hidden, pass it to the real chat frame
-        return Purity.Original_ChatFrame1_AddMessage(self, text, ...)
-    end
-	
-    CharacterFrame:HookScript("OnShow", function()
-        Purity:UpdateCharacterFrameClassName()
-    end)
-
-    CharacterFrameTab1:HookScript("OnClick", function()
-        C_Timer.After(0.01, function()
-            Purity:UpdateCharacterFrameClassName()
-        end)
-    end)
     
-	C_Timer.NewTicker(60, function()
-		local currentTime = GetTime()
-		local playersToRemove = {}
-		for playerName, data in pairs(Purity.roster) do
-			if currentTime - (data.lastSeen or 0) > 125 then
-				table.insert(playersToRemove, playerName)
-			end
-		end
-		if #playersToRemove > 0 then
-			for _, name in ipairs(playersToRemove) do
-				Purity.roster[name] = nil
-			end
-			Purity:UpdateRosterWindow()
-		end
-	end)
+    -- Hook ALL Chat Frames (1 through 10) to catch Prat/LTP windows
+    for i = 1, NUM_CHAT_WINDOWS do
+        local frame = _G["ChatFrame"..i]
+        if frame then
+            if not frame.PurityOriginalAddMessage then
+                frame.PurityOriginalAddMessage = frame.AddMessage
+            end
+
+            frame.AddMessage = function(self, text, ...)
+                -- 1. Hide "Time Played" spam
+                if HIDE_RTP_CHAT_MSG_BUFFER > 0 and text then
+                     local totalPrefix = string.gsub(TIME_PLAYED_TOTAL, "%%s", "") 
+                     local levelPrefix = string.gsub(TIME_PLAYED_LEVEL, "%%s", "")
+                     if string.find(text, totalPrefix, 1, true) then return end
+                     if string.find(text, levelPrefix, 1, true) then
+                         HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER - 1
+                         if HIDE_RTP_CHAT_MSG_BUFFER < 0 then HIDE_RTP_CHAT_MSG_BUFFER = 0 end
+                         return 
+                     end
+                end
+
+                -- 2. Recolor Oath Breakers
+                -- We iterate over ANY color code (|cff......) 
+                if text and string.find(text, "|cff%x%x%x%x%x%x") then
+                    text = string.gsub(text, "(|cff%x%x%x%x%x%x)(.-)(|r)", function(colorCode, content, resetCode)
+                        -- 'content' is the text inside the color. 
+                        -- In your log, the name was exactly: "Oathbreakerr" inside the color tags.
+                        
+                        -- 1. Strip potential brackets or spaces just in case
+                        local cleanName = content:gsub("[%[%]%(%)<>]", ""):gsub("^%s*(.-)%s*$", "%1")
+
+                        -- 2. Check if this specific text is an Oath Breaker
+                        if Purity:IsOathBreaker(cleanName) then
+                            -- It is! Return RED + Content + Reset
+                            return "|cffFF0000" .. content .. resetCode
+                        end
+                        
+                        -- Not an Oath Breaker? Return the original color and content
+                        return colorCode .. content .. resetCode
+                    end)
+                end
+
+                return frame.PurityOriginalAddMessage(self, text, ...)
+            end
+        end
+    end
+    
+    CharacterFrame:HookScript("OnShow", function() Purity:UpdateCharacterFrameClassName() end)
+    CharacterFrameTab1:HookScript("OnClick", function() C_Timer.After(0.01, function() Purity:UpdateCharacterFrameClassName() end) end)
+    
+    C_Timer.NewTicker(60, function()
+        local currentTime = GetTime()
+        local playersToRemove = {}
+        for playerName, data in pairs(Purity.roster) do
+            if currentTime - (data.lastSeen or 0) > 125 then table.insert(playersToRemove, playerName) end
+        end
+        if #playersToRemove > 0 then
+            for _, name in ipairs(playersToRemove) do Purity.roster[name] = nil end
+            Purity:UpdateRosterWindow()
+        end
+    end)
 end
 
 mainFrame:SetScript("OnEvent", function(self, event, ...)

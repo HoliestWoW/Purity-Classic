@@ -606,14 +606,25 @@ ManageBloodRegen = function(self)
             
             local bar = self.partyBloodBars[unit]
             if UnitExists(unit) and healthBar then
-                local name = UnitName(unit)
                 local isBloodMage = false
                 
-                for key, data in pairs(Purity.roster) do
-                    local rosterPlayerName = key:match("([^-]+)")
-                    if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                -- 1. CHECK SELF (Use Local DB)
+                if UnitIsUnit(unit, "player") then
+                    local db = Purity:GetDB()
+                    if db and db.activeChallengeID == self.id and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
                         isBloodMage = true
-                        break
+                    end
+                end
+
+                -- 2. CHECK OTHERS (Use Roster)
+                if not isBloodMage then
+                    local name = UnitName(unit)
+                    for key, data in pairs(Purity.roster) do
+                        local rosterPlayerName = key:match("([^-]+)")
+                        if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                            isBloodMage = true
+                            break
+                        end
                     end
                 end
                 
@@ -622,13 +633,22 @@ ManageBloodRegen = function(self)
                         bar = CreateFrame("StatusBar", "PurityGroupBloodBar"..unit, healthBar:GetParent())
                         bar:SetAllPoints(healthBar)
                         bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                        bar:SetStatusBarColor(0.8, 0.1, 0.1)
+                        bar:SetStatusBarColor(0.8, 0.1, 0.1) -- Blood Red
                         bar:SetFrameStrata(healthBar:GetFrameStrata())
                         bar:SetFrameLevel(healthBar:GetFrameLevel())
-                        local bg = bar:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(true); bg:SetColorTexture(0, 0, 0, 1)
-                        local mask = bar:CreateMaskTexture(); mask:SetTexture("Interface\\ChatFrame\\ChatFrameBackground"); mask:SetBlendMode("BLEND"); mask:SetAllPoints(bar)
+                        
+                        local bg = bar:CreateTexture(nil, "BACKGROUND")
+                        bg:SetAllPoints(true)
+                        bg:SetColorTexture(0, 0, 0, 1)
+                        
+                        local mask = bar:CreateMaskTexture()
+                        mask:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+                        mask:SetBlendMode("BLEND")
+                        mask:SetAllPoints(bar)
+                        
                         self.partyBloodBars[unit] = bar
                     end
+                    
                     healthBar:SetAlpha(0)
                     if healthBarText then healthBarText:SetAlpha(0) end
                     bar:Show()
@@ -647,19 +667,32 @@ ManageBloodRegen = function(self)
 
     UpdateGroupFrameValues = function(self)
         if GetNumGroupMembers() == 0 and not UnitExists("target") then return end
+        
         local units = {"target", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local bar = self.partyBloodBars[unit]
             if bar and bar:IsShown() then
-                local name = UnitName(unit)
-                for key, data in pairs(Purity.roster) do
-                    local rosterPlayerName = key:match("([^-]+)")
-                    if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName then
-                        if data.bloodPoolMax and data.bloodPoolCurrent then
-                            bar:SetMinMaxValues(0, data.bloodPoolMax)
-                            bar:SetValue(data.bloodPoolCurrent)
+                
+                -- 1. UPDATE SELF (From Local DB)
+                if UnitIsUnit(unit, "player") then
+                    local db = Purity:GetDB()
+                    if db and db.bloodPoolMax and db.bloodPoolCurrent then
+                        bar:SetMinMaxValues(0, db.bloodPoolMax)
+                        bar:SetValue(db.bloodPoolCurrent)
+                    end
+                
+                -- 2. UPDATE OTHERS (From Roster)
+                else
+                    local name = UnitName(unit)
+                    for key, data in pairs(Purity.roster) do
+                        local rosterPlayerName = key:match("([^-]+)")
+                        if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName then
+                            if data.bloodPoolMax and data.bloodPoolCurrent then
+                                bar:SetMinMaxValues(0, data.bloodPoolMax)
+                                bar:SetValue(data.bloodPoolCurrent)
+                            end
+                            break
                         end
-                        break
                     end
                 end
             end
