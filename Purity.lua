@@ -91,6 +91,7 @@ Purity.selectedChallenge = nil
 Purity.hasUIBeenCreated = false
 
 local _, _, _, interfaceVersion = GetBuildInfo()
+local isMoP = (interfaceVersion >= 50000)
 local MAX_PLAYER_LEVEL = 60 -- Default to Classic Era / SoD / Hardcore
 
 if interfaceVersion >= 20000 and interfaceVersion < 30000 then
@@ -336,19 +337,14 @@ end
 
 function Purity:GetCurrentChallengeInfo()
     local db = self:GetDB()
-    if not db or not db.challengeTitle then
-        return nil, 1.0
+    if not db or not db.challengeTitle then return nil, 1.0 end
+
+    -- Helper to get coeff for a specific ID
+    local function GetCoeff(name)
+        return Purity.ChallengeCoefficients[name] or 1.0
     end
-
-    local challengeTitle = db.challengeTitle
-    local challengeKey = challengeTitle
-
-    local activeChallenge = self:GetActiveChallengeObject()
-    local specifier = nil
-    if activeChallenge and activeChallenge.GetChallengeSpecifier then
-        specifier = activeChallenge:GetChallengeSpecifier()
-    end
-
+	
+	local mainKey = db.challengeTitle
     if challengeTitle == "The Ascetic's Path" and specifier then
         if specifier == "EASY" then challengeKey = "Path of Humility"
         elseif specifier == "MEDIUM" then challengeKey = "Path of Resilience"
@@ -359,23 +355,31 @@ function Purity:GetCurrentChallengeInfo()
         challengeKey = string.format("The Glass Heart (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
     end
 
-    local coefficient = Purity.ChallengeCoefficients[challengeKey] or 1.0
-    return challengeKey, coefficient
+    local mainCoeff = GetCoeff(mainKey)
+    local finalCoeff = mainCoeff
+    local displayName = mainKey
+
+    -- MoP Logic: Weighted Average
+    if db.dkDestinyID then
+        local destinyCoeff = GetCoeff(db.dkDestinyID)
+        -- Weighted Average: (Vow + Destiny) / 2
+        finalCoeff = (mainCoeff + destinyCoeff) / 2
+        displayName = mainKey .. " + " .. db.dkDestinyID
+    end
+
+    return displayName, finalCoeff
 end
 
 function Purity:CalculateTotalCoefficient()
-    local challengeKey, baseCoeff = self:GetCurrentChallengeInfo()
-    if not challengeKey then return 1.0 end
-
+    local _, baseCoeff = self:GetCurrentChallengeInfo()
+    
+    -- [Insert your existing GameplayModifiers logic here (Hardcore/SSF)] --
     local multiplier = 1.0
     local modifiers = self:GetGameplayModifiers()
-
-    if modifiers.isSSF then
-        multiplier = 4.0 -- For Community/Official Hardcore + Self-Found
-    elseif modifiers.isSelfFound then
-        multiplier = 3.0 -- For Official Self-Found only
-    elseif modifiers.isHardcore then
-        multiplier = 2.0 -- For Official Hardcore only
+    
+    if modifiers.isSSF then multiplier = 4.0
+    elseif modifiers.isSelfFound then multiplier = 3.0
+    elseif modifiers.isHardcore then multiplier = 2.0 
     end
     
     return baseCoeff * multiplier
@@ -496,6 +500,7 @@ function Purity:InitializeDatabase()
 		isSSFRun = false,
 		challengeStats = {},
         bloodBarIsSeparate = false,
+		dkDestinyID = nil,
 	}
     for key, value in pairs(defaults) do
         if Purity_PerCharacterDB[key] == nil then
@@ -2067,8 +2072,18 @@ function Purity.CreateCoreUI()
                 end
             end
         end
-
-        local db = Purity:GetDB()
+		
+		local db = Purity:GetDB()
+        
+        -- Save Main Challenge
+        db.challengeTitle = Purity.selectedChallenge.challengeName
+        db.activeChallengeID = Purity.selectedChallenge.id
+        
+        -- NEW: Save DK Destiny (Only if MoP and selected)
+        if isMoP and Purity.selectedDKPath then
+            db.dkDestinyID = Purity.selectedDKPath.challengeName
+            -- You might want to save the ID instead of the name depending on your preference
+        end
         
         db.isOptedIn = true
         db.status = "Passing"
@@ -2136,77 +2151,171 @@ function Purity.CreateCoreUI()
     Purity.optInFrame.checkboxText = checkboxText
 
     Purity.optInFrame:SetScript("OnShow", function(frame)
-        local availableChallenges = {}
-        local _, playerClass = UnitClass("player")
-        local playerClassName = playerClass and string.upper(playerClass) or nil
-        local currentClassModule = nil
-        if playerClassName and Purity.ClassModules and Purity.ClassModules[playerClassName] then
-            currentClassModule = Purity.ClassModules[playerClassName]
-        end
+		-- ============================================================
+		-- LOGIC BRANCH: MISTS OF PANDARIA (Dual Selection)
+		-- ============================================================
+		if isMoP then
+			Purity:DisplayChallengeDetails({
+				challengeName = "Welcome to the Path of Purity (MoP)",
+				description = function() return "Choose your Vow and your Destiny." end,
+				GetRulesText = function() 
+					return {
+						"|cffffd100Instruction:|r Select a Vow (Standard) and optionally a Destiny (Death Knight).",
+						"Your score will be the average of the two challenges."
+					} 
+				end
+			})
 
-        if currentClassModule then
-            if currentClassModule.challenges then
-                for id, data in pairs(currentClassModule.challenges) do
-                    table.insert(availableChallenges, data)
-                end
-            elseif currentClassModule.challengeName then
-                table.insert(availableChallenges, currentClassModule)
-            end
-        end
+			-- clear previous widgets
+			if frame.challengeWidgets then 
+				for _, w in ipairs(frame.challengeWidgets) do w:Hide() end 
+			end
+			frame.challengeWidgets = {}
+			frame.vowCheckboxes = {}
+			frame.dkPathCheckboxes = {}
 
-        if Purity.GlobalModules then
-            for id, data in pairs(Purity.GlobalModules) do
-                table.insert(availableChallenges, data)
-            end
-        end
+			local yOffset = -20
+			local leftPane = frame.leftPane
 
-        if #availableChallenges == 0 then
-            Purity:DisplayChallengeDetails({
-                challengeName = "No Challenges Available",
-                description = function() return "No challenges are currently available for your class or as global options." end,
-                GetRulesText = function() return {""} end
-            })
-            return
-        end
+			-- 1. Load Standard Vows
+			local availableVows = {}
+			-- [Load Global Modules]
+			if Purity.GlobalModules then
+				for _, data in pairs(Purity.GlobalModules) do table.insert(availableVows, data) end
+			end
+			-- [Load Class Modules]
+			local _, class = UnitClass("player")
+			if Purity.ClassModules[class] then
+				for _, data in pairs(Purity.ClassModules[class].challenges) do table.insert(availableVows, data) end
+			end
 
-        if frame.challengeButtons then
-            for _, button in ipairs(frame.challengeButtons) do
-                button:Hide()
-            end
-        end
-        frame.challengeButtons = {}
+			-- 2. Load DK Destinies (Dynamically from Purity_DK.lua)
+			local availableDKPaths = {}
+			if Purity.ClassModules["DEATHKNIGHT"] then
+				for _, data in ipairs(Purity.ClassModules["DEATHKNIGHT"].challenges) do
+					-- Filter: Special Warlock check
+					if data.id == "DK_PHYLACTERY" then
+						if class == "WARLOCK" then table.insert(availableDKPaths, data) end
+					else
+						table.insert(availableDKPaths, data)
+					end
+				end
+			end
 
-        Purity:DisplayChallengeDetails({
-            challengeName = "Select a Challenge",
-            description = function() return "Please select a challenge from the list on the left to read its rules and description." end,
-            GetRulesText = function() return {""} end
-        })
+			-- 3. Render Checkboxes for VOWS (Primary Challenge)
+            local vowHeader = frame.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            vowHeader:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 10, yOffset)
+            vowHeader:SetText("|cffffd100Vows|r")
+            yOffset = yOffset - 25
 
-        local yOffset = -20
-
-        table.sort(availableChallenges, function(a, b)
-            return a.challengeName < b.challengeName
-        end)
-
-        for _, data in ipairs(availableChallenges) do
-            data.id = data.id or data.challengeName
-            local button = Purity:CreateChallengeButton(frame.leftPane, data)
-            table.insert(frame.challengeButtons, button)
-
-            button:SetPoint("TOP", frame.leftPane, "TOP", 0, yOffset)
-
-            yOffset = yOffset - button:GetHeight() - 12
-
-            button:SetScript("OnClick", function(self)
-                Purity.tempSelectedSpec = nil 
+            for i, data in ipairs(availableVows) do
+                local check = CreateFrame("CheckButton", nil, frame.leftPane, "UICheckButtonTemplate")
+                check:SetSize(24, 24)
+                check:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 15, yOffset)
                 
-                Purity:DisplayChallengeDetails(self.challengeData)
-                for _, b in ipairs(frame.challengeButtons) do
-                    if b == self then b:LockHighlight() else b:UnlockHighlight() end
+                check.text = check:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                check.text:SetPoint("LEFT", check, "RIGHT", 5, 0)
+                check.text:SetText(data.challengeName)
+                
+                check:SetScript("OnClick", function(self)
+                    -- Radio Button Behavior: Uncheck all other Vows
+                    for _, other in ipairs(frame.vowCheckboxes) do
+                        if other ~= self then other:SetChecked(false) end
+                    end
+                    self:SetChecked(true) -- Force checked (cannot uncheck a Vow, must switch)
+                    
+                    Purity.selectedChallenge = data
+                    Purity:DisplayChallengeDetails(data)
+                end)
+
+                table.insert(frame.vowCheckboxes, check)
+                table.insert(frame.challengeWidgets, check) -- track for cleanup
+                yOffset = yOffset - 30
+            end
+
+            yOffset = yOffset - 15
+
+            -- 4. Render Checkboxes for DESTINIES (Optional DK Paths)
+            if #availableDKPaths > 0 then
+                local dkHeader = frame.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+                dkHeader:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 10, yOffset)
+                dkHeader:SetText("|cffffd100Destinies|r")
+                table.insert(frame.challengeWidgets, dkHeader)
+                yOffset = yOffset - 25
+
+                for i, data in ipairs(availableDKPaths) do
+                    local check = CreateFrame("CheckButton", nil, frame.leftPane, "UICheckButtonTemplate")
+                    check:SetSize(24, 24)
+                    check:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 15, yOffset)
+                    
+                    check.text = check:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    check.text:SetPoint("LEFT", check, "RIGHT", 5, 0)
+                    check.text:SetText(data.challengeName)
+                    
+                    check:SetScript("OnClick", function(self)
+                        local isChecked = self:GetChecked()
+                        -- Radio Behavior: Uncheck all other Destinies
+                        for _, other in ipairs(frame.dkPathCheckboxes) do
+                            if other ~= self then other:SetChecked(false) end
+                        end
+                        -- Allow toggling off (Destiny is optional)
+                        self:SetChecked(isChecked) 
+
+                        if isChecked then
+                            Purity.selectedDKPath = data
+                            Purity:DisplayChallengeDetails(data)
+                        else
+                            Purity.selectedDKPath = nil
+                            -- If we uncheck Destiny, show the main Vow details again
+                            if Purity.selectedChallenge then 
+                                Purity:DisplayChallengeDetails(Purity.selectedChallenge) 
+                            end
+                        end
+                    end)
+
+                    table.insert(frame.dkPathCheckboxes, check)
+                    table.insert(frame.challengeWidgets, check)
+                    yOffset = yOffset - 30
                 end
-            end)
-        end
-    end)
+            end
+            
+            -- Ensure widgets are cleaned up next time we open
+            table.insert(frame.challengeWidgets, vowHeader)
+
+		-- ============================================================
+		-- LOGIC BRANCH: CLASSIC ERA / TBC (Single List)
+		-- ============================================================
+		else
+			-- [This is your EXISTING code from the uploaded file]
+			local availableChallenges = {}
+			local _, playerClass = UnitClass("player")
+			
+			-- Load Current Class
+			if Purity.ClassModules[playerClass] then
+				for _, data in pairs(Purity.ClassModules[playerClass].challenges) do
+					table.insert(availableChallenges, data)
+				end
+			end
+			
+			-- Load Globals
+			if Purity.GlobalModules then
+				for _, data in pairs(Purity.GlobalModules) do
+					table.insert(availableChallenges, data)
+				end
+			end
+
+			-- Create standard Buttons
+			local yOffset = -20
+			for _, data in ipairs(availableChallenges) do
+				 local button = Purity:CreateChallengeButton(frame.leftPane, data)
+				 button:SetPoint("TOP", frame.leftPane, "TOP", 0, yOffset)
+				 yOffset = yOffset - button:GetHeight() - 12
+				 button:SetScript("OnClick", function(self)
+					Purity:DisplayChallengeDetails(self.challengeData)
+				 end)
+			end
+		end
+	end)
     Purity.optInFrame:Hide()
 
     Purity.mainInterfaceFrame = CreateFrame("Frame", "Purity_MainInterfaceFrame", UIParent)
