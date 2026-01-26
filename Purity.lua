@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "11.0.0a"
+Purity.Version = "11.1.0"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -501,6 +501,7 @@ function Purity:InitializeDatabase()
 		challengeStats = {},
         bloodBarIsSeparate = false,
 		dkDestinyID = nil,
+		sequenceID = 0,
 	}
     for key, value in pairs(defaults) do
         if Purity_PerCharacterDB[key] == nil then
@@ -904,72 +905,9 @@ local function RecursiveSerialize(value)
     end
 end
 
-function Purity:CreateDataSignature_V1(db)
+function Purity:CreateDataSignature_Legacy(db)
     if not db then return "" end
-    local keysInOrder = {
-        "activeChallengeID", "activeChallengeModuleType", "addonVersion",
-        "challengeTitle", "completionDate", "hasBeenNotifiedOfLevelCap", "isOptedIn",
-        "physicalStrikes", "playerGUID", "startDate", "status",
-        "uptimeIsUnverified", "weaponInfractions", "fishingFishedItemLinks"
-    }
-    local stringToSign = ""
-
-    for _, key in ipairs(keysInOrder) do
-        local value = db[key]
-        local value_str = ""
-        if value ~= nil then
-            if type(value) == "table" then
-                local sortedLinks = {}
-                if value then for link, _ in pairs(value) do table.insert(sortedLinks, link) end end
-                table.sort(sortedLinks)
-                value_str = table.concat(sortedLinks, "")
-            elseif type(value) == "boolean" then
-                value_str = (value and "true" or "false")
-            else
-                value_str = tostring(value)
-            end
-        end
-        stringToSign = stringToSign .. value_str
-    end
-
-    stringToSign = stringToSign .. trainerKey
-    
-    local finalHash = self:GenerateVerificationHash(stringToSign)
-    
-    return finalHash
-end
-
-function Purity:CreateDataSignature_V2(db)
-    if not db then return "" end
-    local keysInOrder = {
-        "activeChallengeID", "activeChallengeModuleType", "addonVersion",
-        "challengeTitle", "completionDate", "hasBeenNotifiedOfLevelCap", "isOptedIn",
-        "physicalStrikes", "playerGUID", "startDate", "status",
-        "uptimeIsUnverified", "weaponInfractions", "fishingFishedItemLinks",
-        "addonRuntime", "totalPlayedTime"
-    }
-    local stringToSign = ""
-    for _, key in ipairs(keysInOrder) do
-        local value = db[key]
-        if value ~= nil then
-            if type(value) == "table" then
-                local sortedLinks = {}
-                if value then for link, _ in pairs(value) do table.insert(sortedLinks, link) end end
-                table.sort(sortedLinks)
-                stringToSign = stringToSign .. table.concat(sortedLinks, "")
-            elseif type(value) == "boolean" then
-                stringToSign = stringToSign .. (value and "true" or "false")
-            else
-                stringToSign = stringToSign .. tostring(value)
-            end
-        end
-    end
-    stringToSign = stringToSign .. trainerKey
-    return self:GenerateVerificationHash(stringToSign)
-end
-
-function Purity:CreateDataSignature_V3(db)
-    if not db then return "" end
+    -- The old list (No sequenceID)
     local keysInOrder = {
         "activeChallengeID", "activeChallengeModuleType", "addonVersion",
         "challengeTitle", "completionDate", "hasBeenNotifiedOfLevelCap", "isOptedIn",
@@ -977,21 +915,22 @@ function Purity:CreateDataSignature_V3(db)
         "uptimeIsUnverified", "weaponInfractions", "fishingFishedItemLinks",
         "failureReason",
         "addonRuntime",
-        "totalPlayedTime"
+        "totalPlayedTime",
+        "drunkData"
     }
     local stringToSign = ""
     for _, key in ipairs(keysInOrder) do
         local value = db[key]
         if value ~= nil then
-            if type(value) == "table" then
+            if key == "fishingFishedItemLinks" then
                 local sortedLinks = {}
-                if value then for link, _ in pairs(value) do table.insert(sortedLinks, link) end end
+                if type(value) == "table" then
+                    for link, _ in pairs(value) do table.insert(sortedLinks, link) end
+                end
                 table.sort(sortedLinks)
                 stringToSign = stringToSign .. table.concat(sortedLinks, "")
-            elseif type(value) == "boolean" then
-                stringToSign = stringToSign .. (value and "true" or "false")
             else
-                stringToSign = stringToSign .. tostring(value)
+                stringToSign = stringToSign .. RecursiveSerialize(value)
             end
         end
     end
@@ -1009,7 +948,8 @@ function Purity:CreateDataSignature(db)
         "failureReason",
         "addonRuntime",
         "totalPlayedTime",
-        "drunkData"
+        "drunkData",
+        "sequenceID"
     }
     local stringToSign = ""
     for _, key in ipairs(keysInOrder) do
@@ -1098,6 +1038,41 @@ function Purity:GenerateWebVerificationString()
 
     return encoded_string
 end
+
+function Purity:SyncSequence()
+    local db = Purity:GetDB()
+    if not db.isOptedIn then return end
+    
+    -- Increment local sequence
+    db.sequenceID = (db.sequenceID or 0) + 1
+    
+    -- Update the Global Witness
+    if not Purity_GlobalSettings.witnessData then Purity_GlobalSettings.witnessData = {} end
+    
+    local guid = UnitGUID("player")
+    Purity_GlobalSettings.witnessData[guid] = db.sequenceID
+end
+
+function Purity:PerformIntegrityCheck()
+			local db = Purity:GetDB()
+			if not db.isOptedIn then return end
+
+			local guid = UnitGUID("player")
+			local globalSeq = Purity_GlobalSettings.witnessData and Purity_GlobalSettings.witnessData[guid] or 0
+			local localSeq = db.sequenceID or 0
+
+			-- If Global remembers a higher number than we have now, 
+			-- it means we are loading an OLD file after a NEW file was already saved.
+			if globalSeq > localSeq then
+				Purity:Violation(string.format("Security Breach: Save file manipulation detected. (Seq %d < %d)", localSeq, globalSeq))
+			end
+			
+			-- Sync them up so we don't loop-fail if they continue legitimately
+			-- (Though usually, a Violation ends the run anyway)
+			if globalSeq > localSeq then
+			   db.sequenceID = globalSeq
+			end
+		end
 
 function Purity:CreateChallengeButton(parent, challengeData)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
@@ -2509,7 +2484,19 @@ function Purity:GetRawStatusData()
 end
 
 function Purity:PerformSecurityAudit(db)
-    print("|cffFFFF00Purity:|r Old addon version detected. Performing security audit...")
+    print("|cffFFFF00Purity:|r Addon update detected (v" .. (db.addonVersion or "Unknown") .. " -> v" .. Purity.Version .. "). Performing security audit...")
+
+    local oldSignature = db.dataSignature
+    local isValid = (Purity:CreateDataSignature_Legacy(db) == oldSignature)
+
+    if not isValid then
+        if Purity:CreateDataSignature_V3(db) == oldSignature then isValid = true end
+    end
+
+    if not isValid and db.status ~= "Not Participating" then
+        Purity:Violation("Update Failed: Save file signature mismatch. Data integrity cannot be verified.")
+        return false
+    end
 
     local activeChallenge = self:GetActiveChallengeObject()
 
@@ -2554,7 +2541,10 @@ function Purity:PerformSecurityAudit(db)
 
     print("|cffFFFF00Purity:|r |cff00FF00Security audit passed. Upgrading to v" .. Purity.Version .. ".|r")
     db.addonVersion = Purity.Version
-    db.dataSignature = Purity:CreateDataSignature(db, db.status, db.playerGUID)
+    
+    if db.sequenceID == nil then db.sequenceID = 0 end
+    
+    db.dataSignature = Purity:CreateDataSignature(db)
     return true
 end
 
@@ -3586,6 +3576,7 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "PLAYER_LOGOUT" then
 		local currentDB = Purity:GetDB()
 		if currentDB and currentDB.isOptedIn then
+			Purity:SyncSequence()
 			if currentDB.activeChallengeID == "DRUNK" then
 				if not currentDB.drunkData then currentDB.drunkData = {} end
 				currentDB.drunkData.lastState = Purity.GlobalModules.DRUNK:GetCurrentState()
@@ -3613,7 +3604,13 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         Purity:EnforceDefaultClassColors()
         local currentDB = Purity:GetDB()
         local currentGUID = UnitGUID("player")
-        
+
+        Purity:PerformIntegrityCheck()
+
+		if currentDB.isOptedIn and currentDB.addonVersion ~= Purity.Version then
+            Purity:PerformSecurityAudit(currentDB)
+        end
+
         -- MIGRATION LOGIC: Check for GUID Mismatch (Transfer)
         if currentDB.playerGUID and currentDB.playerGUID ~= currentGUID then
             -- Instead of resetting immediately, we attempt to migrate the data

@@ -1,8 +1,8 @@
 ## Interface: 50503
-## Title: Purity [MoP]
+## Title: Purity
 ## Notes: An addon for WoW MoP leveling challenges.
 ## Author: HoliestWoW
-## Version: 11.0.0a
+## Version: 11.1.0
 ## IconTexture: Interface\AddOns\Purity\Media\PurityLogo.tga
 ## SavedVariables: Purity_MinimapIconDB, Purity_GlobalSettings
 ## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
