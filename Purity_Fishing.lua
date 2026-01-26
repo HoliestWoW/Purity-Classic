@@ -249,7 +249,7 @@ function FishingModule:InitializeOnPlayerEnterWorld()
 
         -- Scan the main bank (28 slots in Classic)
         for slot = 1, 28 do
-            local itemLink = GetContainerItemLink(BANK_CONTAINER, slot)
+            local itemLink = C_Container.GetContainerItemLink(BANK_CONTAINER, slot)
             if itemLink then
                 local name = self:SanitizeItemName(GetItemInfo(itemLink))
                 if name then self.bankedItemNames[name] = true; end
@@ -258,8 +258,8 @@ function FishingModule:InitializeOnPlayerEnterWorld()
 
         -- Scan the bank bags
         for bag = (NUM_BAG_SLOTS + 1), (NUM_BAG_SLOTS + GetNumBankSlots()) do
-            for slot = 1, GetContainerNumSlots(bag) do
-                local itemLink = GetContainerItemLink(bag, slot)
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local itemLink = C_Container.GetContainerItemLink(bag, slot)
                 if itemLink then
                     local name = self:SanitizeItemName(GetItemInfo(itemLink))
                     if name then self.bankedItemNames[name] = true; end
