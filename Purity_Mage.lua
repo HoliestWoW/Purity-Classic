@@ -110,7 +110,6 @@ MageModule.challenges.tome = {
             "|cff261A0D  • You may NOT invest talent points into other trees.|r",
             " ",
             "|cffffd100Exceptions:|r",
-            "|cff261A0D  • Teleport, Portal, and Conjure spells are allowed.|r",
             "|cff261A0D  • Racials and Profession skills are allowed.|r",
         }
     end,
