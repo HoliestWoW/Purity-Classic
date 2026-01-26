@@ -725,41 +725,74 @@ ManageBloodRegen = function(self)
         if self.nameplateManager then return end
         self.nameplateManager = CreateFrame("Frame")
         local lastUpdate = 0
+        
         self.nameplateManager:SetScript("OnUpdate", function(frame, elapsed)
             lastUpdate = lastUpdate + elapsed
             if lastUpdate < 0.25 then return end
             lastUpdate = 0
+            
             for i = 1, 40 do
                 local nameplate = _G["NamePlate" .. i]
                 local healthBar = _G["NamePlate" .. i .. "HealthBar"]
+                
+                -- Ensure we have a valid nameplate with a Unit ID
                 if nameplate and nameplate:IsVisible() and nameplate.unit and healthBar then
                     local unit = nameplate.unit
+                    
                     if UnitExists(unit) and UnitIsPlayer(unit) then
                         local name = UnitName(unit)
-                        local rosterData, isBloodMage = nil, false
-                        for key, data in pairs(Purity.roster) do
-                            if key:match("([^-]+)") == name and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
-                                rosterData = data; isBloodMage = true; break
+                        local isBloodMage = false
+                        local currentBlood, maxBlood
+                        
+                        -- 1. CHECK SELF (Use Local DB)
+                        if UnitIsUnit(unit, "player") then
+                            local db = Purity:GetDB()
+                            if db and db.activeChallengeID == self.id and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+                                isBloodMage = true
+                                currentBlood = db.bloodPoolCurrent
+                                maxBlood = db.bloodPoolMax
+                            end
+                        else
+                        -- 2. CHECK ROSTER (Use robust lookup)
+                            local shortName = name:match("([^-]+)")
+                            -- Try exact name, then ShortName, then Name-Realm
+                            local data = Purity.roster and (Purity.roster[name] or Purity.roster[shortName] or Purity.roster[name .. "-" .. GetRealmName()])
+                            
+                            if data and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                                isBloodMage = true
+                                currentBlood = data.bloodPoolCurrent
+                                maxBlood = data.bloodPoolMax
                             end
                         end
+                        
                         local bloodBar = nameplate.purityBloodBar
+                        
                         if isBloodMage then
+                            -- Create the Red Blood Bar if it doesn't exist
                             if not bloodBar then
                                 bloodBar = CreateFrame("StatusBar", nil, nameplate)
                                 bloodBar:SetAllPoints(healthBar)
                                 bloodBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                                bloodBar:SetStatusBarColor(0.8, 0.1, 0.1)
+                                bloodBar:SetStatusBarColor(0.8, 0.1, 0.1) -- Blood Red
                                 bloodBar:SetFrameLevel(healthBar:GetFrameLevel() + 1)
-                                local bg = bloodBar:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(true); bg:SetColorTexture(0, 0, 0, 1)
+                                
+                                local bg = bloodBar:CreateTexture(nil, "BACKGROUND")
+                                bg:SetAllPoints(true)
+                                bg:SetColorTexture(0, 0, 0, 1)
+                                
                                 nameplate.purityBloodBar = bloodBar
                             end
+                            
+                            -- Hide standard green/class bar, Show Red Bar
                             healthBar:Hide()
                             bloodBar:Show()
-                            if rosterData.bloodPoolMax and rosterData.bloodPoolCurrent then
-                                bloodBar:SetMinMaxValues(0, rosterData.bloodPoolMax)
-                                bloodBar:SetValue(rosterData.bloodPoolCurrent)
+                            
+                            if maxBlood and currentBlood then
+                                bloodBar:SetMinMaxValues(0, maxBlood)
+                                bloodBar:SetValue(currentBlood)
                             end
                         else
+                            -- Revert to standard behavior
                             healthBar:Show()
                             if bloodBar then bloodBar:Hide() end
                         end
