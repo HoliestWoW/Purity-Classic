@@ -591,13 +591,19 @@ ManageBloodRegen = function(self)
 	end,
 	
     RefreshGroupFrames = function(self)
-        local units = {"target", "party1", "party2", "party3", "party4"}
+        -- Added "targettarget" to the unit list
+        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local healthBar
             local healthBarText
+            
             if unit == "target" then
                 healthBar = TargetFrameHealthBar
                 healthBarText = _G["TargetFrameTextureFrameHealthBarText"]
+            elseif unit == "targettarget" then
+                -- Map to the Target of Target Health Bar
+                healthBar = _G["TargetFrameToTHealthBar"]
+                -- ToT frames usually don't have standard text overlays, so we leave text nil
             else
                 local unitNum = string.sub(unit, 6)
                 healthBar = _G["PartyMemberFrame" .. unitNum .. "HealthBar"]
@@ -668,7 +674,8 @@ ManageBloodRegen = function(self)
     UpdateGroupFrameValues = function(self)
         if GetNumGroupMembers() == 0 and not UnitExists("target") then return end
         
-        local units = {"target", "party1", "party2", "party3", "party4"}
+        -- Added "targettarget" to this list as well
+        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local bar = self.partyBloodBars[unit]
             if bar and bar:IsShown() then
@@ -705,6 +712,7 @@ ManageBloodRegen = function(self)
         self.groupFrameManager = CreateFrame("Frame")
         self.groupFrameManager:RegisterEvent("GROUP_ROSTER_UPDATE")
         self.groupFrameManager:RegisterEvent("PLAYER_TARGET_CHANGED")
+        self.groupFrameManager:RegisterEvent("UNIT_TARGET") -- NEW: Detects ToT changes
         self.groupFrameManager:RegisterEvent("PLAYER_ENTERING_WORLD")
         self.groupFrameManager:SetScript("OnEvent", function() module:RefreshGroupFrames() end)
         self.groupFrameManager:SetScript("OnUpdate", function() module:UpdateGroupFrameValues() end)
@@ -944,10 +952,10 @@ ManageBloodRegen = function(self)
             self.regenFrame = CreateFrame("Frame")
             self.regenFrame.lastTick = 0
             local module = self
-			self.regenFrame:SetScript("OnUpdate", function(frame, elapsed)
+            self.regenFrame:SetScript("OnUpdate", function(frame, elapsed)
                 local db = Purity:GetDB()
                 if (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
-					local currentMaxHealth = UnitHealthMax("player")
+                    local currentMaxHealth = UnitHealthMax("player")
                     if currentMaxHealth <= 1 then
                         return 
                     end
@@ -974,9 +982,11 @@ ManageBloodRegen = function(self)
                             end
                         end
                     end
-				else
-					if module.bloodBarFrame then module.bloodBarFrame:Hide() end
-				end
+                else
+                    -- FIX: Cleanup if we fail/reset while this loop is running
+                    if module.bloodBarFrame then module.bloodBarFrame:Hide() end
+                    if module.textContainer then module.textContainer:Hide() end
+                end
             end)
         end
         
@@ -1120,12 +1130,14 @@ ManageBloodRegen = function(self)
     IsUnitForbidden = function(self, unit) return false end,
 
 EventHandler = function(self, event, ...)
-    local db = Purity:GetDB()
-	if not (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
-		if self.bloodBarFrame then self.bloodBarFrame:Hide() end
-		if self.regenFrame then self.regenFrame:Hide() end
-		return
-	end
+        local db = Purity:GetDB()
+        -- If not opted in or not passing, cleanup everything and return
+        if not (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
+            if self.bloodBarFrame then self.bloodBarFrame:Hide() end
+            if self.textContainer then self.textContainer:Hide() end -- FIX: Hide the numbers
+            if self.regenFrame then self.regenFrame:Hide() end
+            return
+        end
 	
 	local function spendBlood(amount, sourceName)
         local finalAmount = amount
