@@ -905,7 +905,8 @@ ManageBloodRegen = function(self)
             local module = self 
             local module = self
             self.debuffFrame:SetScript("OnUpdate", function(frame, elapsed)
-                local remaining = module.sanguineWeaknessExpires - GetTime()
+                local now = GetTime()
+                local remaining = module.sanguineWeaknessExpires - now
 
                 if remaining <= 0 then
                     frame:Hide(); module.sanguineWeaknessActive = false
@@ -915,6 +916,19 @@ ManageBloodRegen = function(self)
                         GameTooltip:Hide()
                     end
                     return
+                end
+
+                if remaining <= 30 then
+                    -- 6.28318 (2 * PI) ensures exactly one cycle per second.
+                    -- cos starts at 1.0 to ensure a smooth transition from solid to pulse.
+                    local pulse = math.cos(now * 4.1) 
+                    
+                    -- Alpha range: 1.0 (peak) down to 0.4 (dim)
+                    local alpha = 0.7 + (0.3 * pulse) 
+                    frame:SetAlpha(alpha)
+                else
+                    -- Solid if over 30 seconds
+                    frame:SetAlpha(1.0)
                 end
 
                 if frame.timerText then
@@ -931,7 +945,8 @@ ManageBloodRegen = function(self)
                     frame.timerText:SetText(timerString)
                     frame.timerText:Show()
                 end
-				if GameTooltip:IsShown() and GameTooltip:GetOwner() == frame then
+
+                if GameTooltip:IsShown() and GameTooltip:GetOwner() == frame then
                     local numLines = GameTooltip:NumLines()
                     if numLines >= 4 then
                         local line4 = _G["GameTooltipTextLeft4"]
@@ -940,10 +955,16 @@ ManageBloodRegen = function(self)
                         end
                     end
                 end
+
+                -- Maintain position relative to other debuffs
                 local numDebuffs = 0
                 for i = 1, 40 do if select(1, UnitDebuff("player", i)) then numDebuffs = numDebuffs + 1 else break end end
-                if numDebuffs == 0 then frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -99)
-                else local lastDebuff = _G["DebuffButton" .. numDebuffs]; if lastDebuff then frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 1) end end
+                if numDebuffs == 0 then 
+                    frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -99)
+                else 
+                    local lastDebuff = _G["DebuffButton" .. numDebuffs]
+                    if lastDebuff then frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 1) end 
+                end
             end)
             self.debuffFrame:Hide()
         end
