@@ -107,16 +107,70 @@ ShamanModule.challenges.FLAME = {
             "|cffffd100Level 10+ Prohibitions:|r",
             "|cff261A0D  • Only Fire spells may be cast.|r",
             "|cff261A0D  • Only Fire totems may be used.|r",
+            "|cff261A0D  • Professions are allowed.|r",
         }
+    end,
+
+    InitializeOnPlayerEnterWorld = function(self)
+        local db = Purity:GetDB()
+        if db.isOptedIn and db.status == "Failed" and db.failureReason then
+            local innocentErrors = {
+                ["Alchemy"] = true, ["Herbalism"] = true, ["Find Herbs"] = true,
+                ["Mining"] = true, ["Find Minerals"] = true, ["Smelting"] = true,
+                ["Skinning"] = true, ["Leatherworking"] = true,
+                ["Engineering"] = true, ["Tailoring"] = true,
+                ["Blacksmithing"] = true, ["Enchanting"] = true, ["Disenchant"] = true,
+                ["Cooking"] = true, ["Basic Campfire"] = true,
+                ["First Aid"] = true, ["Fishing"] = true,
+                ["Attack"] = true, ["Auto Attack"] = true
+            }
+
+            for innocentName, _ in pairs(innocentErrors) do
+                if string.find(db.failureReason, innocentName) then
+                    db.status = "Passing"
+                    db.failureReason = nil
+                    if Purity.CreateDataSignature then
+                        db.dataSignature = Purity:CreateDataSignature(db)
+                    end
+                    
+                    C_Timer.After(4, function() 
+                        print("|cff00ff00[Purity] RECOVERY:|r The spirits have recognized an error.")
+                        print("|cff00ff00Your failure due to '".. innocentName .."' has been overturned. Your run is valid.|r")
+                    end)
+                    break 
+                end
+            end
+        end
     end,
 
     IsSpellForbidden = function(self, spellId)
         if UnitLevel("player") < 10 then return false end
         if not spellId then return false end
+        
+        -- 1. Whitelist of specific IDs (Totems, etc)
         local allowed = { [8050]=true, [8024]=true, [3599]=true, [1535]=true, [8052]=true, [8027]=true, [6363]=true, [8498]=true, [8181]=true, [8030]=true, [8190]=true, [8184]=true, [8053]=true, [8227]=true, [6364]=true, [8499]=true, [16339]=true, [10585]=true, [8249]=true, [10478]=true, [10447]=true, [6365]=true, [11314]=true, [10537]=true, [16341]=true, [10586]=true, [10526]=true, [10437]=true, [11315]=true, [10448]=true, [10479]=true, [16342]=true, [10587]=true, [10538]=true, [16387]=true, [2645]=true, [131]=true, [6196]=true, [546]=true, [556]=true }
         if allowed[spellId] then return false end
-        local _, _, _, _, _, _, _, school = GetSpellInfo(spellId)
-        if school == 1 then return false end -- Physical
+
+        -- 2. Get Info
+        local spellName, _, _, _, _, _, _, school = GetSpellInfo(spellId)
+
+        -- 3. Check Schools: Physical (1) or Fire (4)
+        if school == 1 then return false end
+        if school == 4 then return false end
+
+        -- 4. Check Professions (Allow list)
+        local allowedProfessions = {
+            ["Alchemy"] = true, ["Herbalism"] = true, ["Find Herbs"] = true,
+            ["Mining"] = true, ["Find Minerals"] = true, ["Smelting"] = true,
+            ["Skinning"] = true, ["Leatherworking"] = true,
+            ["Engineering"] = true, ["Tailoring"] = true,
+            ["Blacksmithing"] = true, ["Enchanting"] = true, ["Disenchant"] = true,
+            ["Cooking"] = true, ["Basic Campfire"] = true,
+            ["First Aid"] = true, ["Fishing"] = true,
+            ["Attack"] = true, ["Auto Attack"] = true
+        }
+        if spellName and allowedProfessions[spellName] then return false end
+
         return true
     end,
 
@@ -540,9 +594,58 @@ end
 
 function ShamanModule:InitializeOnPlayerEnterWorld()
     self.isAddonFullyLoaded = true
+
+    -- [[ 1. AUTO-AMNESTY FOR PROFESSION BUG ]]
+    local db = Purity:GetDB()
+    
+    -- We only check if they are currently Failed and have a Reason recorded
+    if db.isOptedIn and db.status == "Failed" and db.failureReason then
+        
+        -- List of "spells" that caused false failures
+        local innocentErrors = {
+            ["Alchemy"] = true, ["Herbalism"] = true, ["Find Herbs"] = true,
+            ["Mining"] = true, ["Find Minerals"] = true, ["Smelting"] = true,
+            ["Skinning"] = true, ["Leatherworking"] = true,
+            ["Engineering"] = true, ["Tailoring"] = true,
+            ["Blacksmithing"] = true, ["Enchanting"] = true, ["Disenchant"] = true,
+            ["Cooking"] = true, ["Basic Campfire"] = true,
+            ["First Aid"] = true, ["Fishing"] = true
+        }
+
+        -- The failure reason usually looks like: "Used a forbidden spell: Skinning"
+        -- We scan the reason string to see if it contains an innocent keyword
+        for innocentName, _ in pairs(innocentErrors) do
+            if string.find(db.failureReason, innocentName) then
+                -- FALSE POSITIVE DETECTED
+                
+                -- A. Reverse the failure
+                db.status = "Passing"
+                db.failureReason = nil
+                
+                -- B. REGENERATE SIGNATURE 
+                -- This is crucial. We must re-sign the data so the new "Passing" status 
+                -- is considered valid by the website/future checks.
+                if Purity.CreateDataSignature then
+                    db.dataSignature = Purity:CreateDataSignature(db)
+                end
+                
+                -- C. Notify the user
+                C_Timer.After(4, function() 
+                    print("|cff00ff00[Purity] RECOVERY:|r The spirits have recognized an error.")
+                    print("|cff00ff00Your failure due to '".. innocentName .."' has been overturned. Your run is valid.|r")
+                end)
+                break 
+            end
+        end
+    end
+
+    -- [[ 2. NORMAL INITIALIZATION ]]
     local commChallenge = self.challenges.COMMUNION
     if IsSpellKnown(commChallenge.KEY_TOTEM_SPELL_ID) then Purity:GetDB().hasCompletedShamanTotemQuest = true end
+    
+    -- Run an initial check on spells/talents
     self:EventHandler("SPELLS_CHANGED")
+    
     local active = self:GetActiveChallengeObject()
     if active and active.InitializeOnPlayerEnterWorld then active:InitializeOnPlayerEnterWorld() end
 end
