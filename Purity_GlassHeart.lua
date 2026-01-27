@@ -245,8 +245,14 @@ local GlassHeart = {
             self.currentHP = self.currentHP + delta
         end
 
+        -- [[ 1. Cap at Max Health ]]
         if self.currentHP > maxRealHP then self.currentHP = maxRealHP end
         
+        -- [[ 2. NEW: Safety Clamp (Cannot exceed current real HP) ]]
+        if self.currentHP > currentRealHP then 
+            self.currentHP = currentRealHP 
+        end
+
         -- Lowest Point Tracking
         if self.currentHP < maxRealHP then
             local currentPct = (self.currentHP / maxRealHP) * 100

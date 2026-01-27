@@ -1,6 +1,6 @@
 ## Interface: 30405
 ## Title: Purity
-## Notes: An addon for WoW WotLK leveling challenges.
+## Notes: An addon for WoW TBC leveling challenges.
 ## Author: HoliestWoW
 ## Version: 11.1.3
 ## IconTexture: Interface\AddOns\Purity\Media\PurityLogo.tga
