@@ -918,16 +918,67 @@ ManageBloodRegen = function(self)
                     return
                 end
 
-                if remaining <= 30 then
-                    -- 6.28318 (2 * PI) ensures exactly one cycle per second.
-                    -- cos starts at 1.0 to ensure a smooth transition from solid to pulse.
-                    local pulse = math.cos(now * 4.1) 
+                -- [START OF POSITIONING LOGIC]
+                frame:ClearAllPoints() -- Necessary to prevent "Too Many Anchors" error in OnUpdate
+                
+                -- Check for Modern Retail/Anniversary UI Structure
+                if DebuffFrame and DebuffFrame.AuraContainer then
+                    -- === MODERN / EDIT MODE LOGIC ===
+                    local anchored = false
+                    local minLeft = 99999
+                    local targetBtn = nil
                     
-                    -- Alpha range: 1.0 (peak) down to 0.4 (dim)
+                    -- Scan the AuraContainer for the left-most visible debuff (End of the row)
+                    local children = { DebuffFrame.AuraContainer:GetChildren() }
+                    for _, child in ipairs(children) do
+                        if child:IsShown() then
+                            local left = child:GetLeft()
+                            if left and left < minLeft then
+                                minLeft = left
+                                targetBtn = child
+                            end
+                        end
+                    end
+
+                    if targetBtn then
+                        -- Found a debuff: Snap to its left
+                        frame:SetPoint("TOPRIGHT", targetBtn, "TOPLEFT", -5, 0)
+                        anchored = true
+                    end
+                    
+                    -- Fallback: If no debuffs found, anchor to the main container start
+                    if not anchored then
+                         frame:SetPoint("TOPRIGHT", DebuffFrame, "TOPRIGHT", 0, 0)
+                    end
+
+                else
+                    -- === CLASSIC ERA LOGIC (Exact Original Behavior) ===
+                    local numDebuffs = 0
+                    for i = 1, 40 do 
+                        if select(1, UnitDebuff("player", i)) then 
+                            numDebuffs = numDebuffs + 1 
+                        else 
+                            break 
+                        end 
+                    end
+                    
+                    if numDebuffs == 0 then 
+                        frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -99)
+                    else 
+                        local lastDebuff = _G["DebuffButton" .. numDebuffs]
+                        if lastDebuff then 
+                            frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 1) 
+                        end 
+                    end
+                end
+                -- [END OF POSITIONING LOGIC]
+
+                -- [Animation/Timer Logic]
+                if remaining <= 30 then
+                    local pulse = math.cos(now * 4.1) 
                     local alpha = 0.7 + (0.3 * pulse) 
                     frame:SetAlpha(alpha)
                 else
-                    -- Solid if over 30 seconds
                     frame:SetAlpha(1.0)
                 end
 
@@ -954,16 +1005,6 @@ ManageBloodRegen = function(self)
                             line4:SetText(string.format("|cffffd700%d sec remaining|r", math.ceil(remaining)))
                         end
                     end
-                end
-
-                -- Maintain position relative to other debuffs
-                local numDebuffs = 0
-                for i = 1, 40 do if select(1, UnitDebuff("player", i)) then numDebuffs = numDebuffs + 1 else break end end
-                if numDebuffs == 0 then 
-                    frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -99)
-                else 
-                    local lastDebuff = _G["DebuffButton" .. numDebuffs]
-                    if lastDebuff then frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 1) end 
                 end
             end)
             self.debuffFrame:Hide()
