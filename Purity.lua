@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "11.1.2b"
+Purity.Version = "11.1.3"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -344,22 +344,36 @@ function Purity:GetCurrentChallengeInfo()
         return Purity.ChallengeCoefficients[name] or 1.0
     end
 	
-	local mainKey = db.challengeTitle
-    if challengeTitle == "The Ascetic's Path" and specifier then
-        if specifier == "EASY" then challengeKey = "Path of Humility"
-        elseif specifier == "MEDIUM" then challengeKey = "Path of Resilience"
-        elseif specifier == "HARD" then challengeKey = "Path of the Unburdened" end
-    elseif challengeTitle == "Tome of Purity" and specifier then
-        challengeKey = string.format("Tome of Purity (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
-    elseif challengeTitle == "The Glass Heart" and specifier then
-        challengeKey = string.format("The Glass Heart (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
+    local mainKey = db.challengeTitle
+    local activeChallenge = self:GetActiveChallengeObject()
+    local specifier = nil
+    
+    -- 1. Retrieve the specifier (e.g. "HARD", "EXTREME", "Fire", etc.)
+    if activeChallenge and activeChallenge.GetChallengeSpecifier then
+        specifier = activeChallenge:GetChallengeSpecifier()
+    end
+
+    -- 2. Modify mainKey based on the specifier to match Purity.ChallengeCoefficients keys
+    if mainKey == "The Ascetic's Path" and specifier then
+        if specifier == "EASY" then mainKey = "Path of Humility"
+        elseif specifier == "MEDIUM" then mainKey = "Path of Resilience"
+        elseif specifier == "HARD" then mainKey = "Path of the Unburdened" end
+        
+    elseif mainKey == "Tome of Purity" and specifier then
+        -- Converts "Arcane" -> "Tome of Purity (Arcane)"
+        mainKey = string.format("Tome of Purity (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
+        
+    elseif mainKey == "The Glass Heart" and specifier then
+        -- Converts "HARD" -> "The Glass Heart (Hard)"
+        local formattedSpec = specifier:sub(1,1):upper()..specifier:sub(2):lower()
+        mainKey = string.format("The Glass Heart (%s)", formattedSpec)
     end
 
     local mainCoeff = GetCoeff(mainKey)
     local finalCoeff = mainCoeff
     local displayName = mainKey
 
-    -- MoP Logic: Weighted Average
+    -- MoP Logic: Weighted Average for Death Knights
     if db.dkDestinyID then
         local destinyCoeff = GetCoeff(db.dkDestinyID)
         -- Weighted Average: (Vow + Destiny) / 2
