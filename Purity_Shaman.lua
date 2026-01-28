@@ -107,71 +107,87 @@ ShamanModule.challenges.FLAME = {
             "|cffffd100Level 10+ Prohibitions:|r",
             "|cff261A0D  • Only Fire spells may be cast.|r",
             "|cff261A0D  • Only Fire totems may be used.|r",
-            "|cff261A0D  • Professions are allowed.|r",
         }
     end,
 
+    -- [[ 1. SMART AUTO-AMNESTY (The Retroactive Fix) ]] --
     InitializeOnPlayerEnterWorld = function(self)
         local db = Purity:GetDB()
+        
+        -- Only check if they are failed with a specific reason recorded
         if db.isOptedIn and db.status == "Failed" and db.failureReason then
-            local innocentErrors = {
-                ["Alchemy"] = true, ["Herbalism"] = true, ["Find Herbs"] = true,
-                ["Mining"] = true, ["Find Minerals"] = true, ["Smelting"] = true,
-                ["Skinning"] = true, ["Leatherworking"] = true,
-                ["Engineering"] = true, ["Tailoring"] = true,
-                ["Blacksmithing"] = true, ["Enchanting"] = true, ["Disenchant"] = true,
-                ["Cooking"] = true, ["Basic Campfire"] = true,
-                ["First Aid"] = true, ["Fishing"] = true,
-                ["Attack"] = true, ["Auto Attack"] = true
-            }
+            
+            -- Extract the text of what killed them (e.g. "Linen Bandage")
+            local spellName = string.match(db.failureReason, "Used a forbidden spell: (.*)")
+            
+            if spellName then
+                local shouldForgive = false
+                
+                -- A. Ask the game what school this spell/item belongs to
+                local _, _, _, _, _, _, _, school = GetSpellInfo(spellName)
+                
+                -- B. Evaluate the School
+                -- If school is nil or 0, it is a trade skill/item (Safe).
+                -- If school is Physical (1) or Fire (4), it is Safe.
+                if not school or school == 0 or school == 1 or school == 4 then
+                    shouldForgive = true
+                end
 
-            for innocentName, _ in pairs(innocentErrors) do
-                if string.find(db.failureReason, innocentName) then
+                -- C. Safety Check: If it's explicitly Forbidden Magic, DO NOT forgive.
+                -- Mask 122 = Holy(2) + Nature(8) + Frost(16) + Shadow(32) + Arcane(64)
+                if school and bit.band(school, 122) > 0 then
+                    shouldForgive = false
+                end
+
+                -- D. Execute Revival
+                if shouldForgive then
                     db.status = "Passing"
                     db.failureReason = nil
+                    
+                    -- Re-sign the data so the new status is valid
                     if Purity.CreateDataSignature then
                         db.dataSignature = Purity:CreateDataSignature(db)
                     end
                     
+                    -- Notify the user
                     C_Timer.After(4, function() 
                         print("|cff00ff00[Purity] RECOVERY:|r The spirits have recognized an error.")
-                        print("|cff00ff00Your failure due to '".. innocentName .."' has been overturned. Your run is valid.|r")
+                        print("|cff00ff00Your failure due to '".. spellName .."' has been overturned. Your run is valid.|r")
                     end)
-                    break 
                 end
             end
         end
     end,
 
+    -- [[ 2. SPELL BLACKLIST (The Prevention Fix) ]] --
     IsSpellForbidden = function(self, spellId)
         if UnitLevel("player") < 10 then return false end
         if not spellId then return false end
         
-        -- 1. Whitelist of specific IDs (Totems, etc)
+        -- 1. Whitelist of specific IDs (Totems/Overrides)
         local allowed = { [8050]=true, [8024]=true, [3599]=true, [1535]=true, [8052]=true, [8027]=true, [6363]=true, [8498]=true, [8181]=true, [8030]=true, [8190]=true, [8184]=true, [8053]=true, [8227]=true, [6364]=true, [8499]=true, [16339]=true, [10585]=true, [8249]=true, [10478]=true, [10447]=true, [6365]=true, [11314]=true, [10537]=true, [16341]=true, [10586]=true, [10526]=true, [10437]=true, [11315]=true, [10448]=true, [10479]=true, [16342]=true, [10587]=true, [10538]=true, [16387]=true, [2645]=true, [131]=true, [6196]=true, [546]=true, [556]=true }
         if allowed[spellId] then return false end
 
-        -- 2. Get Info
-        local spellName, _, _, _, _, _, _, school = GetSpellInfo(spellId)
+        -- 2. Get School Info
+        local _, _, _, _, _, _, _, school = GetSpellInfo(spellId)
 
-        -- 3. Check Schools: Physical (1) or Fire (4)
-        if school == 1 then return false end
+        -- 3. Allow "None" or "Physical"
+        -- Trade skills, Crafting, and Items usually return nil, 0, or 1.
+        if not school or school == 0 or school == 1 then return false end
+        
+        -- 4. Allow Fire (4)
         if school == 4 then return false end
 
-        -- 4. Check Professions (Allow list)
-        local allowedProfessions = {
-            ["Alchemy"] = true, ["Herbalism"] = true, ["Find Herbs"] = true,
-            ["Mining"] = true, ["Find Minerals"] = true, ["Smelting"] = true,
-            ["Skinning"] = true, ["Leatherworking"] = true,
-            ["Engineering"] = true, ["Tailoring"] = true,
-            ["Blacksmithing"] = true, ["Enchanting"] = true, ["Disenchant"] = true,
-            ["Cooking"] = true, ["Basic Campfire"] = true,
-            ["First Aid"] = true, ["Fishing"] = true,
-            ["Attack"] = true, ["Auto Attack"] = true
-        }
-        if spellName and allowedProfessions[spellName] then return false end
+        -- 5. The Blacklist (Forbid everything else)
+        -- We block Holy(2), Nature(8), Frost(16), Shadow(32), Arcane(64).
+        -- 2 + 8 + 16 + 32 + 64 = 122
+        local forbiddenMask = 122 
+        
+        if bit.band(school, forbiddenMask) > 0 then 
+            return true 
+        end
 
-        return true
+        return false
     end,
 
     IsItemForbidden = function(self, itemLink) return false end,

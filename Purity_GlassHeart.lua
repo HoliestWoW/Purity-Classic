@@ -16,6 +16,9 @@ local GlassHeart = {
     },
 
     -- [[ RUNTIME VARIABLES ]]
+    partyGlassBars = {},
+    groupFrameManager = nil,
+    broadcasterFrame = nil,
     currentHP = 0, 
     lastRealHP = 0,
     overlayBar = nil,
@@ -26,6 +29,33 @@ local GlassHeart = {
     hooksInitialized = false,
     characterFrameHooked = false,
     forceNumericDisplay = false,
+
+    -- [[ VISUAL HELPERS (MATCHING BLOOD MAGE) ]]
+    _HideDefaultHealthBar = function()
+        if PlayerFrameHealthBar then PlayerFrameHealthBar:SetAlpha(0) end
+        if PlayerFrameHealthBarText then PlayerFrameHealthBarText:Hide() end
+        if PlayerFrameHealthBarTextLeft then PlayerFrameHealthBarTextLeft:Hide() end
+        if PlayerFrameHealthBarTextRight then PlayerFrameHealthBarTextRight:Hide() end
+    end,
+
+    _ShowDefaultHealthBar = function()
+        if PlayerFrameHealthBar then PlayerFrameHealthBar:SetAlpha(1) end
+        
+        local displayMode = GetCVar("statusTextDisplay")
+        if displayMode == "BOTH" then
+            if PlayerFrameHealthBarText then PlayerFrameHealthBarText:Hide() end
+            if PlayerFrameHealthBarTextLeft then PlayerFrameHealthBarTextLeft:Show() end
+            if PlayerFrameHealthBarTextRight then PlayerFrameHealthBarTextRight:Show() end
+        elseif displayMode == "NONE" then
+            if PlayerFrameHealthBarText then PlayerFrameHealthBarText:Hide() end
+            if PlayerFrameHealthBarTextLeft then PlayerFrameHealthBarTextLeft:Hide() end
+            if PlayerFrameHealthBarTextRight then PlayerFrameHealthBarTextRight:Hide() end
+        else
+            if PlayerFrameHealthBarText then PlayerFrameHealthBarText:Show() end
+            if PlayerFrameHealthBarTextLeft then PlayerFrameHealthBarTextLeft:Hide() end
+            if PlayerFrameHealthBarTextRight then PlayerFrameHealthBarTextRight:Hide() end
+        end
+    end,
 
     -- [[ CORE METHODS ]]
     
@@ -44,12 +74,6 @@ local GlassHeart = {
         if not db.challengeStats then db.challengeStats = {} end
         db.challengeStats.lowestGlassHP = 100.0
         db.glassLogVisible = false -- Log off by default
-    end,
-
-    -- This ensures the Purity core knows which coefficient to pick
-    GetChallengeSpecifier = function(self)
-        local db = Purity:GetDB()
-        return db.glassHeartDifficulty or "HARD"
     end,
 
     GetChallengeSpecifier = function(self)
@@ -75,6 +99,24 @@ local GlassHeart = {
             "|cff261A0D  • If your Health reaches 0, you die.|r",
         }
     end,
+    
+    StartBroadcasting = function(self)
+        if self.broadcasterFrame then return end
+        self.broadcasterFrame = CreateFrame("Frame")
+        local lastUpdate = 0
+        self.broadcasterFrame:SetScript("OnUpdate", function(frame, elapsed)
+            lastUpdate = lastUpdate + elapsed
+            -- Broadcast every 0.25s if in a group
+            if lastUpdate > 0.25 and GetNumGroupMembers() > 0 then
+                lastUpdate = 0
+                local db = Purity:GetDB()
+                if db and db.activeChallengeID == self.id then
+                    local data = { current = self.currentHP, max = UnitHealthMax("player") }
+                    C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "GLASSHEART_UPDATE:" .. Purity:Serialize(data), "PARTY")
+                end
+            end
+        end)
+    end,
 
     InitializeOnPlayerEnterWorld = function(self)
         local db = Purity:GetDB()
@@ -82,9 +124,9 @@ local GlassHeart = {
         
         self:StartEngine(mult)
         self:CreateGlassLogFrame()
+        self:StartBroadcasting()
+        self:InitializeGroupFrames() -- Added this line to start target frame monitoring
 
-        -- [[ LOG VISIBILITY CHECK ]]
-        -- Matches BMB behavior: Only show if the option is enabled in DB
         if db.glassLogVisible and self.logFrame then
             self.logFrame:Show()
         end
@@ -92,6 +134,7 @@ local GlassHeart = {
         -- [[ CHARACTER FRAME HOOKS ]]
         if not self.characterFrameHooked then
             local module = self
+            -- Force "Numeric" display when Character Sheet is open to see exact values
             CharacterFrame:HookScript("OnShow", function()
                 local db = Purity:GetDB()
                 if not (db and db.isOptedIn and db.activeChallengeID == module.id) then return end
@@ -107,6 +150,299 @@ local GlassHeart = {
             end)
             self.characterFrameHooked = true
         end
+    end,
+
+    -- [[ TARGET / PARTY FRAME HANDLING ]]
+
+    RefreshGroupFrames = function(self)
+        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
+        for _, unit in ipairs(units) do
+            local healthBar
+            local textRegions = {} 
+            
+            if unit == "target" then
+                healthBar = TargetFrameHealthBar
+                -- Collect ALL possible text regions for the target frame
+                if TargetFrameTextureFrame then
+                    if TargetFrameTextureFrame.HealthBarText then table.insert(textRegions, TargetFrameTextureFrame.HealthBarText) end
+                    if TargetFrameTextureFrame.HealthBarTextLeft then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextLeft) end
+                    if TargetFrameTextureFrame.HealthBarTextRight then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextRight) end
+                end
+                -- Fallback for Classic Era naming conventions
+                if #textRegions == 0 then
+                    if _G["TargetFrameTextureFrameHealthBarText"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarText"]) end
+                    if _G["TargetFrameTextureFrameHealthBarTextLeft"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextLeft"]) end
+                    if _G["TargetFrameTextureFrameHealthBarTextRight"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextRight"]) end
+                end
+            elseif unit == "targettarget" then
+                healthBar = _G["TargetFrameToTHealthBar"]
+                -- Try to find standard ToT text to hide, just in case
+                if _G["TargetFrameToTHealthBarText"] then table.insert(textRegions, _G["TargetFrameToTHealthBarText"]) end
+            else
+                local unitNum = string.sub(unit, 6)
+                healthBar = _G["PartyMemberFrame" .. unitNum .. "HealthBar"]
+                local text = _G["PartyMemberFrame" .. unitNum .. "HealthBarText"]
+                if text then table.insert(textRegions, text) end
+            end
+            
+            local bar = self.partyGlassBars[unit]
+            
+            if UnitExists(unit) and healthBar then
+                local isGlassHeart = false
+                
+                -- 1. CHECK SELF
+                if UnitIsUnit(unit, "player") then
+                    local db = Purity:GetDB()
+                    if db and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+                        if db.activeChallengeID == self.id then
+                            isGlassHeart = true
+                        elseif db.challengeTitle and string.find(db.challengeTitle, "Glass Heart", 1, true) then
+                            isGlassHeart = true
+                        end
+                    end
+                end
+
+                -- 2. CHECK OTHERS
+                if not isGlassHeart then
+                    local name = UnitName(unit)
+                    for key, data in pairs(Purity.roster) do
+                        local rosterPlayerName = key:match("([^-]+)")
+                        if rosterPlayerName and rosterPlayerName == name and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                            if data.challenge and string.find(data.challenge, "Glass Heart", 1, true) then
+                                isGlassHeart = true
+                                break
+                            end
+                        end
+                    end
+                end
+                
+                if isGlassHeart then
+                    if not bar then
+                        -- Create our bar as a SIBLING
+                        bar = CreateFrame("StatusBar", "PurityGlassGroupBar"..unit, healthBar:GetParent())
+                        bar:SetAllPoints(healthBar)
+                        bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                        bar:SetStatusBarColor(0.0, 1.0, 0.0) -- Green
+                        
+                        -- Match level exactly
+                        bar:SetFrameStrata(healthBar:GetFrameStrata())
+                        bar:SetFrameLevel(healthBar:GetFrameLevel()) 
+                        
+                        -- [[ CHANGE 1: BLACK BACKGROUND REMOVED ]]
+                        -- The code creating the black texture has been deleted here.
+
+                        -- [[ CHANGE 2: NO TEXT FOR ToT ]]
+                        -- We only create text frames if the unit is NOT targettarget
+                        if unit ~= "targettarget" then
+                            local tf = CreateFrame("Frame", nil, bar)
+                            tf:SetAllPoints(bar)
+                            tf:SetFrameLevel(bar:GetFrameLevel() + 10) 
+                            
+                            bar.TextCenter = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextCenter:SetPoint("CENTER", 0, 0)
+                            
+                            bar.TextLeft = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextLeft:SetPoint("LEFT", 2, 0)
+                            
+                            bar.TextRight = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextRight:SetPoint("RIGHT", -2, 0)
+                            
+                            bar.TextFrame = tf
+                        end
+                        
+                        bar.originalHealthBar = healthBar
+                        bar.originalTextRegions = textRegions
+
+                        self.partyGlassBars[unit] = bar
+                    end
+                    
+                    -- Initial Hide
+                    healthBar:SetAlpha(0) 
+                    healthBar:SetStatusBarTexture("") 
+                    for _, region in ipairs(textRegions) do region:SetAlpha(0) end
+                    bar:Show()
+                else
+                    -- Restore Original
+                    healthBar:SetAlpha(1)
+                    healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                    for _, region in ipairs(textRegions) do region:SetAlpha(1) end
+                    if bar then bar:Hide() end
+                end
+            else
+                if healthBar then 
+                    healthBar:SetAlpha(1) 
+                    healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                end
+                for _, region in ipairs(textRegions) do region:SetAlpha(1) end
+                if bar then bar:Hide() end
+            end
+        end
+    end,
+
+    UpdateGroupFrameValues = function(self)
+        if GetNumGroupMembers() == 0 and not UnitExists("target") then return end
+        
+        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
+        for _, unit in ipairs(units) do
+            local bar = self.partyGlassBars[unit]
+            if bar and bar:IsShown() then
+                
+                -- FORCE HIDE
+                if bar.originalHealthBar then
+                    bar.originalHealthBar:SetAlpha(0)
+                    bar.originalHealthBar:SetStatusBarTexture("")
+                end
+                if bar.originalTextRegions then
+                    for _, region in ipairs(bar.originalTextRegions) do region:SetAlpha(0) end
+                end
+
+                local current, max
+                
+                -- 1. UPDATE SELF
+                if UnitIsUnit(unit, "player") then
+                    local db = Purity:GetDB()
+                    if db and db.glassHeartHP then
+                        current = db.glassHeartHP
+                        max = UnitHealthMax("player")
+                    end
+                
+                -- 2. UPDATE OTHERS
+                else
+                    local name = UnitName(unit)
+                    for key, data in pairs(Purity.roster) do
+                        local rosterPlayerName = key:match("([^-]+)")
+                        if rosterPlayerName and rosterPlayerName == name then
+                            if data.challenge and string.find(data.challenge, "Glass Heart", 1, true) then
+                                if data.glassHeartMax and data.glassHeartCurrent then
+                                    current = data.glassHeartCurrent
+                                    max = data.glassHeartMax
+                                end
+                                break
+                            end
+                        end
+                    end
+                end
+
+                -- 3. UPDATE VISUALS
+                if current and max then
+                    bar:SetMinMaxValues(0, max)
+                    bar:SetValue(current)
+                    
+                    -- Only update text if the TextFrame exists (It won't exist for ToT)
+                    if bar.TextFrame then
+                        local mode = GetCVar("statusTextDisplay") or "NUMERIC"
+                        
+                        bar.TextCenter:SetText("")
+                        bar.TextLeft:SetText("")
+                        bar.TextRight:SetText("")
+                        
+                        if mode == "NUMERIC" then
+                            bar.TextCenter:SetText(math.ceil(current) .. " / " .. math.ceil(max))
+                        elseif mode == "PERCENT" then
+                            bar.TextCenter:SetText(math.ceil((current / max) * 100) .. "%")
+                        elseif mode == "BOTH" then
+                            -- Percent Left, Number Right
+                            bar.TextLeft:SetText(math.ceil((current / max) * 100) .. "%")
+                            bar.TextRight:SetText(math.ceil(current))
+                        end
+                    end
+                end
+            end
+        end
+    end,
+
+    InitializeGroupFrames = function(self)
+        if self.groupFrameManager then return end
+        local module = self
+        self.groupFrameManager = CreateFrame("Frame")
+        self.groupFrameManager:RegisterEvent("GROUP_ROSTER_UPDATE")
+        self.groupFrameManager:RegisterEvent("PLAYER_TARGET_CHANGED")
+        self.groupFrameManager:RegisterEvent("UNIT_TARGET") -- Detects ToT changes
+        self.groupFrameManager:RegisterEvent("PLAYER_ENTERING_WORLD")
+        
+        self.groupFrameManager:SetScript("OnEvent", function() module:RefreshGroupFrames() end)
+        self.groupFrameManager:SetScript("OnUpdate", function() module:UpdateGroupFrameValues() end)
+        
+        local groupFrameRestorer = CreateFrame("Frame")
+        groupFrameRestorer:RegisterEvent("GROUP_LEFT")
+        groupFrameRestorer:SetScript("OnEvent", function()
+            for i = 1, 4 do
+                local healthBar = _G["PartyMemberFrame" .. i .. "HealthBar"]
+                if healthBar then healthBar:Show() end
+                if module.partyGlassBars["party"..i] then module.partyGlassBars["party"..i]:Hide() end
+            end
+            module:RefreshGroupFrames()
+        end)
+        self.groupFrameManager.restorer = groupFrameRestorer
+    end,
+	
+	InitializeNameplates = function(self)
+        if self.nameplateManager then return end
+        self.nameplateManager = CreateFrame("Frame")
+        local lastUpdate = 0
+        
+        self.nameplateManager:SetScript("OnUpdate", function(frame, elapsed)
+            lastUpdate = lastUpdate + elapsed
+            if lastUpdate < 0.25 then return end
+            lastUpdate = 0
+            
+            for i = 1, 40 do
+                local nameplate = _G["NamePlate" .. i]
+                local healthBar = _G["NamePlate" .. i .. "HealthBar"]
+                
+                if nameplate and nameplate:IsVisible() and nameplate.unit and healthBar then
+                    local unit = nameplate.unit
+                    if UnitExists(unit) and UnitIsPlayer(unit) then
+                        local name = UnitName(unit)
+                        local isGlassHeart = false
+                        local currentHP, maxHP
+                        
+                        -- 1. Check Self
+                        if UnitIsUnit(unit, "player") then
+                            local db = Purity:GetDB()
+                            if db and db.activeChallengeID == self.id and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+                                isGlassHeart = true
+                                currentHP = db.glassHeartHP
+                                maxHP = UnitHealthMax("player")
+                            end
+                        else
+                        -- 2. Check Roster
+                            local shortName = name:match("([^-]+)")
+                            local data = Purity.roster and (Purity.roster[name] or Purity.roster[shortName] or Purity.roster[name .. "-" .. GetRealmName()])
+                            if data and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                                isGlassHeart = true
+                                currentHP = data.glassHeartCurrent
+                                maxHP = data.glassHeartMax
+                            end
+                        end
+                        
+                        local glassBar = nameplate.purityGlassBar
+                        if isGlassHeart then
+                            if not glassBar then
+                                glassBar = CreateFrame("StatusBar", nil, nameplate)
+                                glassBar:SetAllPoints(healthBar)
+                                glassBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                                glassBar:SetStatusBarColor(0.0, 1.0, 0.0) -- Green
+                                glassBar:SetFrameLevel(healthBar:GetFrameLevel() + 1)
+                                local bg = glassBar:CreateTexture(nil, "BACKGROUND")
+                                bg:SetAllPoints(true)
+                                bg:SetColorTexture(0, 0, 0, 1)
+                                nameplate.purityGlassBar = glassBar
+                            end
+                            healthBar:Hide()
+                            glassBar:Show()
+                            if maxHP and currentHP then
+                                glassBar:SetMinMaxValues(0, maxHP)
+                                glassBar:SetValue(currentHP)
+                            end
+                        else
+                            healthBar:Show()
+                            if glassBar then glassBar:Hide() end
+                        end
+                    end
+                end
+            end
+        end)
     end,
 
     -- [[ GAMEPLAY ENGINE ]]
@@ -132,14 +468,12 @@ local GlassHeart = {
         self.monitorFrame:RegisterEvent("UNIT_MAXHEALTH")
         self.monitorFrame:RegisterEvent("PLAYER_LEVEL_UP")
         self.monitorFrame:RegisterEvent("CVAR_UPDATE") 
-        self.monitorFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED") -- [[ NEW: Listen for combat data ]]
+        self.monitorFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED") 
         
         self.monitorFrame:SetScript("OnEvent", function(frame, event, ...)
             if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-                -- [[ NEW: Capture the 'Who' and 'What' ]]
                 local _, subEvent, _, _, sourceName, _, _, destGUID, _, _, _, arg12, arg13 = CombatLogGetCurrentEventInfo()
                 
-                -- Check if the event is damage directed at the player
                 if destGUID == UnitGUID("player") and string.find(subEvent, "_DAMAGE") then
                     self.lastSource = sourceName or "Unknown"
                     
@@ -150,15 +484,27 @@ local GlassHeart = {
                     elseif subEvent == "ENVIRONMENTAL_DAMAGE" then
                         self.lastAbility = arg12 -- e.g. "Falling", "Lava"
                     else
-                        self.lastAbility = arg13 or "Ability" -- The Spell Name
+                        self.lastAbility = arg13 or "Ability" 
                     end
                     self.lastDamageTime = GetTime()
                 end
 
-            elseif event == "PLAYER_LEVEL_UP" or event == "UNIT_MAXHEALTH" then
+            elseif event == "PLAYER_LEVEL_UP" then
+                -- [[ FIX: FULL RESET ON LEVEL UP ]]
+                local newMax = UnitHealthMax("player")
+                self.currentHP = newMax
+                self.maxRealHP = newMax
+                self.lastRealHP = UnitHealth("player")
+                
+                local db = Purity:GetDB()
+                if db then db.glassHeartHP = newMax end
+                
+                self:UpdateBar(newMax)
+                
+            elseif event == "UNIT_MAXHEALTH" then
                 local oldMax = self.maxRealHP or UnitHealthMax("player")
                 local newMax = UnitHealthMax("player")
-                if oldMax > 0 and newMax > 0 then
+                if oldMax > 0 and newMax > 0 and oldMax ~= newMax then
                     local ratio = self.currentHP / oldMax
                     self.currentHP = newMax * ratio
                 end
@@ -177,13 +523,11 @@ local GlassHeart = {
         if self.regenTicker then return end
         
         -- [[ REGEN LOGIC ]]
-        -- Fires every 2 seconds (Standard Tick) to simulate natural regen
         self.regenTicker = C_Timer.NewTicker(2.0, function()
             local db = Purity:GetDB()
             if not (db and db.isOptedIn and db.activeChallengeID == self.id) then return end
             if UnitIsDeadOrGhost("player") then return end
             
-            -- Trolls regen 10% in combat, others regen 0% in combat (vanilla rules)
             local _, race = UnitRace("player")
             local isTroll = (race == "Troll")
             
@@ -192,21 +536,29 @@ local GlassHeart = {
             local maxHP = UnitHealthMax("player")
             local realHP = UnitHealth("player")
 
-            -- If Real HP is full (meaning natural regen stopped), but Glass HP is missing...
+            local isEating = false
+            for i = 1, 40 do
+                local name = UnitAura("player", i, "HELPFUL")
+                if not name then break end
+                if name == "Food" or name == "Eating" then 
+                    isEating = true 
+                    break 
+                end
+            end
+
             if (realHP >= maxHP and self.currentHP < maxHP) or (UnitAffectingCombat("player") and isTroll) then
-                -- ...we manually continue regenerating using Spirit
                 local _, spirit = UnitStat("player", 5)
-                
-                -- Approx formula: (Spirit * 0.5) + 2 per tick
                 local baseRegen = (spirit * 0.50) + 2 
                 
-                -- Apply Troll 10% Bonus
+                if isEating then
+                    local foodBonus = maxHP * 0.06
+                    baseRegen = baseRegen + foodBonus
+                end
+
                 if isTroll then
                     if UnitAffectingCombat("player") then
-                        -- In combat, Trolls get 10% of normal regen
                         baseRegen = baseRegen * 0.10
                     else
-                        -- Out of combat, Trolls get 10% BONUS to normal regen
                         baseRegen = baseRegen * 1.10
                     end
                 end
@@ -234,26 +586,19 @@ local GlassHeart = {
             
             self.currentHP = self.currentHP - glassDamage
             
-            -- Log the event
             self:LogDamage(damageTaken, glassDamage)
             
             if not db.challengeStats then db.challengeStats = {} end
             db.challengeStats.glassDamageTaken = (db.challengeStats.glassDamageTaken or 0) + glassDamage
 
         elseif delta > 0 then
-            -- HEALING (1:1)
+            -- HEALING
             self.currentHP = self.currentHP + delta
         end
 
-        -- [[ 1. Cap at Max Health ]]
         if self.currentHP > maxRealHP then self.currentHP = maxRealHP end
-        
-        -- [[ 2. NEW: Safety Clamp (Cannot exceed current real HP) ]]
-        if self.currentHP > currentRealHP then 
-            self.currentHP = currentRealHP 
-        end
+        if self.currentHP > currentRealHP then self.currentHP = currentRealHP end
 
-        -- Lowest Point Tracking
         if self.currentHP < maxRealHP then
             local currentPct = (self.currentHP / maxRealHP) * 100
             if not db.challengeStats then db.challengeStats = {} end
@@ -271,7 +616,7 @@ local GlassHeart = {
         end
     end,
 
-    -- [[ LOGGING SYSTEM (Matches BMB Implementation) ]]
+    -- [[ LOGGING SYSTEM ]]
     
     CreateGlassLogFrame = function(self)
         if self.logFrame then return end
@@ -304,7 +649,6 @@ local GlassHeart = {
         frame.bg = frame:CreateTexture(nil, "BACKGROUND")
         frame.bg:SetAllPoints(true); frame.bg:SetColorTexture(0, 0, 0, 0.6)
         
-        -- Scroll Area
         local scrollFrame = CreateFrame("ScrollFrame", "PurityGlassLogScroll", frame, "UIPanelScrollFrameTemplate")
         scrollFrame:SetPoint("TOPLEFT", 5, -5); scrollFrame:SetPoint("BOTTOMRIGHT", -25, 5)
         
@@ -317,7 +661,6 @@ local GlassHeart = {
         frame.logLines = {}
         frame.maxLogLines = 50
         
-        -- Resize Handle
         local resize = CreateFrame("Button", nil, frame)
         resize:SetSize(16, 16); resize:SetPoint("BOTTOMRIGHT", -1, 1)
         resize:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Up")
@@ -328,35 +671,27 @@ local GlassHeart = {
         
         self.logFrame = frame
         
-        -- Restore Position or Default to above Chat
         if db.glassLogPosition then
             frame:SetPoint(db.glassLogPosition.point, UIParent, db.glassLogPosition.relativePoint, db.glassLogPosition.x, db.glassLogPosition.y)
         else
             frame:SetPoint("BOTTOMLEFT", ChatFrame1, "TOPLEFT", 0, 40)
         end
         
-        -- Hidden by default, controlled by Option Toggle
         frame:Hide()
     end,
 
     LogDamage = function(self, rawDmg, actualDmg)
-        -- Only log if the window is open
         if not self.logFrame or not self.logFrame:IsShown() then return end
         
-        local extra = actualDmg - rawDmg
         local sourceText = "|cffff8080Unknown|r"
         local abilityText = "Hit"
 
-        -- [[ NEW: Check for combat log data from the last 0.2 seconds ]]
         if self.lastDamageTime and (GetTime() - self.lastDamageTime < 0.2) then
             sourceText = "|cffff8080" .. (self.lastSource or "Unknown") .. "'s|r"
             abilityText = "|cffffffff" .. (self.lastAbility or "Hit") .. "|r"
         end
 
         local timestamp = date("|cffc0c0c0[%H:%M:%S]|r ")
-        
-        -- [[ NEW: Formatted Message ]]
-        -- Example: [12:00] Plainstrider's Melee hits you for 50 (Base: 33)
         local msg = string.format("%s%s %s hits you for |cffff0000%.0f|r |cff888888(Base: %.0f)|r", 
             timestamp, sourceText, abilityText, actualDmg, rawDmg)
 
@@ -385,34 +720,24 @@ local GlassHeart = {
         if #lines > frame.maxLogLines then
             local old = table.remove(lines, 1)
             old:Hide()
-            -- Re-anchor first line
             if lines[1] then lines[1]:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0) end
         end
         
-        -- Update Height
         local h = 0
         for _, l in ipairs(lines) do h = h + l:GetHeight() + 2 end
         child:SetHeight(math.max(frame:GetHeight(), h))
         
-        -- Scroll to bottom
         frame.scrollFrame:UpdateScrollChildRect()
         frame.scrollFrame:SetVerticalScroll(frame.scrollFrame:GetVerticalScrollRange())
     end,
 
     -- [[ VISUAL ENGINE ]]
     
-    _HideDefaultHealthBar = function()
-        if PlayerFrameHealthBar then PlayerFrameHealthBar:SetAlpha(0) end
-        if PlayerFrameHealthBarText then PlayerFrameHealthBarText:Hide() end
-        if PlayerFrameHealthBarTextLeft then PlayerFrameHealthBarTextLeft:Hide() end
-        if PlayerFrameHealthBarTextRight then PlayerFrameHealthBarTextRight:Hide() end
-    end,
-
     ApplyVisuals = function(self)
         if not self.visibilityManager then
             local manager = CreateFrame("Frame")
             local module = self
-            manager:SetScript("OnUpdate", function(frame, sinceLastUpdate)
+            manager:SetScript("OnUpdate", function()
                 if module.overlayBar and module.overlayBar:IsShown() then
                     module:_HideDefaultHealthBar()
                 end
@@ -432,6 +757,7 @@ local GlassHeart = {
         overlay:SetFrameLevel(PlayerFrameHealthBar:GetFrameLevel()) 
         overlay:SetAllPoints(PlayerFrameHealthBar)
         overlay:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+        overlay:SetStatusBarColor(0, 1, 0) -- Green
         self.overlayBar = overlay
 
         local textFrame = CreateFrame("Frame", "PurityGlassHeartText", UIParent)
@@ -454,23 +780,21 @@ local GlassHeart = {
         self:_HideDefaultHealthBar()
         
         if not self.hooksInitialized then
+            local function HookHandler(textStatusBar)
+                if textStatusBar == PlayerFrameHealthBar and self.overlayBar and self.overlayBar:IsShown() then
+                    self:_HideDefaultHealthBar()
+                end
+            end
+
             if TextStatusBar_UpdateTextString then
-                hooksecurefunc("TextStatusBar_UpdateTextString", function(textStatusBar)
-                    if textStatusBar == PlayerFrameHealthBar and self.overlayBar and self.overlayBar:IsShown() then
-                        self:_HideDefaultHealthBar()
-                    end
-                end)
-            elseif TextStatusBar_UpdateTextStringWithValues then
-                hooksecurefunc("TextStatusBar_UpdateTextStringWithValues", function(textStatusBar)
-                    if textStatusBar == PlayerFrameHealthBar and self.overlayBar and self.overlayBar:IsShown() then
-                        self:_HideDefaultHealthBar()
-                    end
-                end)
+                hooksecurefunc("TextStatusBar_UpdateTextString", HookHandler)
+            end
+            if TextStatusBar_UpdateTextStringWithValues then
+                hooksecurefunc("TextStatusBar_UpdateTextStringWithValues", HookHandler)
             end
             
             PlayerFrameHealthBar:HookScript("OnValueChanged", function()
                 if self.overlayBar and self.overlayBar:IsShown() then
-                    PlayerFrameHealthBar:SetAlpha(0)
                     self:_HideDefaultHealthBar()
                 end
             end)
@@ -516,15 +840,12 @@ local GlassHeart = {
         if leftString ~= "" then self.textContainer.TextLeft:Show() else self.textContainer.TextLeft:Hide() end
         if rightString ~= "" then self.textContainer.TextRight:Show() else self.textContainer.TextRight:Hide() end
 
-        local pct = current / max
-        self.overlayBar:SetStatusBarColor(0, 1, 0)
+        self:_HideDefaultHealthBar()
     end,
-	
-	-- [[ TOGGLE FUNCTION ]]
+    
     ToggleLog = function(self)
         local db = Purity:GetDB()
         db.glassLogVisible = not db.glassLogVisible
-        
         if db.glassLogVisible then
             if not self.logFrame then self:CreateGlassLogFrame() end
             self.logFrame:Show()
