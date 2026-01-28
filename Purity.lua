@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "11.1.3"
+Purity.Version = "11.1.3a"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -3423,44 +3423,88 @@ local function Purity_TooltipOnUpdateHandler(self)
     if not unit or not UnitIsPlayer(unit) then return end
 
     local isOathBreaker = false
-    local currentBlood, maxBlood
+    local isBloodMage = false
+    local isGlassHeart = false
+    local currentVal, maxVal
 
-    -- 1. Identify if this is an Oath Breaker (Self or Roster)
+    -- 1. Identify Challenge Type (Self or Roster)
     if UnitIsUnit(unit, "player") then
         local db = Purity:GetDB()
-        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and 
-           (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
-            isOathBreaker = true
-            currentBlood = db.bloodPoolCurrent
-            maxBlood = db.bloodPoolMax
+        if db and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+            if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
+                local _, class = UnitClass("player")
+                if class == "PALADIN" then
+                    isOathBreaker = true
+                else
+                    isBloodMage = true
+                end
+                currentVal = db.bloodPoolCurrent
+                maxVal = db.bloodPoolMax
+            elseif db.activeChallengeID == "GLASS_HEART" then
+                isGlassHeart = true
+                currentVal = db.glassHeartHP
+                maxVal = UnitHealthMax("player")
+            end
         end
     else
         local name = UnitName(unit)
         local shortName = name and name:match("([^-]+)")
         local data = Purity.roster and (Purity.roster[name] or Purity.roster[shortName] or Purity.roster[name .. "-" .. GetRealmName()])
         
-        if data and data.challenge == "The Blood Mage's Bargain" and 
-           (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
-            isOathBreaker = true
-            currentBlood = data.bloodPoolCurrent
-            maxBlood = data.bloodPoolMax
+        if data and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+            if data.challenge == "The Blood Mage's Bargain" then
+                if data.class == "PALADIN" then
+                    isOathBreaker = true
+                else
+                    isBloodMage = true
+                end
+                currentVal = data.bloodPoolCurrent
+                maxVal = data.bloodPoolMax
+            elseif data.challenge == "The Glass Heart" then
+                isGlassHeart = true
+                currentVal = data.glassHeartCurrent
+                maxVal = data.glassHeartMax
+            end
         end
     end
 
+    -- 2. Apply Health Bar Visuals
+    -- All three types get a custom health bar override in the tooltip
+    if isOathBreaker or isBloodMage or isGlassHeart then
+        local statusBar = GameTooltipStatusBar
+        if statusBar then
+            if not statusBar:IsShown() then statusBar:Show() end
+            
+            if isOathBreaker or isBloodMage then
+                statusBar:SetStatusBarColor(0.8, 0.1, 0.1) -- Red for Blood Mages
+            else
+                statusBar:SetStatusBarColor(0.0, 1.0, 0.0) -- Green for Glass Heart
+            end
+            
+            if currentVal and maxVal and maxVal > 0 then
+                statusBar:SetMinMaxValues(0, maxVal)
+                statusBar:SetValue(currentVal)
+                if statusBar.Text then
+                    statusBar.Text:SetText(math.floor(currentVal) .. " / " .. maxVal)
+                    statusBar.Text:Show() 
+                end
+            end
+        end
+    end
+
+    -- 3. Apply Oath Breaker Specific Text Overrides (ONLY for Paladins)
     if isOathBreaker then
-        -- 2. FIX NAME: Force Red Color
-        -- We strip existing color codes first to ensure our Red sticks
+        -- Name Color -> Red
         local line1 = _G[self:GetName() .. "TextLeft1"]
         if line1 then
             local text = line1:GetText()
-            -- Only update if it's not already red (prevents flickering)
             if text and not text:find("ffFF0000") then
                  local cleanText = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
                  line1:SetText("|cffFF0000" .. cleanText .. "|r")
             end
         end
 
-        -- 3. FIX CLASS: Rename Paladin -> Oath Breaker
+        -- Class Name -> Oath Breaker
         for i = 2, self:NumLines() do
             local line = _G[self:GetName() .. "TextLeft" .. i]
             if line then
@@ -3472,30 +3516,8 @@ local function Purity_TooltipOnUpdateHandler(self)
                 end
             end
         end
-
-        -- 4. FIX HEALTH BAR: Force Show & Update
-        local statusBar = GameTooltipStatusBar
-        if statusBar then
-            -- Force the bar to show if the UI hid it (common for Self)
-            if not statusBar:IsShown() then statusBar:Show() end
-            
-            statusBar:SetStatusBarColor(0.8, 0.1, 0.1) -- Red
-            
-            -- Ensure values are applied
-            if currentBlood and maxBlood and maxBlood > 0 then
-                statusBar:SetMinMaxValues(0, maxBlood)
-                statusBar:SetValue(currentBlood)
-                
-                -- Force text update (e.g., "100 / 100")
-                if statusBar.Text then
-                    statusBar.Text:SetText(math.floor(currentBlood) .. " / " .. maxBlood)
-                    statusBar.Text:Show() 
-                end
-            end
-        end
-
-        -- 5. FIX SIZE: Manually Resize Background
-        -- We calculate the widest line of text and force the tooltip to that width
+        
+        -- Resize to fit "Oath Breaker" if necessary
         local padding = 20
         local maxWidth = 0
         for i = 1, self:NumLines() do
@@ -3505,8 +3527,6 @@ local function Purity_TooltipOnUpdateHandler(self)
                 if w > maxWidth then maxWidth = w end
             end
         end
-        
-        -- Apply width if it's larger than current (prevents cutting off "Oath Breaker")
         if maxWidth > 0 and (maxWidth + padding) > self:GetWidth() then
             self:SetWidth(maxWidth + padding)
         end
@@ -3535,8 +3555,8 @@ local function OnAddonMessage(prefix, message, channel, sender)
             status = statusData.status,
             level = statusData.level,
             class = statusData.class,
-            coefficient = statusData.coefficient, -- Store coefficient
-            uptime = statusData.uptime,       -- Store uptime
+            coefficient = statusData.coefficient,
+            uptime = statusData.uptime,
             lastSeen = GetTime() 
         }
         Purity:UpdateRosterWindow()
@@ -3546,11 +3566,22 @@ local function OnAddonMessage(prefix, message, channel, sender)
             Purity.roster[sender].bloodPoolCurrent = bloodData.current
             Purity.roster[sender].bloodPoolMax = bloodData.max
         end
+    -- [[ NEW: Glass Heart Listener ]]
+    elseif command == "GLASSHEART_UPDATE" then
+        if Purity.roster[sender] then
+            local glassData = Purity:Deserialize(data)
+            Purity.roster[sender].glassHeartCurrent = glassData.current
+            Purity.roster[sender].glassHeartMax = glassData.max
+        end
     elseif command == "ROSTER_REQUEST" then
         Purity:SendStatusToPlayer(sender)
     end
-    if Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
+    -- Refresh frames if either module is active
+    if Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
         Purity.GlobalModules.BLOOD_MAGE_BARGAIN:RefreshGroupFrames()
+    end
+    if Purity.GlobalModules.GLASS_HEART and Purity.GlobalModules.GLASS_HEART.RefreshGroupFrames then
+        Purity.GlobalModules.GLASS_HEART:RefreshGroupFrames()
     end
 end
 
@@ -3692,6 +3723,12 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         local currentGUID = UnitGUID("player")
 
         Purity:PerformIntegrityCheck()
+		
+		if Purity.GlobalModules["GLASS_HEART"] then
+             local gh = Purity.GlobalModules["GLASS_HEART"]
+             if gh.InitializeGroupFrames then gh:InitializeGroupFrames() end
+             if gh.InitializeNameplates then gh:InitializeNameplates() end
+        end
 
 		if currentDB.isOptedIn and currentDB.addonVersion ~= Purity.Version then
             Purity:PerformSecurityAudit(currentDB)

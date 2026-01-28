@@ -591,30 +591,44 @@ ManageBloodRegen = function(self)
 	end,
 	
     RefreshGroupFrames = function(self)
-        -- Added "targettarget" to the unit list
         local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local healthBar
-            local healthBarText
+            local textRegions = {} 
             
             if unit == "target" then
                 healthBar = TargetFrameHealthBar
-                healthBarText = _G["TargetFrameTextureFrameHealthBarText"]
+                -- Use the exact TargetFrame text hierarchy from Glass Heart
+                if TargetFrameTextureFrame then
+                    if TargetFrameTextureFrame.HealthBarText then table.insert(textRegions, TargetFrameTextureFrame.HealthBarText) end
+                    if TargetFrameTextureFrame.HealthBarTextLeft then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextLeft) end
+                    if TargetFrameTextureFrame.HealthBarTextRight then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextRight) end
+                end
+                -- Fallback for older naming/Private Servers
+                if #textRegions == 0 then
+                    if _G["TargetFrameTextureFrameHealthBarText"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarText"]) end
+                    if _G["TargetFrameTextureFrameHealthBarTextLeft"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextLeft"]) end
+                    if _G["TargetFrameTextureFrameHealthBarTextRight"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextRight"]) end
+                end
             elseif unit == "targettarget" then
-                -- Map to the Target of Target Health Bar
                 healthBar = _G["TargetFrameToTHealthBar"]
-                -- ToT frames usually don't have standard text overlays, so we leave text nil
+                if _G["TargetFrameToTHealthBarText"] then table.insert(textRegions, _G["TargetFrameToTHealthBarText"]) end
             else
                 local unitNum = string.sub(unit, 6)
                 healthBar = _G["PartyMemberFrame" .. unitNum .. "HealthBar"]
-                healthBarText = _G["PartyMemberFrame" .. unitNum .. "HealthBarText"]
+                -- Support Party text variations
+                local tMain = _G["PartyMemberFrame" .. unitNum .. "HealthBarText"]
+                local tLeft = _G["PartyMemberFrame" .. unitNum .. "HealthBarTextLeft"]
+                local tRight = _G["PartyMemberFrame" .. unitNum .. "HealthBarTextRight"]
+                if tMain then table.insert(textRegions, tMain) end
+                if tLeft then table.insert(textRegions, tLeft) end
+                if tRight then table.insert(textRegions, tRight) end
             end
             
             local bar = self.partyBloodBars[unit]
             if UnitExists(unit) and healthBar then
                 local isBloodMage = false
                 
-                -- 1. CHECK SELF (Use Local DB)
                 if UnitIsUnit(unit, "player") then
                     local db = Purity:GetDB()
                     if db and db.activeChallengeID == self.id and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
@@ -622,7 +636,6 @@ ManageBloodRegen = function(self)
                     end
                 end
 
-                -- 2. CHECK OTHERS (Use Roster)
                 if not isBloodMage then
                     local name = UnitName(unit)
                     for key, data in pairs(Purity.roster) do
@@ -636,36 +649,51 @@ ManageBloodRegen = function(self)
                 
                 if isBloodMage then
                     if not bar then
+                        -- Create as a SIBLING at the SAME frame level
                         bar = CreateFrame("StatusBar", "PurityGroupBloodBar"..unit, healthBar:GetParent())
                         bar:SetAllPoints(healthBar)
                         bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                         bar:SetStatusBarColor(0.8, 0.1, 0.1) -- Blood Red
                         bar:SetFrameStrata(healthBar:GetFrameStrata())
-                        bar:SetFrameLevel(healthBar:GetFrameLevel())
+                        bar:SetFrameLevel(healthBar:GetFrameLevel()) -- Match Glass Heart
                         
-                        local bg = bar:CreateTexture(nil, "BACKGROUND")
-                        bg:SetAllPoints(true)
-                        bg:SetColorTexture(0, 0, 0, 1)
+                        -- Removed Black Background entirely
                         
-                        local mask = bar:CreateMaskTexture()
-                        mask:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
-                        mask:SetBlendMode("BLEND")
-                        mask:SetAllPoints(bar)
-                        
+                        if unit ~= "targettarget" then
+                            local tf = CreateFrame("Frame", nil, bar)
+                            tf:SetAllPoints(bar)
+                            tf:SetFrameLevel(bar:GetFrameLevel() + 10) 
+                            
+                            bar.TextCenter = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextCenter:SetPoint("CENTER", 0, 0)
+                            
+                            bar.TextLeft = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextLeft:SetPoint("LEFT", 2, 0)
+                            
+                            bar.TextRight = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextRight:SetPoint("RIGHT", -2, 0)
+                            
+                            bar.TextFrame = tf
+                        end
+
+                        bar.originalHealthBar = healthBar
+                        bar.originalTextRegions = textRegions
                         self.partyBloodBars[unit] = bar
                     end
                     
                     healthBar:SetAlpha(0)
-                    if healthBarText then healthBarText:SetAlpha(0) end
+                    healthBar:SetStatusBarTexture("") 
+                    for _, region in ipairs(textRegions) do region:SetAlpha(0); region:Hide() end
                     bar:Show()
                 else
                     healthBar:SetAlpha(1)
-                    if healthBarText then healthBarText:SetAlpha(1) end
+                    healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                    for _, region in ipairs(textRegions) do region:SetAlpha(1); region:Show() end
                     if bar then bar:Hide() end
                 end
             else
-                if healthBar then healthBar:SetAlpha(1) end
-                if healthBarText then healthBarText:SetAlpha(1) end
+                if healthBar then healthBar:SetAlpha(1); healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar") end
+                for _, region in ipairs(textRegions) do region:SetAlpha(1); region:Show() end
                 if bar then bar:Hide() end
             end
         end
@@ -674,31 +702,57 @@ ManageBloodRegen = function(self)
     UpdateGroupFrameValues = function(self)
         if GetNumGroupMembers() == 0 and not UnitExists("target") then return end
         
-        -- Added "targettarget" to this list as well
         local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local bar = self.partyBloodBars[unit]
             if bar and bar:IsShown() then
                 
-                -- 1. UPDATE SELF (From Local DB)
+                -- Force suppression of default UI visuals (Glass Heart Style)
+                if bar.originalHealthBar then
+                    bar.originalHealthBar:SetAlpha(0)
+                    bar.originalHealthBar:SetStatusBarTexture("")
+                end
+                if bar.originalTextRegions then
+                    for _, region in ipairs(bar.originalTextRegions) do 
+                        region:SetAlpha(0) 
+                        region:Hide()
+                    end
+                end
+
+                local current, max
                 if UnitIsUnit(unit, "player") then
                     local db = Purity:GetDB()
                     if db and db.bloodPoolMax and db.bloodPoolCurrent then
-                        bar:SetMinMaxValues(0, db.bloodPoolMax)
-                        bar:SetValue(db.bloodPoolCurrent)
+                        current = db.bloodPoolCurrent
+                        max = db.bloodPoolMax
                     end
-                
-                -- 2. UPDATE OTHERS (From Roster)
                 else
                     local name = UnitName(unit)
                     for key, data in pairs(Purity.roster) do
                         local rosterPlayerName = key:match("([^-]+)")
                         if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName then
-                            if data.bloodPoolMax and data.bloodPoolCurrent then
-                                bar:SetMinMaxValues(0, data.bloodPoolMax)
-                                bar:SetValue(data.bloodPoolCurrent)
-                            end
+                            current = data.bloodPoolCurrent
+                            max = data.bloodPoolMax
                             break
+                        end
+                    end
+                end
+
+                if current and max then
+                    bar:SetMinMaxValues(0, max)
+                    bar:SetValue(current)
+                    
+                    if bar.TextFrame then
+                        local mode = GetCVar("statusTextDisplay") or "NUMERIC"
+                        bar.TextCenter:SetText(""); bar.TextLeft:SetText(""); bar.TextRight:SetText("")
+                        
+                        if mode == "NUMERIC" then
+                            bar.TextCenter:SetText(math.floor(current) .. " / " .. math.floor(max))
+                        elseif mode == "PERCENT" then
+                            bar.TextCenter:SetText(math.floor((current / max) * 100) .. "%")
+                        elseif mode == "BOTH" then
+                            bar.TextLeft:SetText(math.floor((current / max) * 100) .. "%")
+                            bar.TextRight:SetText(math.floor(current))
                         end
                     end
                 end
@@ -1053,21 +1107,48 @@ ManageBloodRegen = function(self)
         end
         
         if not self.screenGlowFrame then
-            self.screenGlowFrame = CreateFrame("Frame", "PurityBloodMageGlow", UIParent); self.screenGlowFrame:SetAllPoints(UIParent); self.screenGlowFrame:SetFrameStrata("HIGH"); self.screenGlowFrame:SetFrameLevel(0); self.screenGlowFrame:Hide()
-            self.screenGlowFrame:SetScript("OnUpdate", function(self, elapsed) self:SetAlpha(0.5 + (0.25 * math.sin(GetTime() * 3))) end)
-            local edges = {"Top", "Bottom", "Left", "Right"}
-            for _, edge in ipairs(edges) do
-                local tex = self.screenGlowFrame:CreateTexture(nil, "BACKGROUND"); tex:SetTexture("Interface\\Buttons\\WHITE8X8"); tex:SetBlendMode("ADD")
-                local r, g, b, a = 0.8, 0, 0, 0.5
-                if edge == "Top" or edge == "Bottom" then
-                    tex:SetPoint("LEFT"); tex:SetPoint("RIGHT"); tex:SetHeight(GetScreenHeight() * 0.25)
-                    if edge == "Top" then tex:SetPoint("TOP"); tex:SetVertexColor(1, r, g, b, a); tex:SetVertexColor(2, r, g, b, a); tex:SetVertexColor(3, r, g, b, 0); tex:SetVertexColor(4, r, g, b, 0)
-                    else tex:SetPoint("BOTTOM"); tex:SetVertexColor(1, r, g, b, 0); tex:SetVertexColor(2, r, g, b, 0); tex:SetVertexColor(3, r, g, b, a); tex:SetVertexColor(4, r, g, b, a) end
-                else tex:SetPoint("TOP"); tex:SetPoint("BOTTOM"); tex:SetWidth(GetScreenWidth() * 0.25)
-                    if edge == "Left" then tex:SetPoint("LEFT"); tex:SetVertexColor(1, r, g, b, a); tex:SetVertexColor(2, r, g, b, 0); tex:SetVertexColor(3, r, g, b, a); tex:SetVertexColor(4, r, g, b, 0)
-                    else tex:SetPoint("RIGHT"); tex:SetVertexColor(1, r, g, b, 0); tex:SetVertexColor(2, r, g, b, a); tex:SetVertexColor(3, r, g, b, 0); tex:SetVertexColor(4, r, g, b, a) end
-                end
+            self.screenGlowFrame = CreateFrame("Frame", "PurityBloodMageGlow", UIParent)
+            self.screenGlowFrame:SetAllPoints(UIParent)
+            self.screenGlowFrame:SetFrameStrata("BACKGROUND")
+            self.screenGlowFrame:EnableMouse(false)
+            self.screenGlowFrame:Hide()
+
+            local texFile = "Interface\\FullScreenTextures\\LowHealth"
+
+            -- Create 4 layers for a deep, thick crimson (matching Astrolabe's stacking)
+            self.natureLayers = {} -- Keeping the name convention from your Druid module for logic consistency
+            for i = 1, 10 do
+                local t = self.screenGlowFrame:CreateTexture(nil, "ARTWORK")
+                t:SetAllPoints(true)
+                t:SetTexture(texFile)
+                t:SetDesaturated(true)
+                t:SetBlendMode("ADD") 
+                t:SetVertexColor(1, 0, 0) -- Dark Red
+                t:SetAlpha(0)
+                table.insert(self.natureLayers, t)
             end
+
+            self.screenGlowFrame:SetScript("OnUpdate", function(f, elapsed)
+				local now = GetTime()
+				local remaining = self.sanguineWeaknessExpires - now
+
+				if remaining <= 0 then
+					f:Hide()
+					return
+				end
+
+				local progress = math.max(0, remaining / 15)
+				local numLayers = #self.natureLayers -- Dynamically get the count
+
+				for i, tex in ipairs(self.natureLayers) do
+					-- Divide progress by the ACTUAL number of layers you created
+					local layerThreshold = (i - 1) / numLayers 
+					local layerAlpha = math.max(0, math.min(1, (progress - layerThreshold) * numLayers))
+					
+					-- Apply the alpha to each physical layer
+					tex:SetAlpha(layerAlpha * 0.8)
+				end
+			end)
         end
 
         self:StartBroadcasting()
@@ -1322,14 +1403,13 @@ EventHandler = function(self, event, ...)
                 local playerGUID = UnitGUID("player")
 
                 if healAmount and healAmount > 0 then
-					if sourceGUID == playerGUID then
-						if self.allowedPeriodicHeals[spellName] then
-                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
-                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
-                        else
-                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
-                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
-                            
+                    -- 1. ALWAYS ADD BLOOD (Regardless of who healed you)
+                    db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent + healAmount)
+                    
+                    -- 2. APPLY PENALTY ONLY IF YOU HEALED YOURSELF
+                    if sourceGUID == playerGUID then
+                        -- Check if the specific spell is exempt (like Demon Armor or Food)
+                        if not self.allowedPeriodicHeals[spellName] then
                             self.sanguineWeaknessActive = true
                             self.sanguineWeaknessExpires = GetTime() + 15
                             
@@ -1338,15 +1418,15 @@ EventHandler = function(self, event, ...)
                             if self.debuffFrame then
                                 self.debuffFrame:Show()
                                 if self.debuffFrame.timerText then
-                                self.debuffFrame.timerText:Show()
+                                    self.debuffFrame.timerText:Show()
                                 end
                             end
                             if self.screenGlowFrame then
                                 self.screenGlowFrame:Show()
                             end
                         end
-					end
-				end
+                    end
+                end
             end
         end
 
