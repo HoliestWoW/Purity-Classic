@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "11.1.3a"
+Purity.Version = "11.1.4"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -309,20 +309,54 @@ function Purity:UpdateAllModifierStatuses()
         isNowHardcore = true
     end
 
+    -- Iterate through all buffs
     for i = 1, 40 do
-        local auraName = UnitAura("player", i)
-        if auraName and auraName == "Self-Found Adventurer" then
+        local name, _, _, _, _, _, _, _, _, spellId = UnitAura("player", i)
+        
+        if not name then 
+            break
+        end
+
+        if spellId == 431567 then 
             isNowSelfFound = true
             isNowHardcore = true
-            break
+        elseif spellId == 364001 then 
+            isNowHardcore = true
         end
     end
 
     if wasHardcore ~= isNowHardcore or wasSelfFound ~= isNowSelfFound or wasSSF ~= isNowSSF then
+        
         db.isHardcoreRun = isNowHardcore
         db.isSelfFoundRun = isNowSelfFound
         db.isSSFRun = isNowSSF
+        
         if db.isOptedIn then
+            local prefix = "|cffFFFF00Purity:|r "
+            
+            if wasHardcore ~= isNowHardcore then
+                if isNowHardcore then
+                    print(prefix .. "Hardcore status detected. |cff00FF00(Mode Enabled)|r")
+                else
+                    print(prefix .. "Hardcore status lost. |cffFF0000(Mode Disabled)|r")
+                end
+            end
+
+            if wasSelfFound ~= isNowSelfFound then
+                if isNowSelfFound then
+                    print(prefix .. "Self-Found status detected. |cff00FF00(Mode Enabled)|r")
+                else
+                    print(prefix .. "Self-Found status lost. |cffFF0000(Mode Disabled)|r")
+                end
+            end
+
+            if wasSSF ~= isNowSSF then
+                if isNowSSF then
+                    print(prefix .. "Community SSF status detected. |cff00FF00(Mode Enabled)|r")
+                else
+                    print(prefix .. "Community SSF status lost. |cffFF0000(Mode Disabled)|r")
+                end
+            end
         end
     end
 end
@@ -737,7 +771,58 @@ function Purity:DisplayRankings()
     scrollChild.lines = {}
 
     local goldColor = "|cffffd100"
+    local whiteColor = "|cffffffff"
     local darkColor = "|cff261a0d"
+    local greenColor = "|cff00FF00"
+
+    local yOffset = -15
+    local lineSpacing = 22
+    local totalHeight = 20
+
+    -- [SECTION 1] GAMEPLAY MODIFIERS (The missing info)
+    local function AddHeader(text)
+        local h = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+        h:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+        h:SetText(goldColor .. text .. "|r")
+        table.insert(scrollChild.lines, h)
+        yOffset = yOffset - 25
+        totalHeight = totalHeight + 25
+    end
+
+    local function AddModLine(name, value)
+        local label = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        label:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 20, yOffset)
+        label:SetText(whiteColor .. name .. "|r")
+        
+        local val = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        val:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -20, yOffset)
+        val:SetText(greenColor .. value .. "|r")
+        
+        table.insert(scrollChild.lines, label)
+        table.insert(scrollChild.lines, val)
+        yOffset = yOffset - 18
+        totalHeight = totalHeight + 18
+    end
+
+    AddHeader("Gameplay Multipliers")
+    AddModLine("Hardcore (Soul of Iron)", "x2.0")
+    AddModLine("Self-Found (Official Buff)", "x3.0")
+    AddModLine("SSF (Hardcore AddOn)", "x4.0")
+
+    -- Add a separator line
+    yOffset = yOffset - 10
+    local separator = scrollChild:CreateTexture(nil, "ARTWORK")
+    separator:SetHeight(1)
+    separator:SetColorTexture(1, 1, 1, 0.2)
+    separator:SetPoint("LEFT", 10, 0)
+    separator:SetPoint("RIGHT", -10, 0)
+    separator:SetPoint("TOP", scrollChild, "TOP", 0, yOffset)
+    table.insert(scrollChild.lines, separator) -- Add to lines table so it gets hidden on refresh
+    yOffset = yOffset - 20
+    totalHeight = totalHeight + 30
+
+    -- [SECTION 2] CHALLENGE RANKINGS
+    AddHeader("Challenge Base Coefficients")
 
     local sortedChallenges = {}
     if not self.ChallengeCoefficients then return end
@@ -749,10 +834,6 @@ function Purity:DisplayRankings()
         return a.coeff > b.coeff
     end)
 
-    local yOffset = -15
-    local lineSpacing = 22
-    local totalHeight = 20
-
     for i, challengeData in ipairs(sortedChallenges) do
         local rankText = string.format("%d.", i)
         local challengeName = challengeData.name
@@ -760,24 +841,24 @@ function Purity:DisplayRankings()
 
         local challengeType = (self.ChallengeTypeMap and self.ChallengeTypeMap[challengeName]) or ""
         local challengeNameText = challengeName
-		if challengeType ~= "" then
-			local typeColor
-			local classUpper = string.upper(challengeType)
+        if challengeType ~= "" then
+            local typeColor
+            local classUpper = string.upper(challengeType)
 
-			if classUpper == "SHAMAN" then
-				typeColor = "|cff0070DD"
+            if classUpper == "SHAMAN" then
+                typeColor = "|cff0070DD"
             elseif classUpper == "PALADIN" then
                 typeColor = "|cfff48cba"
-			else
-				local classInfo = RAID_CLASS_COLORS[classUpper]
-				if classInfo and challengeType ~= "Global" then
-					typeColor = string.format("|cff%02x%02x%02x", classInfo.r*255, classInfo.g*255, classInfo.b*255)
-				else
-					typeColor = "|cffb0b0b0" -- Grey fallback for "Global" or unknown
-				end
-			end
-			challengeNameText = string.format("%s (%s%s|r)", challengeName, typeColor, challengeType)
-		end
+            else
+                local classInfo = RAID_CLASS_COLORS[classUpper]
+                if classInfo and challengeType ~= "Global" then
+                    typeColor = string.format("|cff%02x%02x%02x", classInfo.r*255, classInfo.g*255, classInfo.b*255)
+                else
+                    typeColor = "|cffb0b0b0" -- Grey fallback for "Global" or unknown
+                end
+            end
+            challengeNameText = string.format("%s (%s%s|r)", challengeName, typeColor, challengeType)
+        end
 
         local rankLine = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         rankLine:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 20, yOffset)
