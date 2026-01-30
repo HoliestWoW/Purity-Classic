@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "11.1.4"
+Purity.Version = "11.1.5"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -1672,6 +1672,21 @@ function Purity:BuildOptionsMenu()
             Purity:UpdateMinimapIconVisibility()
         end)
         self.optionsPane.widgets.minimap = minimapCheck
+		
+		-- [Member Alerts Checkbox]
+        local alertCheck = CreateFrame("CheckButton", "PurityMemberAlertCheck", self.optionsPane, "UICheckButtonTemplate")
+        local alText = _G[alertCheck:GetName() .. "Text"]
+        if alText then
+            alText:SetText("Show Member Login/Logout Alerts")
+            alText:SetTextColor(1, 0.82, 0)
+            alText:SetFontObject(GameFontNormalSmall)
+            alText:ClearAllPoints()
+            alText:SetPoint("LEFT", alertCheck, "RIGHT", 2, 0)
+        end
+        alertCheck:SetScript("OnClick", function(btn)
+            Purity_GlobalSettings.showMemberAlerts = btn:GetChecked()
+        end)
+        self.optionsPane.widgets.alerts = alertCheck
 
         -- [Blood Mage: Bar Mode]
         local bloodBarCheck = CreateFrame("CheckButton", "PurityBloodBarModeCheck", self.optionsPane, "UICheckButtonTemplate")
@@ -1817,6 +1832,10 @@ function Purity:BuildOptionsMenu()
     local minBtn = self.optionsPane.widgets.minimap
     minBtn:SetChecked(globalSettings.showMinimapIcon == nil or globalSettings.showMinimapIcon)
     PlaceWidget(minBtn)
+	
+	local alBtn = self.optionsPane.widgets.alerts
+    alBtn:SetChecked(globalSettings.showMemberAlerts == true)
+    PlaceWidget(alBtn)
 
     -- [Context-Sensitive Options]
     local id = db.activeChallengeID
@@ -3628,7 +3647,12 @@ local function OnAddonMessage(prefix, message, channel, sender)
     if prefix ~= Purity.ADDON_PREFIX or sender == UnitName("player") .. "-" .. GetRealmName() then
         return
     end
+    
+    -- Strip realm name for cleaner chat display
+    local shortName = string.match(sender, "([^-]+)") or sender
+    
     local command, data = message:match("([^:]+):?(.*)")
+
     if command == "STATUS_UPDATE" then
         local statusData = Purity:Deserialize(data)
         Purity.roster[sender] = {
@@ -3641,13 +3665,24 @@ local function OnAddonMessage(prefix, message, channel, sender)
             lastSeen = GetTime() 
         }
         Purity:UpdateRosterWindow()
+
+    elseif command == "GOODBYE" then
+        -- Remove from roster
+        Purity.roster[sender] = nil
+        Purity:UpdateRosterWindow()
+
+        -- ALERT: LOGOUT
+        if Purity_GlobalSettings.showMemberAlerts then
+            local color = "|cff888888" -- Grey for offline
+            print("|cffFFFF00Purity:|r " .. color .. shortName .. " has gone offline.|r")
+        end
+
     elseif command == "BLOODPOOL_UPDATE" then
         if Purity.roster[sender] then
             local bloodData = Purity:Deserialize(data)
             Purity.roster[sender].bloodPoolCurrent = bloodData.current
             Purity.roster[sender].bloodPoolMax = bloodData.max
         end
-    -- [[ NEW: Glass Heart Listener ]]
     elseif command == "GLASSHEART_UPDATE" then
         if Purity.roster[sender] then
             local glassData = Purity:Deserialize(data)
@@ -3755,6 +3790,15 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
                 elseif sender:find(selfName .. "-", 1, true) == 1 then
                     isSelf = true
                 end
+            end
+			
+			if not isSelf and msg == "!purity_ping" and Purity_GlobalSettings.showMemberAlerts then
+                 local shortName = string.match(sender, "([^-]+)") or sender
+                 -- Check lastSeen to prevent spam if they spam the macro (60 second throttle)
+                 local lastSeen = Purity.roster[sender] and Purity.roster[sender].lastSeen or 0
+                 if (GetTime() - lastSeen) > 60 then
+                      print("|cffFFFF00Purity:|r |cff00FF00" .. shortName .. " has come online.|r")
+                 end
             end
 
             if (msg == "!purity_ping" or msg == "joins channel") and sender and not isSelf then
