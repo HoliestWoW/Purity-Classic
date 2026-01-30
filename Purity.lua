@@ -3816,6 +3816,7 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         return
 
     elseif event == "PLAYER_LOGOUT" then
+		Purity:SendGoodbye()
 		local currentDB = Purity:GetDB()
 		if currentDB and currentDB.isOptedIn then
 			Purity:SyncSequence()
