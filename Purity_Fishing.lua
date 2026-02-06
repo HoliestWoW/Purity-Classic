@@ -73,7 +73,7 @@ function FishingModule:isWeaponAllowed(itemLink)
     local cleanItemName = self:SanitizeItemName(itemName)
 
     if cleanItemName and db.fishingFishedItemLinks and db.fishingFishedItemLinks[cleanItemName] then return true end
-    if itemSubType == "Fishing Poles" then return true end
+    if itemSubType == "Fishing Pole" or itemSubType == "Fishing Poles" then return true end
     if itemID and DIRECT_FISHED_EQUIPPABLES[itemID] then return true end
 
     return false
