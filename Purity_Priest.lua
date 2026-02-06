@@ -101,7 +101,7 @@ local TestamentOfPurity = {
 
     isWeaponAllowed = function(self, itemLink)
         local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
-        if (itemType == "Weapon" and itemSubType ~= "Fishing Pole") or itemSubType == "Wand" then
+        if (itemType == "Weapon" and itemSubType ~= "Fishing Poles") or itemSubType == "Wand" then
             return false
         end
         return true
@@ -110,7 +110,7 @@ local TestamentOfPurity = {
     IsItemForbidden = function(self, itemLink)
         if not itemLink then return false end
         local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
-        if (itemType == "Weapon" and itemSubType ~= "Fishing Pole") or itemSubType == "Wand" then
+        if (itemType == "Weapon" and itemSubType ~= "Fishing Poles") or itemSubType == "Wand" then
             return true
         end
         return false
