@@ -472,25 +472,52 @@ local GlassHeart = {
         
         self.monitorFrame:SetScript("OnEvent", function(frame, event, ...)
             if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-                local _, subEvent, _, _, sourceName, _, _, destGUID, _, _, _, arg12, arg13 = CombatLogGetCurrentEventInfo()
+                -- Get standard event info
+                local timestamp, subEvent, _, _, sourceName, _, _, destGUID, _, _, _, arg12, arg13, arg14, arg15, arg16 = CombatLogGetCurrentEventInfo()
                 
-                if destGUID == UnitGUID("player") and string.find(subEvent, "_DAMAGE") then
-                    self.lastSource = sourceName or "Unknown"
+                if destGUID == UnitGUID("player") then
                     
-                    if subEvent == "SWING_DAMAGE" then
-                        self.lastAbility = "Melee"
-                    elseif subEvent == "RANGE_DAMAGE" then
-                        self.lastAbility = "Auto Shot"
-                    elseif subEvent == "ENVIRONMENTAL_DAMAGE" then
-                        self.lastAbility = arg12 -- e.g. "Falling", "Lava"
-                    else
-                        self.lastAbility = arg13 or "Ability" 
+                    -- 1. DAMAGE TRACKING (For Log & Display)
+                    if string.find(subEvent, "_DAMAGE") then
+                        self.lastSource = sourceName or "Unknown"
+                        
+                        if subEvent == "SWING_DAMAGE" then
+                            self.lastAbility = "Melee"
+                        elseif subEvent == "RANGE_DAMAGE" then
+                            self.lastAbility = "Auto Shot"
+                        elseif subEvent == "ENVIRONMENTAL_DAMAGE" then
+                            self.lastAbility = arg12 -- e.g. "Falling", "Lava"
+                        else
+                            self.lastAbility = arg13 or "Ability" 
+                        end
+                        self.lastDamageTime = GetTime()
+
+                    -- 2. HEALING TRACKING (Overhealing Support)
+                    -- If we are at 100% HP, UNIT_HEALTH won't trigger. We need to catch the Overhealing here.
+                    elseif subEvent == "SPELL_HEAL" or subEvent == "SPELL_PERIODIC_HEAL" then
+                        -- arg15 is amount (Effective), arg16 is Overhealing
+                        local overhealing = arg16
+                        
+                        if overhealing and overhealing > 0 then
+                            local maxHP = UnitHealthMax("player")
+                            
+                            -- Only apply if we actually have room to heal in the Glass Bar
+                            if self.currentHP < maxHP then
+                                self.currentHP = self.currentHP + overhealing
+                                
+                                -- Clamp to Max
+                                if self.currentHP > maxHP then self.currentHP = maxHP end
+                                
+                                -- Save & Update
+                                local db = Purity:GetDB()
+                                if db then db.glassHeartHP = self.currentHP end
+                                self:UpdateBar(maxHP)
+                            end
+                        end
                     end
-                    self.lastDamageTime = GetTime()
                 end
 
             elseif event == "PLAYER_LEVEL_UP" then
-                -- [[ FIX: FULL RESET ON LEVEL UP ]]
                 local newMax = UnitHealthMax("player")
                 self.currentHP = newMax
                 self.maxRealHP = newMax
