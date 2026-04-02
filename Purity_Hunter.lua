@@ -179,21 +179,26 @@ HunterModule.challenges.quiver = {
 
     forbiddenSpellIDs = {
         [2973] = "Raptor Strike", [14260] = "Raptor Strike", [14261] = "Raptor Strike", [14262] = "Raptor Strike", 
-        [14263] = "Raptor Strike", [14264] = "Raptor Strike", [27018] = "Raptor Strike", [27019] = "Raptor Strike",
-        [1495] = "Mongoose Bite", [14265] = "Mongoose Bite", [14266] = "Mongoose Bite", [14267] = "Mongoose Bite", [14268] = "Mongoose Bite",
-        [2974] = "Wing Clip", [14269] = "Wing Clip", [14270] = "Wing Clip",
+        [14263] = "Raptor Strike", [14264] = "Raptor Strike", [14265] = "Raptor Strike", [14266] = "Raptor Strike",
+		[27014] = "Raptor Strike",
+        [1495] = "Mongoose Bite", [14269] = "Mongoose Bite", [14270] = "Mongoose Bite", [14271] = "Mongoose Bite", [36916] = "Mongoose Bite",
+		[3127] = "Parry",
+        [2974] = "Wing Clip", [14267] = "Wing Clip", [14268] = "Wing Clip",
+		[19306] = "Counterattack", [20909] = "Counterattack", [20910] = "Counterattack", [27067] = "Counterattack",
         [1515] = "Tame Beast",
-        [1514] = "Beast Training",
+        [5149] = "Beast Training",
         [883] = "Call Pet",
         [2641] = "Dismiss Pet",
         [982] = "Revive Pet",
         [6991] = "Feed Pet",
-        [1513] = "Beast Soothing",
-        [136] = "Mend Pet", [13542] = "Mend Pet", [13543] = "Mend Pet", [13544] = "Mend Pet", 
-        [13545] = "Mend Pet", [13546] = "Mend Pet", [13547] = "Mend Pet",
+        [136] = "Mend Pet", [3111] = "Mend Pet", [3661] = "Mend Pet", [3662] = "Mend Pet", 
+        [13542] = "Mend Pet", [13543] = "Mend Pet", [13544] = "Mend Pet", [27046] = "Mend Pet",
         [19577] = "Intimidation", 
         [19574] = "Bestial Wrath",
-        [13161] = "Aspect of the Monkey",
+		[781] = "Disengage", [14272] = "Disengage", [14273] = "Disengage", [27015] = "Disengage",
+		[1002] = "Eyes of the Beast",
+		[34026] = "Kill Command",
+		
     },
 
     GetRulesText = function()
@@ -225,7 +230,7 @@ HunterModule.challenges.quiver = {
         if not itemLink then return false end
         local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
         if itemType == "Weapon" then
-            return not (itemSubType == "Bows" or itemSubType == "Guns" or itemSubType == "Crossbows" or itemSubType == "Thrown" or itemSubType == "Fishing Pole")
+            return not (itemSubType == "Bows" or itemSubType == "Guns" or itemSubType == "Crossbows" or itemSubType == "Thrown" or itemSubType == "Fishing Poles" or itemSubType == "Fishing Pole")
         end
         return false
     end,

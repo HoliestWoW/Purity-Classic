@@ -22,6 +22,163 @@ local BloodMageModule = {
     originalStatusTextDisplay = nil,
     characterFrameHooked = false,
 	forceNumericDisplay = false,
+	lastOathbreakerRank = 0,
+	talentTooltipHooked = false,
+	
+	GetOathbreakerRank = function(self)
+		local _, class = UnitClass("player")
+		if class ~= "PALADIN" then return 0 end
+		
+		local tab, index = 3, 5
+		local name, _, _, _, rank = GetTalentInfo(tab, index, nil, nil, GetActiveTalentGroup())
+		
+		if name == "Benediction" then
+			return rank or 0
+		end
+		return 0
+	end,
+	
+	CreateOathBrokenBanner = function(self)
+		if self.oathBrokenFrame then return end
+
+		local f = CreateFrame("Frame", "PurityOathBrokenBanner", UIParent)
+		f:SetSize(512, 172)
+		f:SetPoint("TOP", 0, -150)
+		f:SetFrameStrata("HIGH")
+		f:Hide()
+
+		local tex = f:CreateTexture(nil, "ARTWORK")
+		tex:SetAllPoints(true)
+		tex:SetTexture("Interface\\AddOns\\Purity\\Media\\Oath-Broken.tga")
+		f.texture = tex
+
+		f.animGroup = f:CreateAnimationGroup()
+		
+		local fadeIn = f.animGroup:CreateAnimation("Alpha")
+		fadeIn:SetFromAlpha(0); fadeIn:SetToAlpha(1); fadeIn:SetDuration(0.8); fadeIn:SetOrder(1)
+
+		local stay = f.animGroup:CreateAnimation("Alpha")
+		stay:SetFromAlpha(1); stay:SetToAlpha(1); stay:SetDuration(3.0); stay:SetOrder(2)
+
+		local fadeOut = f.animGroup:CreateAnimation("Alpha")
+		fadeOut:SetFromAlpha(1); fadeOut:SetToAlpha(0); fadeOut:SetDuration(1.5); fadeOut:SetOrder(3)
+
+		f.animGroup:SetScript("OnFinished", function() f:Hide() end)
+
+		self.oathBrokenFrame = f
+	end,
+
+	ShowOathBrokenBanner = function(self)
+		if not self.oathBrokenFrame then self:CreateOathBrokenBanner() end
+		
+		PlaySound(8647, "Master")
+		self.oathBrokenFrame:Show()
+		self.oathBrokenFrame.animGroup:Play()
+	end,
+	
+	SetupTalentIconHook = function(self)
+		if self.talentIconHooked then return end
+
+		local function ApplyCustomIcon()
+			local _, class = UnitClass("player")
+			if class ~= "PALADIN" then return end
+			
+			local db = Purity:GetDB()
+			if not db or db.activeChallengeID ~= self.id then return end
+
+			if PlayerTalentFrame and PlayerTalentFrame:IsShown() then
+				if PanelTemplates_GetSelectedTab(PlayerTalentFrame) == 3 then
+					local icon = _G["PlayerTalentFrameTalent5IconTexture"]
+					if icon then
+						icon:SetTexture("Interface\\AddOns\\Purity\\Media\\Oath-Breaker-Talent.tga")
+					end
+				end
+			end
+		end
+
+		if IsAddOnLoaded("Blizzard_TalentUI") then
+			hooksecurefunc("TalentFrame_Update", ApplyCustomIcon)
+		else
+			local f = CreateFrame("Frame")
+			f:RegisterEvent("ADDON_LOADED")
+			f:SetScript("OnEvent", function(_, _, name)
+				if name == "Blizzard_TalentUI" then
+					hooksecurefunc("TalentFrame_Update", ApplyCustomIcon)
+					f:UnregisterAllEvents()
+				end
+			end)
+		end
+		self.talentIconHooked = true
+	end,
+	
+	-- Replace the SetupTalentTooltip function in Purity_BloodMage.lua
+SetupTalentTooltip = function(self)
+    if self.talentTooltipHooked then return end
+
+    hooksecurefunc(GameTooltip, "SetTalent", function(tooltip)
+        local db = Purity:GetDB()
+        if not db or db.activeChallengeID ~= self.id then return end
+        
+        local frameName = tooltip:GetName()
+        if not frameName then return end
+        
+        local line1 = _G[frameName .. "TextLeft1"]
+        if not line1 then return end
+        local talentName = line1:GetText()
+        if not talentName then return end
+
+        -- Identify the talent (using both names for compatibility)
+        if talentName == "Benediction" or talentName == "Oath Breaker" then
+            local currentRank = 0
+            local maxRank = 5
+            for i = 1, 30 do
+                local name, _, _, _, rank, mRank = GetTalentInfo(3, i)
+                if name == "Benediction" then
+                    currentRank = rank or 0
+                    maxRank = mRank or 5
+                    break
+                end
+            end
+
+            line1:SetText("|cffFF0000Oath Breaker|r")
+
+            local passedNextRank = false
+            local matchText = "Mana cost of your Judgement" 
+
+            for i = 2, tooltip:NumLines() do
+                local line = _G[frameName .. "TextLeft" .. i]
+                if line then
+                    local text = line:GetText()
+                    if text then
+                        if text == "Next rank:" or text == "Next Rank:" then
+                            passedNextRank = true
+                        elseif string.find(text, matchText) then
+                            local rankToUse = currentRank
+                            if currentRank == 0 then
+                                rankToUse = 1 
+                            elseif passedNextRank then
+                                rankToUse = currentRank + 1 
+                            end
+                            rankToUse = math.min(rankToUse, maxRank)
+
+                            local manaReduc = rankToUse * 3     -- Original: 3/6/9/12/15%
+                            local bloodReduc = rankToUse * 5    -- Custom: 5/10/15/20/25%
+                            local spiritBonus = rankToUse * 20  -- Custom: 20/40/60/80/100%
+
+                            local newDesc = string.format(
+                                "You turn your back to your vow to the Light and become an Oath Breaker. Reduces the Mana cost of your Judgement and Seal spells by %d%%, reduces the Blood cost of melee swings by %d%%, and increases the effectiveness of your Spirit at reducing costs by %d%%.", 
+                                manaReduc, bloodReduc, spiritBonus
+                            )
+                            line:SetText(newDesc)
+                        end
+                    end
+                end
+            end
+            tooltip:Show()
+        end
+    end)
+    self.talentTooltipHooked = true
+end,
 
 	_HideDefaultHealthBar = function()
 		PlayerFrameHealthBar:SetAlpha(0)
@@ -563,25 +720,27 @@ ManageBloodRegen = function(self)
 		local originalPowerCost = (powerCostTable and #powerCostTable > 0) and powerCostTable[1].cost or 0
 		
 		if originalPowerCost > 0 then
-			local healthCost = 0
 			local powerType = select(1, UnitPowerType("player"))
 			local _, spirit = UnitStat("player", 5)
 			local level = UnitLevel("player")
 			local bloodPoolMax = db.bloodPoolMax or UnitHealthMax("player")
 
+			local currentSpiritFactor = 12.0
+			local oathbreakerRank = self:GetOathbreakerRank()
+			
+			if oathbreakerRank > 0 then
+				currentSpiritFactor = 12.0 + (oathbreakerRank * 2.4) 
+			end
+
 			local baseDivisor = (powerType == 0 and 200) or (powerType == 3 and 500) or 100
 			local scaledDivisor = baseDivisor + (level * 20)
-			local effectiveDivisor = scaledDivisor + (spirit * self.spiritFactor)
+			local effectiveDivisor = scaledDivisor + (spirit * currentSpiritFactor)
 			
 			if effectiveDivisor > 0 then
-				healthCost = bloodPoolMax * (originalPowerCost / effectiveDivisor)
-			end
-			
-			if healthCost > 0 then 
+				local healthCost = bloodPoolMax * (originalPowerCost / effectiveDivisor)
 				return math.max(1, healthCost)
 			end
 		end
-		
 		return 0
 	end,
 	
@@ -591,55 +750,109 @@ ManageBloodRegen = function(self)
 	end,
 	
     RefreshGroupFrames = function(self)
-        local units = {"target", "party1", "party2", "party3", "party4"}
+        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local healthBar
-            local healthBarText
+            local textRegions = {} 
+            
             if unit == "target" then
                 healthBar = TargetFrameHealthBar
-                healthBarText = _G["TargetFrameTextureFrameHealthBarText"]
+                -- Use the exact TargetFrame text hierarchy from Glass Heart
+                if TargetFrameTextureFrame then
+                    if TargetFrameTextureFrame.HealthBarText then table.insert(textRegions, TargetFrameTextureFrame.HealthBarText) end
+                    if TargetFrameTextureFrame.HealthBarTextLeft then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextLeft) end
+                    if TargetFrameTextureFrame.HealthBarTextRight then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextRight) end
+                end
+                -- Fallback for older naming/Private Servers
+                if #textRegions == 0 then
+                    if _G["TargetFrameTextureFrameHealthBarText"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarText"]) end
+                    if _G["TargetFrameTextureFrameHealthBarTextLeft"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextLeft"]) end
+                    if _G["TargetFrameTextureFrameHealthBarTextRight"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextRight"]) end
+                end
+            elseif unit == "targettarget" then
+                healthBar = _G["TargetFrameToTHealthBar"]
+                if _G["TargetFrameToTHealthBarText"] then table.insert(textRegions, _G["TargetFrameToTHealthBarText"]) end
             else
                 local unitNum = string.sub(unit, 6)
                 healthBar = _G["PartyMemberFrame" .. unitNum .. "HealthBar"]
-                healthBarText = _G["PartyMemberFrame" .. unitNum .. "HealthBarText"]
+                -- Support Party text variations
+                local tMain = _G["PartyMemberFrame" .. unitNum .. "HealthBarText"]
+                local tLeft = _G["PartyMemberFrame" .. unitNum .. "HealthBarTextLeft"]
+                local tRight = _G["PartyMemberFrame" .. unitNum .. "HealthBarTextRight"]
+                if tMain then table.insert(textRegions, tMain) end
+                if tLeft then table.insert(textRegions, tLeft) end
+                if tRight then table.insert(textRegions, tRight) end
             end
             
             local bar = self.partyBloodBars[unit]
             if UnitExists(unit) and healthBar then
-                local name = UnitName(unit)
                 local isBloodMage = false
                 
-                for key, data in pairs(Purity.roster) do
-                    local rosterPlayerName = key:match("([^-]+)")
-                    if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                if UnitIsUnit(unit, "player") then
+                    local db = Purity:GetDB()
+                    if db and db.activeChallengeID == self.id and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
                         isBloodMage = true
-                        break
+                    end
+                end
+
+                if not isBloodMage then
+                    local name = UnitName(unit)
+                    for key, data in pairs(Purity.roster) do
+                        local rosterPlayerName = key:match("([^-]+)")
+                        if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                            isBloodMage = true
+                            break
+                        end
                     end
                 end
                 
                 if isBloodMage then
                     if not bar then
+                        -- Create as a SIBLING at the SAME frame level
                         bar = CreateFrame("StatusBar", "PurityGroupBloodBar"..unit, healthBar:GetParent())
                         bar:SetAllPoints(healthBar)
                         bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                        bar:SetStatusBarColor(0.8, 0.1, 0.1)
+                        bar:SetStatusBarColor(0.8, 0.1, 0.1) -- Blood Red
                         bar:SetFrameStrata(healthBar:GetFrameStrata())
-                        bar:SetFrameLevel(healthBar:GetFrameLevel())
-                        local bg = bar:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(true); bg:SetColorTexture(0, 0, 0, 1)
-                        local mask = bar:CreateMaskTexture(); mask:SetTexture("Interface\\ChatFrame\\ChatFrameBackground"); mask:SetBlendMode("BLEND"); mask:SetAllPoints(bar)
+                        bar:SetFrameLevel(healthBar:GetFrameLevel()) -- Match Glass Heart
+                        
+                        -- Removed Black Background entirely
+                        
+                        if unit ~= "targettarget" then
+                            local tf = CreateFrame("Frame", nil, bar)
+                            tf:SetAllPoints(bar)
+                            tf:SetFrameLevel(bar:GetFrameLevel() + 10) 
+                            
+                            bar.TextCenter = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextCenter:SetPoint("CENTER", 0, 0)
+                            
+                            bar.TextLeft = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextLeft:SetPoint("LEFT", 2, 0)
+                            
+                            bar.TextRight = tf:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+                            bar.TextRight:SetPoint("RIGHT", -2, 0)
+                            
+                            bar.TextFrame = tf
+                        end
+
+                        bar.originalHealthBar = healthBar
+                        bar.originalTextRegions = textRegions
                         self.partyBloodBars[unit] = bar
                     end
+                    
                     healthBar:SetAlpha(0)
-                    if healthBarText then healthBarText:SetAlpha(0) end
+                    healthBar:SetStatusBarTexture("") 
+                    for _, region in ipairs(textRegions) do region:SetAlpha(0); region:Hide() end
                     bar:Show()
                 else
                     healthBar:SetAlpha(1)
-                    if healthBarText then healthBarText:SetAlpha(1) end
+                    healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                    for _, region in ipairs(textRegions) do region:SetAlpha(1); region:Show() end
                     if bar then bar:Hide() end
                 end
             else
-                if healthBar then healthBar:SetAlpha(1) end
-                if healthBarText then healthBarText:SetAlpha(1) end
+                if healthBar then healthBar:SetAlpha(1); healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar") end
+                for _, region in ipairs(textRegions) do region:SetAlpha(1); region:Show() end
                 if bar then bar:Hide() end
             end
         end
@@ -647,19 +860,59 @@ ManageBloodRegen = function(self)
 
     UpdateGroupFrameValues = function(self)
         if GetNumGroupMembers() == 0 and not UnitExists("target") then return end
-        local units = {"target", "party1", "party2", "party3", "party4"}
+        
+        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local bar = self.partyBloodBars[unit]
             if bar and bar:IsShown() then
-                local name = UnitName(unit)
-                for key, data in pairs(Purity.roster) do
-                    local rosterPlayerName = key:match("([^-]+)")
-                    if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName then
-                        if data.bloodPoolMax and data.bloodPoolCurrent then
-                            bar:SetMinMaxValues(0, data.bloodPoolMax)
-                            bar:SetValue(data.bloodPoolCurrent)
+                
+                -- Force suppression of default UI visuals (Glass Heart Style)
+                if bar.originalHealthBar then
+                    bar.originalHealthBar:SetAlpha(0)
+                    bar.originalHealthBar:SetStatusBarTexture("")
+                end
+                if bar.originalTextRegions then
+                    for _, region in ipairs(bar.originalTextRegions) do 
+                        region:SetAlpha(0) 
+                        region:Hide()
+                    end
+                end
+
+                local current, max
+                if UnitIsUnit(unit, "player") then
+                    local db = Purity:GetDB()
+                    if db and db.bloodPoolMax and db.bloodPoolCurrent then
+                        current = db.bloodPoolCurrent
+                        max = db.bloodPoolMax
+                    end
+                else
+                    local name = UnitName(unit)
+                    for key, data in pairs(Purity.roster) do
+                        local rosterPlayerName = key:match("([^-]+)")
+                        if rosterPlayerName and rosterPlayerName == name and data.challenge == self.challengeName then
+                            current = data.bloodPoolCurrent
+                            max = data.bloodPoolMax
+                            break
                         end
-                        break
+                    end
+                end
+
+                if current and max then
+                    bar:SetMinMaxValues(0, max)
+                    bar:SetValue(current)
+                    
+                    if bar.TextFrame then
+                        local mode = GetCVar("statusTextDisplay") or "NUMERIC"
+                        bar.TextCenter:SetText(""); bar.TextLeft:SetText(""); bar.TextRight:SetText("")
+                        
+                        if mode == "NUMERIC" then
+                            bar.TextCenter:SetText(math.floor(current) .. " / " .. math.floor(max))
+                        elseif mode == "PERCENT" then
+                            bar.TextCenter:SetText(math.floor((current / max) * 100) .. "%")
+                        elseif mode == "BOTH" then
+                            bar.TextLeft:SetText(math.floor((current / max) * 100) .. "%")
+                            bar.TextRight:SetText(math.floor(current))
+                        end
                     end
                 end
             end
@@ -672,6 +925,7 @@ ManageBloodRegen = function(self)
         self.groupFrameManager = CreateFrame("Frame")
         self.groupFrameManager:RegisterEvent("GROUP_ROSTER_UPDATE")
         self.groupFrameManager:RegisterEvent("PLAYER_TARGET_CHANGED")
+        self.groupFrameManager:RegisterEvent("UNIT_TARGET") -- NEW: Detects ToT changes
         self.groupFrameManager:RegisterEvent("PLAYER_ENTERING_WORLD")
         self.groupFrameManager:SetScript("OnEvent", function() module:RefreshGroupFrames() end)
         self.groupFrameManager:SetScript("OnUpdate", function() module:UpdateGroupFrameValues() end)
@@ -692,41 +946,74 @@ ManageBloodRegen = function(self)
         if self.nameplateManager then return end
         self.nameplateManager = CreateFrame("Frame")
         local lastUpdate = 0
+        
         self.nameplateManager:SetScript("OnUpdate", function(frame, elapsed)
             lastUpdate = lastUpdate + elapsed
             if lastUpdate < 0.25 then return end
             lastUpdate = 0
+            
             for i = 1, 40 do
                 local nameplate = _G["NamePlate" .. i]
                 local healthBar = _G["NamePlate" .. i .. "HealthBar"]
+                
+                -- Ensure we have a valid nameplate with a Unit ID
                 if nameplate and nameplate:IsVisible() and nameplate.unit and healthBar then
                     local unit = nameplate.unit
+                    
                     if UnitExists(unit) and UnitIsPlayer(unit) then
                         local name = UnitName(unit)
-                        local rosterData, isBloodMage = nil, false
-                        for key, data in pairs(Purity.roster) do
-                            if key:match("([^-]+)") == name and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
-                                rosterData = data; isBloodMage = true; break
+                        local isBloodMage = false
+                        local currentBlood, maxBlood
+                        
+                        -- 1. CHECK SELF (Use Local DB)
+                        if UnitIsUnit(unit, "player") then
+                            local db = Purity:GetDB()
+                            if db and db.activeChallengeID == self.id and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+                                isBloodMage = true
+                                currentBlood = db.bloodPoolCurrent
+                                maxBlood = db.bloodPoolMax
+                            end
+                        else
+                        -- 2. CHECK ROSTER (Use robust lookup)
+                            local shortName = name:match("([^-]+)")
+                            -- Try exact name, then ShortName, then Name-Realm
+                            local data = Purity.roster and (Purity.roster[name] or Purity.roster[shortName] or Purity.roster[name .. "-" .. GetRealmName()])
+                            
+                            if data and data.challenge == self.challengeName and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+                                isBloodMage = true
+                                currentBlood = data.bloodPoolCurrent
+                                maxBlood = data.bloodPoolMax
                             end
                         end
+                        
                         local bloodBar = nameplate.purityBloodBar
+                        
                         if isBloodMage then
+                            -- Create the Red Blood Bar if it doesn't exist
                             if not bloodBar then
                                 bloodBar = CreateFrame("StatusBar", nil, nameplate)
                                 bloodBar:SetAllPoints(healthBar)
                                 bloodBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                                bloodBar:SetStatusBarColor(0.8, 0.1, 0.1)
+                                bloodBar:SetStatusBarColor(0.8, 0.1, 0.1) -- Blood Red
                                 bloodBar:SetFrameLevel(healthBar:GetFrameLevel() + 1)
-                                local bg = bloodBar:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(true); bg:SetColorTexture(0, 0, 0, 1)
+                                
+                                local bg = bloodBar:CreateTexture(nil, "BACKGROUND")
+                                bg:SetAllPoints(true)
+                                bg:SetColorTexture(0, 0, 0, 1)
+                                
                                 nameplate.purityBloodBar = bloodBar
                             end
+                            
+                            -- Hide standard green/class bar, Show Red Bar
                             healthBar:Hide()
                             bloodBar:Show()
-                            if rosterData.bloodPoolMax and rosterData.bloodPoolCurrent then
-                                bloodBar:SetMinMaxValues(0, rosterData.bloodPoolMax)
-                                bloodBar:SetValue(rosterData.bloodPoolCurrent)
+                            
+                            if maxBlood and currentBlood then
+                                bloodBar:SetMinMaxValues(0, maxBlood)
+                                bloodBar:SetValue(currentBlood)
                             end
                         else
+                            -- Revert to standard behavior
                             healthBar:Show()
                             if bloodBar then bloodBar:Hide() end
                         end
@@ -757,6 +1044,10 @@ ManageBloodRegen = function(self)
         self.sanguineWeaknessActive = false
         self.sanguineWeaknessExpires = 0
 		self.wasBelowThreshold = false
+		self.lastOathbreakerRank = self:GetOathbreakerRank()
+		self:SetupTalentTooltip()
+		self:SetupTalentIconHook()
+		self:CreateOathBrokenBanner()
         
         local db = Purity:GetDB()
         if db.isOptedIn and db.activeChallengeID == self.id then
@@ -831,7 +1122,8 @@ ManageBloodRegen = function(self)
             local module = self 
             local module = self
             self.debuffFrame:SetScript("OnUpdate", function(frame, elapsed)
-                local remaining = module.sanguineWeaknessExpires - GetTime()
+                local now = GetTime()
+                local remaining = module.sanguineWeaknessExpires - now
 
                 if remaining <= 0 then
                     frame:Hide(); module.sanguineWeaknessActive = false
@@ -841,6 +1133,70 @@ ManageBloodRegen = function(self)
                         GameTooltip:Hide()
                     end
                     return
+                end
+
+                -- [START OF POSITIONING LOGIC]
+                frame:ClearAllPoints() -- Necessary to prevent "Too Many Anchors" error in OnUpdate
+                
+                -- Check for Modern Retail/Anniversary UI Structure
+                if DebuffFrame and DebuffFrame.AuraContainer then
+                    -- === MODERN / EDIT MODE LOGIC ===
+                    local anchored = false
+                    local minLeft = 99999
+                    local targetBtn = nil
+                    
+                    -- Scan the AuraContainer for the left-most visible debuff (End of the row)
+                    local children = { DebuffFrame.AuraContainer:GetChildren() }
+                    for _, child in ipairs(children) do
+                        if child:IsShown() then
+                            local left = child:GetLeft()
+                            if left and left < minLeft then
+                                minLeft = left
+                                targetBtn = child
+                            end
+                        end
+                    end
+
+                    if targetBtn then
+                        -- Found a debuff: Snap to its left
+                        frame:SetPoint("TOPRIGHT", targetBtn, "TOPLEFT", -5, 0)
+                        anchored = true
+                    end
+                    
+                    -- Fallback: If no debuffs found, anchor to the main container start
+                    if not anchored then
+                         frame:SetPoint("TOPRIGHT", DebuffFrame, "TOPRIGHT", 0, 0)
+                    end
+
+                else
+                    -- === CLASSIC ERA LOGIC (Exact Original Behavior) ===
+                    local numDebuffs = 0
+                    for i = 1, 40 do 
+                        if select(1, UnitDebuff("player", i)) then 
+                            numDebuffs = numDebuffs + 1 
+                        else 
+                            break 
+                        end 
+                    end
+                    
+                    if numDebuffs == 0 then 
+                        frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -99)
+                    else 
+                        local lastDebuff = _G["DebuffButton" .. numDebuffs]
+                        if lastDebuff then 
+                            frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 1) 
+                        end 
+                    end
+                end
+                -- [END OF POSITIONING LOGIC]
+
+                -- [Animation/Timer Logic]
+                if remaining <= 30 then
+                    local pulse = math.cos(now * 4.1) 
+                    local alpha = 0.7 + (0.3 * pulse) 
+                    frame:SetAlpha(alpha)
+                else
+                    frame:SetAlpha(1.0)
                 end
 
                 if frame.timerText then
@@ -857,7 +1213,8 @@ ManageBloodRegen = function(self)
                     frame.timerText:SetText(timerString)
                     frame.timerText:Show()
                 end
-				if GameTooltip:IsShown() and GameTooltip:GetOwner() == frame then
+
+                if GameTooltip:IsShown() and GameTooltip:GetOwner() == frame then
                     local numLines = GameTooltip:NumLines()
                     if numLines >= 4 then
                         local line4 = _G["GameTooltipTextLeft4"]
@@ -866,10 +1223,6 @@ ManageBloodRegen = function(self)
                         end
                     end
                 end
-                local numDebuffs = 0
-                for i = 1, 40 do if select(1, UnitDebuff("player", i)) then numDebuffs = numDebuffs + 1 else break end end
-                if numDebuffs == 0 then frame:SetPoint("TOPRIGHT", BuffFrame, "TOPRIGHT", -4, -99)
-                else local lastDebuff = _G["DebuffButton" .. numDebuffs]; if lastDebuff then frame:SetPoint("TOPRIGHT", lastDebuff, "TOPLEFT", -4, 1) end end
             end)
             self.debuffFrame:Hide()
         end
@@ -878,10 +1231,10 @@ ManageBloodRegen = function(self)
             self.regenFrame = CreateFrame("Frame")
             self.regenFrame.lastTick = 0
             local module = self
-			self.regenFrame:SetScript("OnUpdate", function(frame, elapsed)
+            self.regenFrame:SetScript("OnUpdate", function(frame, elapsed)
                 local db = Purity:GetDB()
                 if (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
-					local currentMaxHealth = UnitHealthMax("player")
+                    local currentMaxHealth = UnitHealthMax("player")
                     if currentMaxHealth <= 1 then
                         return 
                     end
@@ -908,28 +1261,57 @@ ManageBloodRegen = function(self)
                             end
                         end
                     end
-				else
-					if module.bloodBarFrame then module.bloodBarFrame:Hide() end
-				end
+                else
+                    -- FIX: Cleanup if we fail/reset while this loop is running
+                    if module.bloodBarFrame then module.bloodBarFrame:Hide() end
+                    if module.textContainer then module.textContainer:Hide() end
+                end
             end)
         end
         
         if not self.screenGlowFrame then
-            self.screenGlowFrame = CreateFrame("Frame", "PurityBloodMageGlow", UIParent); self.screenGlowFrame:SetAllPoints(UIParent); self.screenGlowFrame:SetFrameStrata("HIGH"); self.screenGlowFrame:SetFrameLevel(0); self.screenGlowFrame:Hide()
-            self.screenGlowFrame:SetScript("OnUpdate", function(self, elapsed) self:SetAlpha(0.5 + (0.25 * math.sin(GetTime() * 3))) end)
-            local edges = {"Top", "Bottom", "Left", "Right"}
-            for _, edge in ipairs(edges) do
-                local tex = self.screenGlowFrame:CreateTexture(nil, "BACKGROUND"); tex:SetTexture("Interface\\Buttons\\WHITE8X8"); tex:SetBlendMode("ADD")
-                local r, g, b, a = 0.8, 0, 0, 0.5
-                if edge == "Top" or edge == "Bottom" then
-                    tex:SetPoint("LEFT"); tex:SetPoint("RIGHT"); tex:SetHeight(GetScreenHeight() * 0.25)
-                    if edge == "Top" then tex:SetPoint("TOP"); tex:SetVertexColor(1, r, g, b, a); tex:SetVertexColor(2, r, g, b, a); tex:SetVertexColor(3, r, g, b, 0); tex:SetVertexColor(4, r, g, b, 0)
-                    else tex:SetPoint("BOTTOM"); tex:SetVertexColor(1, r, g, b, 0); tex:SetVertexColor(2, r, g, b, 0); tex:SetVertexColor(3, r, g, b, a); tex:SetVertexColor(4, r, g, b, a) end
-                else tex:SetPoint("TOP"); tex:SetPoint("BOTTOM"); tex:SetWidth(GetScreenWidth() * 0.25)
-                    if edge == "Left" then tex:SetPoint("LEFT"); tex:SetVertexColor(1, r, g, b, a); tex:SetVertexColor(2, r, g, b, 0); tex:SetVertexColor(3, r, g, b, a); tex:SetVertexColor(4, r, g, b, 0)
-                    else tex:SetPoint("RIGHT"); tex:SetVertexColor(1, r, g, b, 0); tex:SetVertexColor(2, r, g, b, a); tex:SetVertexColor(3, r, g, b, 0); tex:SetVertexColor(4, r, g, b, a) end
-                end
+            self.screenGlowFrame = CreateFrame("Frame", "PurityBloodMageGlow", UIParent)
+            self.screenGlowFrame:SetAllPoints(UIParent)
+            self.screenGlowFrame:SetFrameStrata("BACKGROUND")
+            self.screenGlowFrame:EnableMouse(false)
+            self.screenGlowFrame:Hide()
+
+            local texFile = "Interface\\FullScreenTextures\\LowHealth"
+
+            -- Create 4 layers for a deep, thick crimson (matching Astrolabe's stacking)
+            self.natureLayers = {} -- Keeping the name convention from your Druid module for logic consistency
+            for i = 1, 10 do
+                local t = self.screenGlowFrame:CreateTexture(nil, "ARTWORK")
+                t:SetAllPoints(true)
+                t:SetTexture(texFile)
+                t:SetDesaturated(true)
+                t:SetBlendMode("ADD") 
+                t:SetVertexColor(1, 0, 0) -- Dark Red
+                t:SetAlpha(0)
+                table.insert(self.natureLayers, t)
             end
+
+            self.screenGlowFrame:SetScript("OnUpdate", function(f, elapsed)
+				local now = GetTime()
+				local remaining = self.sanguineWeaknessExpires - now
+
+				if remaining <= 0 then
+					f:Hide()
+					return
+				end
+
+				local progress = math.max(0, remaining / 15)
+				local numLayers = #self.natureLayers -- Dynamically get the count
+
+				for i, tex in ipairs(self.natureLayers) do
+					-- Divide progress by the ACTUAL number of layers you created
+					local layerThreshold = (i - 1) / numLayers 
+					local layerAlpha = math.max(0, math.min(1, (progress - layerThreshold) * numLayers))
+					
+					-- Apply the alpha to each physical layer
+					tex:SetAlpha(layerAlpha * 0.8)
+				end
+			end)
         end
 
         self:StartBroadcasting()
@@ -997,35 +1379,67 @@ ManageBloodRegen = function(self)
             end)
             self.playerFrameTooltipHooked = true
         end
-        -- [[ SPIRIT TOOLTIP HOOK (Cross-Version: Vanilla & TBC) ]]
-        if not self.spiritTooltipHooked then
-            -- TBC Logic: Specific Frame + Exact Numbers
-            if _G["PlayerStatFrameLeft5"] then
-                local module = self
-                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", function(frame)
-                    local db = Purity:GetDB()
-                    if db.isOptedIn and db.activeChallengeID == module.id then
-                        local _, spirit = UnitStat("player", 5)
-                        local efficiency = spirit * 12 -- Calculates the raw efficiency bonus
+        -- [[ STAT TOOLTIP HOOKS (Cross-Version: Vanilla & TBC & Era 1.15) ]]
+        if not self.statTooltipHooked then
+            local module = self
+            
+            -- Logic to replace the Spirit Tooltip
+            local function ReplaceSpiritInfo(frame)
+                local db = Purity:GetDB()
+                if db and db.isOptedIn and db.activeChallengeID == module.id then
+                    local level = UnitLevel("player")
+                    local _, spirit = UnitStat("player", 5)
+                    local powerType = UnitPowerType("player")
+                    
+					local rank = module:GetOathbreakerRank()
+					local spiritFactor = 12.0 + (rank * 2.4)
 
-                        GameTooltip:AddLine("Increases Blood efficiency by " .. efficiency .. ".", 1, 0.82, 0)
+                    local baseDivisor = (powerType == 0 and 200) or (powerType == 3 and 500) or 100
+                    local scaledDivisor = baseDivisor + (level * 20) 
+                    local totalDivisor = scaledDivisor + (spirit * spiritFactor)
+
+                    if totalDivisor > 0 then
+                        local reduction = (1 - (scaledDivisor / totalDivisor)) * 100
+                        GameTooltip:ClearLines()
+                        GameTooltip:AddLine("Spirit", 1, 1, 1)
+                        GameTooltip:AddLine(string.format("Increases blood and mana regeneration rates. Reduces Blood costs by %.1f%%.", reduction), 1, 0.82, 0, true)
                         GameTooltip:Show()
                     end
-                end)
+                end
+            end
+
+            -- Logic to replace the Stamina Tooltip
+            local function ReplaceStaminaInfo(frame)
+                local db = Purity:GetDB()
+                if db and db.isOptedIn and db.activeChallengeID == module.id then
+                    GameTooltip:ClearLines()
+                    GameTooltip:AddLine("Stamina", 1, 1, 1)
+                    GameTooltip:AddLine("Increases blood points.", 1, 0.82, 0, true)
+                    GameTooltip:Show()
+                end
+            end
+
+            -- Apply the hooks based on the user's game version
+            if _G["PlayerStatFrameLeft5"] then -- TBC Classic
+                _G["PlayerStatFrameLeft5"]:HookScript("OnEnter", ReplaceSpiritInfo)
+                _G["PlayerStatFrameLeft3"]:HookScript("OnEnter", ReplaceStaminaInfo)
             
-            -- Era Logic: Global Hook + Vague Text
-            else
+            elseif _G["CharacterStatFrame5"] then -- Classic Era 1.15.x
+                _G["CharacterStatFrame5"]:HookScript("OnEnter", ReplaceSpiritInfo)
+                _G["CharacterStatFrame3"]:HookScript("OnEnter", ReplaceStaminaInfo)
+
+            else -- Fallback Global Hook (Old Vanilla / Private Servers)
                 hooksecurefunc("PaperDollStatTooltip", function(unit, stat)
-                    if unit == "player" and stat == 5 then -- 5 is Spirit
-                        local db = Purity:GetDB()
-                        if db.isOptedIn and db.activeChallengeID == self.id then
-                            GameTooltip:AddLine("Increases Blood efficiency.", 1, 0.82, 0)
-                            GameTooltip:Show()
+                    if unit == "player" then
+                        if stat == 5 then -- Spirit
+                            ReplaceSpiritInfo()
+                        elseif stat == 3 then -- Stamina
+                            ReplaceStaminaInfo()
                         end
                     end
                 end)
             end
-            self.spiritTooltipHooked = true
+            self.statTooltipHooked = true
         end
     end,
     
@@ -1036,12 +1450,14 @@ ManageBloodRegen = function(self)
     IsUnitForbidden = function(self, unit) return false end,
 
 EventHandler = function(self, event, ...)
-    local db = Purity:GetDB()
-	if not (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
-		if self.bloodBarFrame then self.bloodBarFrame:Hide() end
-		if self.regenFrame then self.regenFrame:Hide() end
-		return
-	end
+        local db = Purity:GetDB()
+        -- If not opted in or not passing, cleanup everything and return
+        if not (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
+            if self.bloodBarFrame then self.bloodBarFrame:Hide() end
+            if self.textContainer then self.textContainer:Hide() end -- FIX: Hide the numbers
+            if self.regenFrame then self.regenFrame:Hide() end
+            return
+        end
 	
 	local function spendBlood(amount, sourceName)
         local finalAmount = amount
@@ -1134,7 +1550,12 @@ EventHandler = function(self, event, ...)
                                 attackCostPercent = mainSpeed * targetCPS
                             end
                             
-                            local attackCost = math.max(1, db.bloodPoolMax * attackCostPercent)
+                            local attackCost = math.max(1, db.bloodPoolMax * attackCostPercent)                            
+                            local rank = self:GetOathbreakerRank()
+                            if rank > 0 then
+                                local multiplier = 1.0 - (rank * 0.05)
+                                attackCost = math.max(1, attackCost * multiplier)
+                            end
                             spendBlood(attackCost, "Melee Swing")
 
                         elseif subEvent == "RANGE_DAMAGE" then
@@ -1164,14 +1585,13 @@ EventHandler = function(self, event, ...)
                 local playerGUID = UnitGUID("player")
 
                 if healAmount and healAmount > 0 then
-					if sourceGUID == playerGUID then
-						if self.allowedPeriodicHeals[spellName] then
-                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
-                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
-                        else
-                            db.bloodPoolCurrent = db.bloodPoolCurrent + healAmount
-                            db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent)
-                            
+                    -- 1. ALWAYS ADD BLOOD (Regardless of who healed you)
+                    db.bloodPoolCurrent = math.min(db.bloodPoolMax, db.bloodPoolCurrent + healAmount)
+                    
+                    -- 2. APPLY PENALTY ONLY IF YOU HEALED YOURSELF
+                    if sourceGUID == playerGUID then
+                        -- Check if the specific spell is exempt (like Demon Armor or Food)
+                        if not self.allowedPeriodicHeals[spellName] then
                             self.sanguineWeaknessActive = true
                             self.sanguineWeaknessExpires = GetTime() + 15
                             
@@ -1180,15 +1600,15 @@ EventHandler = function(self, event, ...)
                             if self.debuffFrame then
                                 self.debuffFrame:Show()
                                 if self.debuffFrame.timerText then
-                                self.debuffFrame.timerText:Show()
+                                    self.debuffFrame.timerText:Show()
                                 end
                             end
                             if self.screenGlowFrame then
                                 self.screenGlowFrame:Show()
                             end
                         end
-					end
-				end
+                    end
+                end
             end
         end
 
@@ -1203,6 +1623,22 @@ EventHandler = function(self, event, ...)
                 self.wasBelowThreshold = false
             end
         end
+
+		if event == "CHARACTER_POINTS_CHANGED" or event == "PLAYER_TALENT_UPDATE" then
+			local currentRank = self:GetOathbreakerRank()
+			
+			if currentRank > 0 and (self.lastOathbreakerRank or 0) == 0 then
+				self:ShowOathBrokenBanner()
+				
+				print("|cffFFFF00Purity:|r |cffFF0000You have broken your vows. You are now an Oath Breaker.|r")
+				if Purity.UpdateCharacterFrameClassName then Purity:UpdateCharacterFrameClassName() end
+			
+			elseif currentRank == 0 and (self.lastOathbreakerRank or 0) > 0 then
+				 if Purity.UpdateCharacterFrameClassName then Purity:UpdateCharacterFrameClassName() end
+			end
+			
+			self.lastOathbreakerRank = currentRank
+		end
     end,
 }
 

@@ -74,7 +74,7 @@ WarriorModule.challenges.brand = {
             return true
         end
 		
-		if itemSubType == "Fishing Poles" then
+		if itemSubType == "Fishing Pole" or itemSubType == "Fishing Poles" then
 			return false
 		end
 
@@ -112,7 +112,7 @@ WarriorModule.challenges.brand = {
             if mainHandLink then
                 local _, _, _, _, _, mainHandType, mainHandSubType = GetItemInfo(mainHandLink)
                 
-                if mainHandSubType == "Fishing Poles" then
+                if mainHandSubType == "Fishing Poles" or mainHandSubType == "Fishing Pole" then
                     return true
                 end
 

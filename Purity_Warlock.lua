@@ -80,7 +80,7 @@ local GrimoireOfPurity = {
         if not itemID then return true end
 		local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
 
-        if itemSubType == "Fishing Pole" then return true end
+        if itemSubType == "Fishing Pole" or itemSubType == "Fishing Poles" then return true end
         if itemType == "Weapon" and itemSubType ~= "Wands" then return true end
         if itemSubType == "Wands" then return self._allowedFireWandIDs[itemID] == true end
         return true

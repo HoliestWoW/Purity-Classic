@@ -1,9 +1,8 @@
-## Interface: 20505
+## Interface: 11508
 ## Title: Purity
-## Notes: An addon for WoW TBC leveling challenges.
+## Notes: An addon for WoW Classic leveling challenges.
 ## Author: HoliestWoW
 ## Version: 11.2.0
-## IconTexture: Interface\AddOns\Purity\Media\PurityLogo.tga
 ## SavedVariables: Purity_MinimapIconDB, Purity_GlobalSettings
 ## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
 

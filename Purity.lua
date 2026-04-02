@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "10.1.5"
+Purity.Version = "11.2.0"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -20,7 +20,10 @@ end
 
 function Purity:GetThematicClassName(className)
     local db = self:GetDB()
-    if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and self.BLOODMAGE_CLASS_OVERRIDES[className] then
+    local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
+
+    if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and rank > 0 and self.BLOODMAGE_CLASS_OVERRIDES[className] then
         return self.BLOODMAGE_CLASS_OVERRIDES[className].name
     end
     return className:sub(1,1) .. className:sub(2):lower()
@@ -29,10 +32,10 @@ end
 function Purity:UpdateCharacterFrameClassName()
     local db = self:GetDB()
     local _, playerClass = UnitClass("player")
+    if playerClass ~= "PALADIN" then return end
 
-    if playerClass ~= "PALADIN" then
-        return
-    end
+    local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
 
     local levelTextFrame = _G["CharacterLevelText"]
     if not levelTextFrame then return end
@@ -40,31 +43,26 @@ function Purity:UpdateCharacterFrameClassName()
     local originalText = levelTextFrame:GetText()
     if not originalText then return end
     
-    if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
-        local newName = "Oath Breaker"
-        
-        local newText = string.gsub(originalText, "Paladin", newName)
-        levelTextFrame:SetText(newText)
+    if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and rank > 0 then
+        levelTextFrame:SetText(string.gsub(originalText, "Paladin", "Oath Breaker"))
     else
-        local revertedText = string.gsub(originalText, "Oath Breaker", "Paladin")
-        levelTextFrame:SetText(revertedText)
+        levelTextFrame:SetText(string.gsub(originalText, "Oath Breaker", "Paladin"))
     end
 end
 
 function Purity:GetThematicClassColor(className, playerData)
     if not className then return nil end
-
     local defaultPaladinColor = "F58CBA"
-
     local db = self:GetDB()
-    local activeChallenge = playerData and playerData.challenge or (db and db.challengeTitle)
+    
+    local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
 
-    if className == "PALADIN" and activeChallenge == "The Blood Mage's Bargain" then
-        return self.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].colorHex  -- "FF0000"
+    if className == "PALADIN" and db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and rank > 0 then
+        return self.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].colorHex
     elseif className == "PALADIN" then
         return defaultPaladinColor
     end
-
     return nil
 end
 
@@ -90,7 +88,19 @@ Purity.GlobalModules = {}
 Purity.selectedChallenge = nil
 Purity.hasUIBeenCreated = false
 
-local MAX_PLAYER_LEVEL = 70
+local _, _, _, interfaceVersion = GetBuildInfo()
+local isMoP = (interfaceVersion >= 50000)
+local MAX_PLAYER_LEVEL = 60 -- Default to Classic Era / SoD / Hardcore
+
+if interfaceVersion >= 20000 and interfaceVersion < 30000 then
+    MAX_PLAYER_LEVEL = 70 -- TBC Classic
+elseif interfaceVersion >= 30000 and interfaceVersion < 40000 then
+    MAX_PLAYER_LEVEL = 80 -- WotLK Classic
+elseif interfaceVersion >= 40000 and interfaceVersion < 50000 then
+	MAX_PLAYER_LEVEL = 85 -- Cata Classic
+elseif interfaceVersion >= 50000 then
+    MAX_PLAYER_LEVEL = 90 -- MoP Classic
+end
 local isMonitoring = false
 local weaponTimer = nil
 local purityRuntimeTicker = nil
@@ -191,11 +201,14 @@ Purity.ChallengeCoefficients = {
 	["Path of the Unburdened"] = 5.00,
 	["Path of Resilience"] = 4.86,
     ["The Blood Mage's Bargain"] = 4.65,
+	["The Glass Heart (Extreme)"] = 4.50,
 	["Quiver of Purity"] = 4.45,
 	["Path of Humility"] = 4.40,
 	["Brand of Purity"] = 4.35,
 	["Fisherman's Folly"] = 4.32,
+	["Shroud of Purity"] = 3.95,
 	["Libram of Purity"] = 4.25,
+	["Tether of Purity"] = 3.80,
 	["Conduit of Purity"] = 4.10,
 	["Crackling Tome of Purity"] = 4.05,
 	["Astrolabe of Purity"] = 4.00,
@@ -205,6 +218,7 @@ Purity.ChallengeCoefficients = {
 	["Bond of Purity"] = 3.80,
 	["Testament of Purity"] = 3.77,
     ["The Drunken Master"] = 3.65,
+	["The Glass Heart (Hard)"] = 3.50,
 	["Oath of Purity"] = 3.23,
 	["Contract of Purity"] = 3.20,
 	["Covenant of Purity"] = 3.00,
@@ -293,20 +307,54 @@ function Purity:UpdateAllModifierStatuses()
         isNowHardcore = true
     end
 
+    -- Iterate through all buffs
     for i = 1, 40 do
-        local auraName = UnitAura("player", i)
-        if auraName and auraName == "Self-Found Adventurer" then
+        local name, _, _, _, _, _, _, _, _, spellId = UnitAura("player", i)
+        
+        if not name then 
+            break
+        end
+
+        if spellId == 431567 then 
             isNowSelfFound = true
             isNowHardcore = true
-            break
+        elseif spellId == 364001 then 
+            isNowHardcore = true
         end
     end
 
     if wasHardcore ~= isNowHardcore or wasSelfFound ~= isNowSelfFound or wasSSF ~= isNowSSF then
+        
         db.isHardcoreRun = isNowHardcore
         db.isSelfFoundRun = isNowSelfFound
         db.isSSFRun = isNowSSF
+        
         if db.isOptedIn then
+            local prefix = "|cffFFFF00Purity:|r "
+            
+            if wasHardcore ~= isNowHardcore then
+                if isNowHardcore then
+                    print(prefix .. "Hardcore status detected. |cff00FF00(Mode Enabled)|r")
+                else
+                    print(prefix .. "Hardcore status lost. |cffFF0000(Mode Disabled)|r")
+                end
+            end
+
+            if wasSelfFound ~= isNowSelfFound then
+                if isNowSelfFound then
+                    print(prefix .. "Self-Found status detected. |cff00FF00(Mode Enabled)|r")
+                else
+                    print(prefix .. "Self-Found status lost. |cffFF0000(Mode Disabled)|r")
+                end
+            end
+
+            if wasSSF ~= isNowSSF then
+                if isNowSSF then
+                    print(prefix .. "Community SSF status detected. |cff00FF00(Mode Enabled)|r")
+                else
+                    print(prefix .. "Community SSF status lost. |cffFF0000(Mode Disabled)|r")
+                end
+            end
         end
     end
 end
@@ -321,44 +369,63 @@ end
 
 function Purity:GetCurrentChallengeInfo()
     local db = self:GetDB()
-    if not db or not db.challengeTitle then
-        return nil, 1.0
+    if not db or not db.challengeTitle then return nil, 1.0 end
+
+    -- Helper to get coeff for a specific ID
+    local function GetCoeff(name)
+        return Purity.ChallengeCoefficients[name] or 1.0
     end
-
-    local challengeTitle = db.challengeTitle
-    local challengeKey = challengeTitle
-
+	
+    local mainKey = db.challengeTitle
     local activeChallenge = self:GetActiveChallengeObject()
     local specifier = nil
+    
+    -- 1. Retrieve the specifier (e.g. "HARD", "EXTREME", "Fire", etc.)
     if activeChallenge and activeChallenge.GetChallengeSpecifier then
         specifier = activeChallenge:GetChallengeSpecifier()
     end
 
-    if challengeTitle == "The Ascetic's Path" and specifier then
-        if specifier == "EASY" then challengeKey = "Path of Humility"
-        elseif specifier == "MEDIUM" then challengeKey = "Path of Resilience"
-        elseif specifier == "HARD" then challengeKey = "Path of the Unburdened" end
-    elseif challengeTitle == "Tome of Purity" and specifier then
-        challengeKey = string.format("Tome of Purity (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
+    -- 2. Modify mainKey based on the specifier to match Purity.ChallengeCoefficients keys
+    if mainKey == "The Ascetic's Path" and specifier then
+        if specifier == "EASY" then mainKey = "Path of Humility"
+        elseif specifier == "MEDIUM" then mainKey = "Path of Resilience"
+        elseif specifier == "HARD" then mainKey = "Path of the Unburdened" end
+        
+    elseif mainKey == "Tome of Purity" and specifier then
+        -- Converts "Arcane" -> "Tome of Purity (Arcane)"
+        mainKey = string.format("Tome of Purity (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
+        
+    elseif mainKey == "The Glass Heart" and specifier then
+        -- Converts "HARD" -> "The Glass Heart (Hard)"
+        local formattedSpec = specifier:sub(1,1):upper()..specifier:sub(2):lower()
+        mainKey = string.format("The Glass Heart (%s)", formattedSpec)
     end
 
-    local coefficient = Purity.ChallengeCoefficients[challengeKey] or 1.0
-    return challengeKey, coefficient
+    local mainCoeff = GetCoeff(mainKey)
+    local finalCoeff = mainCoeff
+    local displayName = mainKey
+
+    -- MoP Logic: Weighted Average for Death Knights
+    if db.dkDestinyID then
+        local destinyCoeff = GetCoeff(db.dkDestinyID)
+        -- Weighted Average: (Vow + Destiny) / 2
+        finalCoeff = (mainCoeff + destinyCoeff) / 2
+        displayName = mainKey .. " + " .. db.dkDestinyID
+    end
+
+    return displayName, finalCoeff
 end
 
 function Purity:CalculateTotalCoefficient()
-    local challengeKey, baseCoeff = self:GetCurrentChallengeInfo()
-    if not challengeKey then return 1.0 end
-
+    local _, baseCoeff = self:GetCurrentChallengeInfo()
+    
+    -- [Insert your existing GameplayModifiers logic here (Hardcore/SSF)] --
     local multiplier = 1.0
     local modifiers = self:GetGameplayModifiers()
-
-    if modifiers.isSSF then
-        multiplier = 4.0 -- For Community/Official Hardcore + Self-Found
-    elseif modifiers.isSelfFound then
-        multiplier = 3.0 -- For Official Self-Found only
-    elseif modifiers.isHardcore then
-        multiplier = 2.0 -- For Official Hardcore only
+    
+    if modifiers.isSSF then multiplier = 4.0
+    elseif modifiers.isSelfFound then multiplier = 3.0
+    elseif modifiers.isHardcore then multiplier = 2.0 
     end
     
     return baseCoeff * multiplier
@@ -479,6 +546,8 @@ function Purity:InitializeDatabase()
 		isSSFRun = false,
 		challengeStats = {},
         bloodBarIsSeparate = false,
+		dkDestinyID = nil,
+		sequenceID = 0,
 	}
     for key, value in pairs(defaults) do
         if Purity_PerCharacterDB[key] == nil then
@@ -594,6 +663,9 @@ function Purity:BuildChallengeTypeMap()
                 self.ChallengeTypeMap["Path of Humility"] = "Global"
                 self.ChallengeTypeMap["Path of Resilience"] = "Global"
                 self.ChallengeTypeMap["Path of the Unburdened"] = "Global"
+            elseif module.challengeName == "The Glass Heart" then
+                self.ChallengeTypeMap["The Glass Heart (Hard)"] = "Global"
+                self.ChallengeTypeMap["The Glass Heart (Extreme)"] = "Global"
             elseif module.challengeName then
                 self.ChallengeTypeMap[module.challengeName] = "Global"
             end
@@ -670,6 +742,8 @@ function Purity:DisplayCompletionStats()
         local fishCount = stats.totalCatches or 0
         local trunkCount = stats.trunksFished or 0
         message = string.format("Fun fact: During your folly, you had %d successful catches, including %d trunks!", fishCount, trunkCount)        message = string.format("Fun fact: During your folly, you had %d successful catches, including %d trunks!", fishCount, trunkCount)
+	elseif challenge == "The Glass Heart" and stats.lowestGlassHP then
+        message = string.format("Fun fact: You walked the razor's edge! The closest your Glass Heart came to shattering was at %.1f%% integrity.", stats.lowestGlassHP)
     elseif challenge == "The Ascetic's Path" and stats.forbiddenItemsSold then
         message = string.format("Fun fact: On your path of self-denial, you sold %d items that you were forbidden to equip!", stats.forbiddenItemsSold)
     end
@@ -695,7 +769,58 @@ function Purity:DisplayRankings()
     scrollChild.lines = {}
 
     local goldColor = "|cffffd100"
+    local whiteColor = "|cffffffff"
     local darkColor = "|cff261a0d"
+    local greenColor = "|cff00FF00"
+
+    local yOffset = -15
+    local lineSpacing = 22
+    local totalHeight = 20
+
+    -- [SECTION 1] GAMEPLAY MODIFIERS (The missing info)
+    local function AddHeader(text)
+        local h = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+        h:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+        h:SetText(goldColor .. text .. "|r")
+        table.insert(scrollChild.lines, h)
+        yOffset = yOffset - 25
+        totalHeight = totalHeight + 25
+    end
+
+    local function AddModLine(name, value)
+        local label = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        label:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 20, yOffset)
+        label:SetText(whiteColor .. name .. "|r")
+        
+        local val = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        val:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -20, yOffset)
+        val:SetText(greenColor .. value .. "|r")
+        
+        table.insert(scrollChild.lines, label)
+        table.insert(scrollChild.lines, val)
+        yOffset = yOffset - 18
+        totalHeight = totalHeight + 18
+    end
+
+    AddHeader("Gameplay Multipliers")
+    AddModLine("Hardcore (Soul of Iron)", "x2.0")
+    AddModLine("Self-Found (Official Buff)", "x3.0")
+    AddModLine("SSF (Hardcore AddOn)", "x4.0")
+
+    -- Add a separator line
+    yOffset = yOffset - 10
+    local separator = scrollChild:CreateTexture(nil, "ARTWORK")
+    separator:SetHeight(1)
+    separator:SetColorTexture(1, 1, 1, 0.2)
+    separator:SetPoint("LEFT", 10, 0)
+    separator:SetPoint("RIGHT", -10, 0)
+    separator:SetPoint("TOP", scrollChild, "TOP", 0, yOffset)
+    table.insert(scrollChild.lines, separator) -- Add to lines table so it gets hidden on refresh
+    yOffset = yOffset - 20
+    totalHeight = totalHeight + 30
+
+    -- [SECTION 2] CHALLENGE RANKINGS
+    AddHeader("Challenge Base Coefficients")
 
     local sortedChallenges = {}
     if not self.ChallengeCoefficients then return end
@@ -707,10 +832,6 @@ function Purity:DisplayRankings()
         return a.coeff > b.coeff
     end)
 
-    local yOffset = -15
-    local lineSpacing = 22
-    local totalHeight = 20
-
     for i, challengeData in ipairs(sortedChallenges) do
         local rankText = string.format("%d.", i)
         local challengeName = challengeData.name
@@ -718,24 +839,24 @@ function Purity:DisplayRankings()
 
         local challengeType = (self.ChallengeTypeMap and self.ChallengeTypeMap[challengeName]) or ""
         local challengeNameText = challengeName
-		if challengeType ~= "" then
-			local typeColor
-			local classUpper = string.upper(challengeType)
+        if challengeType ~= "" then
+            local typeColor
+            local classUpper = string.upper(challengeType)
 
-			if classUpper == "SHAMAN" then
-				typeColor = "|cff0070DD"
+            if classUpper == "SHAMAN" then
+                typeColor = "|cff0070DD"
             elseif classUpper == "PALADIN" then
                 typeColor = "|cfff48cba"
-			else
-				local classInfo = RAID_CLASS_COLORS[classUpper]
-				if classInfo and challengeType ~= "Global" then
-					typeColor = string.format("|cff%02x%02x%02x", classInfo.r*255, classInfo.g*255, classInfo.b*255)
-				else
-					typeColor = "|cffb0b0b0" -- Grey fallback for "Global" or unknown
-				end
-			end
-			challengeNameText = string.format("%s (%s%s|r)", challengeName, typeColor, challengeType)
-		end
+            else
+                local classInfo = RAID_CLASS_COLORS[classUpper]
+                if classInfo and challengeType ~= "Global" then
+                    typeColor = string.format("|cff%02x%02x%02x", classInfo.r*255, classInfo.g*255, classInfo.b*255)
+                else
+                    typeColor = "|cffb0b0b0" -- Grey fallback for "Global" or unknown
+                end
+            end
+            challengeNameText = string.format("%s (%s%s|r)", challengeName, typeColor, challengeType)
+        end
 
         local rankLine = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         rankLine:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 20, yOffset)
@@ -877,72 +998,9 @@ local function RecursiveSerialize(value)
     end
 end
 
-function Purity:CreateDataSignature_V1(db)
+function Purity:CreateDataSignature_Legacy(db)
     if not db then return "" end
-    local keysInOrder = {
-        "activeChallengeID", "activeChallengeModuleType", "addonVersion",
-        "challengeTitle", "completionDate", "hasBeenNotifiedOfLevelCap", "isOptedIn",
-        "physicalStrikes", "playerGUID", "startDate", "status",
-        "uptimeIsUnverified", "weaponInfractions", "fishingFishedItemLinks"
-    }
-    local stringToSign = ""
-
-    for _, key in ipairs(keysInOrder) do
-        local value = db[key]
-        local value_str = ""
-        if value ~= nil then
-            if type(value) == "table" then
-                local sortedLinks = {}
-                if value then for link, _ in pairs(value) do table.insert(sortedLinks, link) end end
-                table.sort(sortedLinks)
-                value_str = table.concat(sortedLinks, "")
-            elseif type(value) == "boolean" then
-                value_str = (value and "true" or "false")
-            else
-                value_str = tostring(value)
-            end
-        end
-        stringToSign = stringToSign .. value_str
-    end
-
-    stringToSign = stringToSign .. trainerKey
-    
-    local finalHash = self:GenerateVerificationHash(stringToSign)
-    
-    return finalHash
-end
-
-function Purity:CreateDataSignature_V2(db)
-    if not db then return "" end
-    local keysInOrder = {
-        "activeChallengeID", "activeChallengeModuleType", "addonVersion",
-        "challengeTitle", "completionDate", "hasBeenNotifiedOfLevelCap", "isOptedIn",
-        "physicalStrikes", "playerGUID", "startDate", "status",
-        "uptimeIsUnverified", "weaponInfractions", "fishingFishedItemLinks",
-        "addonRuntime", "totalPlayedTime"
-    }
-    local stringToSign = ""
-    for _, key in ipairs(keysInOrder) do
-        local value = db[key]
-        if value ~= nil then
-            if type(value) == "table" then
-                local sortedLinks = {}
-                if value then for link, _ in pairs(value) do table.insert(sortedLinks, link) end end
-                table.sort(sortedLinks)
-                stringToSign = stringToSign .. table.concat(sortedLinks, "")
-            elseif type(value) == "boolean" then
-                stringToSign = stringToSign .. (value and "true" or "false")
-            else
-                stringToSign = stringToSign .. tostring(value)
-            end
-        end
-    end
-    stringToSign = stringToSign .. trainerKey
-    return self:GenerateVerificationHash(stringToSign)
-end
-
-function Purity:CreateDataSignature_V3(db)
-    if not db then return "" end
+    -- The old list (No sequenceID)
     local keysInOrder = {
         "activeChallengeID", "activeChallengeModuleType", "addonVersion",
         "challengeTitle", "completionDate", "hasBeenNotifiedOfLevelCap", "isOptedIn",
@@ -950,21 +1008,22 @@ function Purity:CreateDataSignature_V3(db)
         "uptimeIsUnverified", "weaponInfractions", "fishingFishedItemLinks",
         "failureReason",
         "addonRuntime",
-        "totalPlayedTime"
+        "totalPlayedTime",
+        "drunkData"
     }
     local stringToSign = ""
     for _, key in ipairs(keysInOrder) do
         local value = db[key]
         if value ~= nil then
-            if type(value) == "table" then
+            if key == "fishingFishedItemLinks" then
                 local sortedLinks = {}
-                if value then for link, _ in pairs(value) do table.insert(sortedLinks, link) end end
+                if type(value) == "table" then
+                    for link, _ in pairs(value) do table.insert(sortedLinks, link) end
+                end
                 table.sort(sortedLinks)
                 stringToSign = stringToSign .. table.concat(sortedLinks, "")
-            elseif type(value) == "boolean" then
-                stringToSign = stringToSign .. (value and "true" or "false")
             else
-                stringToSign = stringToSign .. tostring(value)
+                stringToSign = stringToSign .. RecursiveSerialize(value)
             end
         end
     end
@@ -982,7 +1041,8 @@ function Purity:CreateDataSignature(db)
         "failureReason",
         "addonRuntime",
         "totalPlayedTime",
-        "drunkData"
+        "drunkData",
+        "sequenceID"
     }
     local stringToSign = ""
     for _, key in ipairs(keysInOrder) do
@@ -1072,6 +1132,41 @@ function Purity:GenerateWebVerificationString()
     return encoded_string
 end
 
+function Purity:SyncSequence()
+    local db = Purity:GetDB()
+    if not db.isOptedIn then return end
+    
+    -- Increment local sequence
+    db.sequenceID = (db.sequenceID or 0) + 1
+    
+    -- Update the Global Witness
+    if not Purity_GlobalSettings.witnessData then Purity_GlobalSettings.witnessData = {} end
+    
+    local guid = UnitGUID("player")
+    Purity_GlobalSettings.witnessData[guid] = db.sequenceID
+end
+
+function Purity:PerformIntegrityCheck()
+			local db = Purity:GetDB()
+			if not db.isOptedIn then return end
+
+			local guid = UnitGUID("player")
+			local globalSeq = Purity_GlobalSettings.witnessData and Purity_GlobalSettings.witnessData[guid] or 0
+			local localSeq = db.sequenceID or 0
+
+			-- If Global remembers a higher number than we have now, 
+			-- it means we are loading an OLD file after a NEW file was already saved.
+			if globalSeq > localSeq then
+				Purity:Violation(string.format("Security Breach: Save file manipulation detected. (Seq %d < %d)", localSeq, globalSeq))
+			end
+			
+			-- Sync them up so we don't loop-fail if they continue legitimately
+			-- (Though usually, a Violation ends the run anyway)
+			if globalSeq > localSeq then
+			   db.sequenceID = globalSeq
+			end
+		end
+
 function Purity:CreateChallengeButton(parent, challengeData)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     button:SetWidth(200)
@@ -1119,11 +1214,15 @@ function Purity:BroadcastStatus()
     local db = self:GetDB()
     local _, classToken = UnitClass("player")
     
+    local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
+
     local myStatus = {
         challenge = db.challengeTitle,
         level = UnitLevel("player"),
         class = classToken,
-        status = db.status
+        status = db.status,
+        ob_rank = rank
     }
     
     local message = "STATUS_UPDATE:" .. self:Serialize(myStatus)
@@ -1137,6 +1236,9 @@ function Purity:SendStatusToPlayer(playerName)
     local realTimeData = self:GetRawStatusData()
     local totalCoeff = self:CalculateTotalCoefficient()
     local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
+    
+    local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
 
     local myStatus = {
         challenge = db.challengeTitle,
@@ -1144,7 +1246,8 @@ function Purity:SendStatusToPlayer(playerName)
         level = UnitLevel("player"),
         class = classToken,
         coefficient = string.format("%.2f", totalCoeff),
-        uptime = string.format("%.1f%%", uptimePercent)
+        uptime = string.format("%.1f%%", uptimePercent),
+        ob_rank = rank
     }
     
     if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
@@ -1220,21 +1323,30 @@ function Purity:UpdateRosterWindow()
         
         local shortName = string.match(tostring(playerName), "([^-]+)") or playerName
         
-        local colorData = RAID_CLASS_COLORS[class] or {r=1, g=1, b=1}
-		
-	    local displayClassName = class
-        if data.challenge == Purity.GlobalModules.BLOOD_MAGE_BARGAIN.challengeName and class == "PALADIN" then
-            displayClassName = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].name
-            local hex = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].colorHex
-            colorData.r = tonumber(hex:sub(1, 2), 16) / 255
-            colorData.g = tonumber(hex:sub(3, 4), 16) / 255
-            colorData.b = tonumber(hex:sub(5, 6), 16) / 255
+        -- FIX START: Don't modify the table directly. Copy values to local variables.
+        local classColor = RAID_CLASS_COLORS[class] or {r=1, g=1, b=1}
+        local r, g, b = classColor.r, classColor.g, classColor.b
+        
+        local displayClassName = class
+
+        -- Check strictly for the BMB challenge AND Paladin class
+        if challenge == "The Blood Mage's Bargain" and class == "PALADIN" then
+            if data.ob_rank and data.ob_rank > 0 then
+                if Purity.BLOODMAGE_CLASS_OVERRIDES and Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"] then
+                    displayClassName = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].name
+                    local hex = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"].colorHex
+                    r = tonumber(hex:sub(1, 2), 16) / 255
+                    g = tonumber(hex:sub(3, 4), 16) / 255
+                    b = tonumber(hex:sub(5, 6), 16) / 255
+                end
+            end
         end
 
         local nameLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         nameLabel:SetPoint("TOPLEFT", Purity.rosterPane, "TOPLEFT", 20, yOffset)
         nameLabel:SetWidth(columnWidths[1]); nameLabel:SetJustifyH("LEFT")
-        nameLabel:SetText(shortName); nameLabel:SetTextColor(colorData.r, colorData.g, colorData.b)
+        nameLabel:SetText(shortName)
+        nameLabel:SetTextColor(r, g, b) -- Use the local variables
         table.insert(Purity.rosterPane.lines, nameLabel)
 
         local levelLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -1246,11 +1358,8 @@ function Purity:UpdateRosterWindow()
         local classLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         classLabel:SetPoint("LEFT", levelLabel, "RIGHT", 0, 0)
         classLabel:SetWidth(columnWidths[3]); classLabel:SetJustifyH("LEFT")
-
-        -- *** THE FIX IS HERE: Convert the text to uppercase ***
         classLabel:SetText(string.upper(tostring(displayClassName))); 
-        
-        classLabel:SetTextColor(colorData.r, colorData.g, colorData.b) 
+        classLabel:SetTextColor(r, g, b) -- Use the local variables
         table.insert(Purity.rosterPane.lines, classLabel)
 
         local challengeLabel = Purity.rosterPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -1264,8 +1373,8 @@ function Purity:UpdateRosterWindow()
         statusLabel:SetWidth(columnWidths[5]); statusLabel:SetJustifyH("LEFT")
         statusLabel:SetText(status)
         table.insert(Purity.rosterPane.lines, statusLabel)
-		
-		if status == "Passing" then
+        
+        if status == "Passing" then
             statusLabel:SetTextColor(0.1, 1.0, 0.1) -- Green
         elseif status == "Failed" then
             statusLabel:SetTextColor(1.0, 0.1, 0.1) -- Red
@@ -1480,15 +1589,16 @@ function Purity:selectTab(tabToShow)
             self:UpdateAndGetStatusStrings()
         elseif tabToShow == "roster" then
             self.rosterPane:Show()
-			
             
-            -- *** FIX PART 1: Manually add self to the roster ***
-			local db = Purity:GetDB()
+            local db = Purity:GetDB()
             local _, classToken = UnitClass("player")
             local realTimeData = self:GetRawStatusData()
             local totalCoeff = self:CalculateTotalCoefficient()
             local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
-            local playerName = UnitName("player") .. "-" .. GetRealmName() -- Use full name as the key
+            local playerName = UnitName("player") .. "-" .. GetRealmName()
+
+            local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+            local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
 
             Purity.roster[playerName] = {
                 challenge = db.challengeTitle or "N/A",
@@ -1497,6 +1607,7 @@ function Purity:selectTab(tabToShow)
                 status = realTimeData.status,
                 coefficient = string.format("%.2f", totalCoeff),
                 uptime = string.format("%.1f%%", uptimePercent),
+                ob_rank = rank, -- Included rank here
                 lastSeen = GetTime() 
             }
             
@@ -1569,6 +1680,21 @@ function Purity:BuildOptionsMenu()
             Purity:UpdateMinimapIconVisibility()
         end)
         self.optionsPane.widgets.minimap = minimapCheck
+		
+		-- [Member Alerts Checkbox]
+        local alertCheck = CreateFrame("CheckButton", "PurityMemberAlertCheck", self.optionsPane, "UICheckButtonTemplate")
+        local alText = _G[alertCheck:GetName() .. "Text"]
+        if alText then
+            alText:SetText("Show Member Login/Logout Alerts")
+            alText:SetTextColor(1, 0.82, 0)
+            alText:SetFontObject(GameFontNormalSmall)
+            alText:ClearAllPoints()
+            alText:SetPoint("LEFT", alertCheck, "RIGHT", 2, 0)
+        end
+        alertCheck:SetScript("OnClick", function(btn)
+            Purity_GlobalSettings.showMemberAlerts = btn:GetChecked()
+        end)
+        self.optionsPane.widgets.alerts = alertCheck
 
         -- [Blood Mage: Bar Mode]
         local bloodBarCheck = CreateFrame("CheckButton", "PurityBloodBarModeCheck", self.optionsPane, "UICheckButtonTemplate")
@@ -1612,6 +1738,24 @@ function Purity:BuildOptionsMenu()
             end
         end)
         self.optionsPane.widgets.bloodLog = bloodLogCheck
+		
+		-- [Glass Heart: Log]
+        local glassLogCheck = CreateFrame("CheckButton", "PurityGlassLogVisibleCheck", self.optionsPane, "UICheckButtonTemplate")
+        local glText = _G[glassLogCheck:GetName() .. "Text"]
+        if glText then
+            glText:SetText("Show Glass Heart Damage Log")
+            glText:SetFontObject(GameFontNormalSmall)
+            glText:ClearAllPoints()
+            glText:SetPoint("LEFT", glassLogCheck, "RIGHT", 2, 0)
+            glText:SetTextColor(1, 0.82, 0)
+        end
+        glassLogCheck:SetScript("OnClick", function(btn)
+            local mod = Purity.GlobalModules["GLASS_HEART"]
+            if mod then
+                mod:ToggleLog()
+            end
+        end)
+        self.optionsPane.widgets.glassLog = glassLogCheck
 
         -- [Druid: Astrolabe]
         local astrolabeCheck = CreateFrame("CheckButton", "PurityAstrolabeNumbersCheck", self.optionsPane, "UICheckButtonTemplate")
@@ -1696,6 +1840,10 @@ function Purity:BuildOptionsMenu()
     local minBtn = self.optionsPane.widgets.minimap
     minBtn:SetChecked(globalSettings.showMinimapIcon == nil or globalSettings.showMinimapIcon)
     PlaceWidget(minBtn)
+	
+	local alBtn = self.optionsPane.widgets.alerts
+    alBtn:SetChecked(globalSettings.showMemberAlerts == true)
+    PlaceWidget(alBtn)
 
     -- [Context-Sensitive Options]
     local id = db.activeChallengeID
@@ -1709,6 +1857,14 @@ function Purity:BuildOptionsMenu()
         local blBtn = self.optionsPane.widgets.bloodLog
         blBtn:SetChecked(db.bloodLogVisible or false)
         PlaceWidget(blBtn)
+    end
+	
+	-- Glass Heart
+    if id == "GLASS_HEART" then
+        local glBtn = self.optionsPane.widgets.glassLog
+        -- Ensure the button updates to match the current DB state
+        glBtn:SetChecked(db.glassLogVisible or false)
+        PlaceWidget(glBtn)
     end
 
     -- Druid: Astrolabe
@@ -2019,8 +2175,18 @@ function Purity.CreateCoreUI()
                 end
             end
         end
-
-        local db = Purity:GetDB()
+		
+		local db = Purity:GetDB()
+        
+        -- Save Main Challenge
+        db.challengeTitle = Purity.selectedChallenge.challengeName
+        db.activeChallengeID = Purity.selectedChallenge.id
+        
+        -- NEW: Save DK Destiny (Only if MoP and selected)
+        if isMoP and Purity.selectedDKPath then
+            db.dkDestinyID = Purity.selectedDKPath.challengeName
+            -- You might want to save the ID instead of the name depending on your preference
+        end
         
         db.isOptedIn = true
         db.status = "Passing"
@@ -2088,77 +2254,171 @@ function Purity.CreateCoreUI()
     Purity.optInFrame.checkboxText = checkboxText
 
     Purity.optInFrame:SetScript("OnShow", function(frame)
-        local availableChallenges = {}
-        local _, playerClass = UnitClass("player")
-        local playerClassName = playerClass and string.upper(playerClass) or nil
-        local currentClassModule = nil
-        if playerClassName and Purity.ClassModules and Purity.ClassModules[playerClassName] then
-            currentClassModule = Purity.ClassModules[playerClassName]
-        end
+		-- ============================================================
+		-- LOGIC BRANCH: MISTS OF PANDARIA (Dual Selection)
+		-- ============================================================
+		if isMoP then
+			Purity:DisplayChallengeDetails({
+				challengeName = "Welcome to the Path of Purity (MoP)",
+				description = function() return "Choose your Vow and your Destiny." end,
+				GetRulesText = function() 
+					return {
+						"|cffffd100Instruction:|r Select a Vow (Standard) and optionally a Destiny (Death Knight).",
+						"Your score will be the average of the two challenges."
+					} 
+				end
+			})
 
-        if currentClassModule then
-            if currentClassModule.challenges then
-                for id, data in pairs(currentClassModule.challenges) do
-                    table.insert(availableChallenges, data)
-                end
-            elseif currentClassModule.challengeName then
-                table.insert(availableChallenges, currentClassModule)
-            end
-        end
+			-- clear previous widgets
+			if frame.challengeWidgets then 
+				for _, w in ipairs(frame.challengeWidgets) do w:Hide() end 
+			end
+			frame.challengeWidgets = {}
+			frame.vowCheckboxes = {}
+			frame.dkPathCheckboxes = {}
 
-        if Purity.GlobalModules then
-            for id, data in pairs(Purity.GlobalModules) do
-                table.insert(availableChallenges, data)
-            end
-        end
+			local yOffset = -20
+			local leftPane = frame.leftPane
 
-        if #availableChallenges == 0 then
-            Purity:DisplayChallengeDetails({
-                challengeName = "No Challenges Available",
-                description = function() return "No challenges are currently available for your class or as global options." end,
-                GetRulesText = function() return {""} end
-            })
-            return
-        end
+			-- 1. Load Standard Vows
+			local availableVows = {}
+			-- [Load Global Modules]
+			if Purity.GlobalModules then
+				for _, data in pairs(Purity.GlobalModules) do table.insert(availableVows, data) end
+			end
+			-- [Load Class Modules]
+			local _, class = UnitClass("player")
+			if Purity.ClassModules[class] then
+				for _, data in pairs(Purity.ClassModules[class].challenges) do table.insert(availableVows, data) end
+			end
 
-        if frame.challengeButtons then
-            for _, button in ipairs(frame.challengeButtons) do
-                button:Hide()
-            end
-        end
-        frame.challengeButtons = {}
+			-- 2. Load DK Destinies (Dynamically from Purity_DK.lua)
+			local availableDKPaths = {}
+			if Purity.ClassModules["DEATHKNIGHT"] then
+				for _, data in ipairs(Purity.ClassModules["DEATHKNIGHT"].challenges) do
+					-- Filter: Special Warlock check
+					if data.id == "DK_PHYLACTERY" then
+						if class == "WARLOCK" then table.insert(availableDKPaths, data) end
+					else
+						table.insert(availableDKPaths, data)
+					end
+				end
+			end
 
-        Purity:DisplayChallengeDetails({
-            challengeName = "Select a Challenge",
-            description = function() return "Please select a challenge from the list on the left to read its rules and description." end,
-            GetRulesText = function() return {""} end
-        })
+			-- 3. Render Checkboxes for VOWS (Primary Challenge)
+            local vowHeader = frame.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            vowHeader:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 10, yOffset)
+            vowHeader:SetText("|cffffd100Vows|r")
+            yOffset = yOffset - 25
 
-        local yOffset = -20
-
-        table.sort(availableChallenges, function(a, b)
-            return a.challengeName < b.challengeName
-        end)
-
-        for _, data in ipairs(availableChallenges) do
-            data.id = data.id or data.challengeName
-            local button = Purity:CreateChallengeButton(frame.leftPane, data)
-            table.insert(frame.challengeButtons, button)
-
-            button:SetPoint("TOP", frame.leftPane, "TOP", 0, yOffset)
-
-            yOffset = yOffset - button:GetHeight() - 12
-
-            button:SetScript("OnClick", function(self)
-                Purity.tempSelectedSpec = nil 
+            for i, data in ipairs(availableVows) do
+                local check = CreateFrame("CheckButton", nil, frame.leftPane, "UICheckButtonTemplate")
+                check:SetSize(24, 24)
+                check:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 15, yOffset)
                 
-                Purity:DisplayChallengeDetails(self.challengeData)
-                for _, b in ipairs(frame.challengeButtons) do
-                    if b == self then b:LockHighlight() else b:UnlockHighlight() end
+                check.text = check:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                check.text:SetPoint("LEFT", check, "RIGHT", 5, 0)
+                check.text:SetText(data.challengeName)
+                
+                check:SetScript("OnClick", function(self)
+                    -- Radio Button Behavior: Uncheck all other Vows
+                    for _, other in ipairs(frame.vowCheckboxes) do
+                        if other ~= self then other:SetChecked(false) end
+                    end
+                    self:SetChecked(true) -- Force checked (cannot uncheck a Vow, must switch)
+                    
+                    Purity.selectedChallenge = data
+                    Purity:DisplayChallengeDetails(data)
+                end)
+
+                table.insert(frame.vowCheckboxes, check)
+                table.insert(frame.challengeWidgets, check) -- track for cleanup
+                yOffset = yOffset - 30
+            end
+
+            yOffset = yOffset - 15
+
+            -- 4. Render Checkboxes for DESTINIES (Optional DK Paths)
+            if #availableDKPaths > 0 then
+                local dkHeader = frame.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+                dkHeader:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 10, yOffset)
+                dkHeader:SetText("|cffffd100Destinies|r")
+                table.insert(frame.challengeWidgets, dkHeader)
+                yOffset = yOffset - 25
+
+                for i, data in ipairs(availableDKPaths) do
+                    local check = CreateFrame("CheckButton", nil, frame.leftPane, "UICheckButtonTemplate")
+                    check:SetSize(24, 24)
+                    check:SetPoint("TOPLEFT", frame.leftPane, "TOPLEFT", 15, yOffset)
+                    
+                    check.text = check:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    check.text:SetPoint("LEFT", check, "RIGHT", 5, 0)
+                    check.text:SetText(data.challengeName)
+                    
+                    check:SetScript("OnClick", function(self)
+                        local isChecked = self:GetChecked()
+                        -- Radio Behavior: Uncheck all other Destinies
+                        for _, other in ipairs(frame.dkPathCheckboxes) do
+                            if other ~= self then other:SetChecked(false) end
+                        end
+                        -- Allow toggling off (Destiny is optional)
+                        self:SetChecked(isChecked) 
+
+                        if isChecked then
+                            Purity.selectedDKPath = data
+                            Purity:DisplayChallengeDetails(data)
+                        else
+                            Purity.selectedDKPath = nil
+                            -- If we uncheck Destiny, show the main Vow details again
+                            if Purity.selectedChallenge then 
+                                Purity:DisplayChallengeDetails(Purity.selectedChallenge) 
+                            end
+                        end
+                    end)
+
+                    table.insert(frame.dkPathCheckboxes, check)
+                    table.insert(frame.challengeWidgets, check)
+                    yOffset = yOffset - 30
                 end
-            end)
-        end
-    end)
+            end
+            
+            -- Ensure widgets are cleaned up next time we open
+            table.insert(frame.challengeWidgets, vowHeader)
+
+		-- ============================================================
+		-- LOGIC BRANCH: CLASSIC ERA / TBC (Single List)
+		-- ============================================================
+		else
+			-- [This is your EXISTING code from the uploaded file]
+			local availableChallenges = {}
+			local _, playerClass = UnitClass("player")
+			
+			-- Load Current Class
+			if Purity.ClassModules[playerClass] then
+				for _, data in pairs(Purity.ClassModules[playerClass].challenges) do
+					table.insert(availableChallenges, data)
+				end
+			end
+			
+			-- Load Globals
+			if Purity.GlobalModules then
+				for _, data in pairs(Purity.GlobalModules) do
+					table.insert(availableChallenges, data)
+				end
+			end
+
+			-- Create standard Buttons
+			local yOffset = -20
+			for _, data in ipairs(availableChallenges) do
+				 local button = Purity:CreateChallengeButton(frame.leftPane, data)
+				 button:SetPoint("TOP", frame.leftPane, "TOP", 0, yOffset)
+				 yOffset = yOffset - button:GetHeight() - 12
+				 button:SetScript("OnClick", function(self)
+					Purity:DisplayChallengeDetails(self.challengeData)
+				 end)
+			end
+		end
+	end)
     Purity.optInFrame:Hide()
 
     Purity.mainInterfaceFrame = CreateFrame("Frame", "Purity_MainInterfaceFrame", UIParent)
@@ -2351,8 +2611,45 @@ function Purity:GetRawStatusData()
     return data
 end
 
+function Purity:IsOathBreaker(name)
+    if not name then return false end
+    local shortName = string.match(name, "([^-]+)") or name
+
+    -- 1. Check Self
+    if shortName == UnitName("player") then
+        local db = Purity:GetDB()
+        local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+        -- Robust check: Challenge active AND rank > 0
+        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and mod and mod.GetOathbreakerRank then
+            return mod:GetOathbreakerRank() > 0
+        end
+        return false
+    end
+
+    -- 2. Check Roster (Other players)
+    local rosterData = Purity.roster and (Purity.roster[name] or Purity.roster[name .. "-" .. GetRealmName()] or Purity.roster[shortName])
+    if rosterData and rosterData.class == "PALADIN" and 
+       rosterData.challenge == "The Blood Mage's Bargain" and
+       (rosterData.ob_rank and rosterData.ob_rank > 0) then 
+        return true
+    end
+    return false
+end
+
 function Purity:PerformSecurityAudit(db)
-    print("|cffFFFF00Purity:|r Old addon version detected. Performing security audit...")
+    print("|cffFFFF00Purity:|r Addon update detected (v" .. (db.addonVersion or "Unknown") .. " -> v" .. Purity.Version .. "). Performing security audit...")
+
+    local oldSignature = db.dataSignature
+    local isValid = (Purity:CreateDataSignature_Legacy(db) == oldSignature)
+
+    if not isValid then
+        if Purity:CreateDataSignature(db) == oldSignature then isValid = true end
+    end
+
+    if not isValid and db.status ~= "Not Participating" then
+        Purity:Violation("Update Failed: Save file signature mismatch. Data integrity cannot be verified.")
+        return false
+    end
 
     local activeChallenge = self:GetActiveChallengeObject()
 
@@ -2397,7 +2694,10 @@ function Purity:PerformSecurityAudit(db)
 
     print("|cffFFFF00Purity:|r |cff00FF00Security audit passed. Upgrading to v" .. Purity.Version .. ".|r")
     db.addonVersion = Purity.Version
-    db.dataSignature = Purity:CreateDataSignature(db, db.status, db.playerGUID)
+    
+    if db.sequenceID == nil then db.sequenceID = 0 end
+    
+    db.dataSignature = Purity:CreateDataSignature(db)
     return true
 end
 
@@ -2826,6 +3126,8 @@ function Purity:ActivateMonitoring()
         monitorFrame:RegisterEvent("UNIT_POWER_UPDATE")
 		monitorFrame:RegisterEvent("UNIT_HEALTH")
 		monitorFrame:RegisterEvent("UNIT_AURA")
+		monitorFrame:RegisterEvent("CHARACTER_POINTS_CHANGED")
+		monitorFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     end
 
     C_Timer.After(2, function()
@@ -3116,6 +3418,13 @@ SlashCmdList["PURITY"] = function(msg)
         end
         return
 		
+	elseif command == "glasslog" then
+        if Purity.GlobalModules["GLASS_HEART"] then
+            Purity.GlobalModules["GLASS_HEART"]:ToggleLog()
+        else
+            print("|cffFFFF00Purity:|r Glass Heart module not loaded.")
+        end
+		
     else
         Purity:SilentRequestTimePlayed()
         C_Timer.After(0.2, function()
@@ -3216,68 +3525,116 @@ function Purity_Tooltip_OnShow(self)
 end
 
 local function Purity_TooltipOnUpdateHandler(self)
-    local unit = select(2, self:GetUnit())
-    local statusBar = GameTooltipStatusBar
-    
-    if not (unit and UnitIsPlayer(unit)) then return end
+    local _, unit = self:GetUnit()
+    if not unit or not UnitIsPlayer(unit) then return end
 
-    local unitName = UnitName(unit)
-    local rosterData
-    for key, data in pairs(Purity.roster) do
-        if key:match("([^-]+)") == unitName then
-            rosterData = data
-            break
+    local isOathBreaker = false
+    local isBloodMage = false
+    local isGlassHeart = false
+    local currentVal, maxVal
+
+    -- 1. Identify Challenge Type (Self or Roster)
+    if UnitIsUnit(unit, "player") then
+        local db = Purity:GetDB()
+        if db and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
+            if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
+                local _, class = UnitClass("player")
+                if class == "PALADIN" and Purity:IsOathBreaker(UnitName("player")) then
+                    isOathBreaker = true
+                else
+                    isBloodMage = true
+                end
+                currentVal = db.bloodPoolCurrent
+                maxVal = db.bloodPoolMax
+            elseif db.activeChallengeID == "GLASS_HEART" then
+                isGlassHeart = true
+                currentVal = db.glassHeartHP
+                maxVal = UnitHealthMax("player")
+            end
+        end
+    else
+        local name = UnitName(unit)
+        local shortName = name and name:match("([^-]+)")
+        local data = Purity.roster and (Purity.roster[name] or Purity.roster[shortName] or Purity.roster[name .. "-" .. GetRealmName()])
+        
+        if data and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
+            if data.challenge == "The Blood Mage's Bargain" then
+                if data.class == "PALADIN" then
+                    isOathBreaker = true
+                else
+                    isBloodMage = true
+                end
+                currentVal = data.bloodPoolCurrent
+                maxVal = data.bloodPoolMax
+            elseif data.challenge == "The Glass Heart" then
+                isGlassHeart = true
+                currentVal = data.glassHeartCurrent
+                maxVal = data.glassHeartMax
+            end
         end
     end
 
-    local isBloodMage = (rosterData and rosterData.challenge == "The Blood Mage's Bargain" and (rosterData.status == "Passing" or rosterData.status == "Temporary Failure - Uptime"))
-    local _, unitClass = UnitClass(unit)
-    local unitClassToken = string.upper(unitClass or "")
+    -- 2. Apply Health Bar Visuals
+    -- All three types get a custom health bar override in the tooltip
+    if isOathBreaker or isBloodMage or isGlassHeart then
+        local statusBar = GameTooltipStatusBar
+        if statusBar then
+            if not statusBar:IsShown() then statusBar:Show() end
+            
+            if isOathBreaker or isBloodMage then
+                statusBar:SetStatusBarColor(0.8, 0.1, 0.1) -- Red for Blood Mages
+            else
+                statusBar:SetStatusBarColor(0.0, 1.0, 0.0) -- Green for Glass Heart
+            end
+            
+            if currentVal and maxVal and maxVal > 0 then
+                statusBar:SetMinMaxValues(0, maxVal)
+                statusBar:SetValue(currentVal)
+                if statusBar.Text then
+                    statusBar.Text:SetText(math.floor(currentVal) .. " / " .. maxVal)
+                    statusBar.Text:Show() 
+                end
+            end
+        end
+    end
 
-    if isBloodMage then
-        if unitClassToken == "PALADIN" then
-            local line = _G[self:GetName() .. "TextLeft2"]
-            if line then
-                local overrideData = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
-                local newClassName = overrideData.name
-                local newColorHex = overrideData.colorHex
-                local levelText = UnitLevel(unit) == -1 and "??" or UnitLevel(unit)
-                
-                line:SetText("Level " .. levelText .. " " .. UnitRace(unit) .. " " .. "|cffFFFFFF" .. newClassName .. "|r|cffFFFFFF (Player)|r")
+    -- 3. Apply Oath Breaker Specific Text Overrides (ONLY for Paladins)
+    if isOathBreaker then
+        -- Name Color -> Red
+        local line1 = _G[self:GetName() .. "TextLeft1"]
+        if line1 then
+            local text = line1:GetText()
+            if text and not text:find("ffFF0000") then
+                 local cleanText = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+                 line1:SetText("|cffFF0000" .. cleanText .. "|r")
             end
         end
 
-        if statusBar and statusBar:IsShown() and rosterData.bloodPoolCurrent and rosterData.bloodPoolMax then
-			statusBar:Show()
-            statusBar:SetStatusBarColor(0.8, 0.1, 0.1)
-            statusBar:SetMinMaxValues(0, rosterData.bloodPoolMax)
-            statusBar:SetValue(rosterData.bloodPoolCurrent)
-            if statusBar.Text then statusBar.Text:SetText(math.floor(rosterData.bloodPoolCurrent) .. " / " .. rosterData.bloodPoolMax) end
+        -- Class Name -> Oath Breaker
+        for i = 2, self:NumLines() do
+            local line = _G[self:GetName() .. "TextLeft" .. i]
+            if line then
+                local text = line:GetText()
+                if text and text:find("Paladin") then
+                     local override = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
+                     local newText = text:gsub("Paladin", "|cff" .. override.colorHex .. override.name .. "|r")
+                     line:SetText(newText)
+                end
+            end
         end
-        local padding = 30
+        
+        -- Resize to fit "Oath Breaker" if necessary
+        local padding = 20
         local maxWidth = 0
         for i = 1, self:NumLines() do
             local leftLine = _G[self:GetName() .. "TextLeft" .. i]
             if leftLine and leftLine:IsShown() then
-                local textWidth = leftLine:GetStringWidth()
-                if textWidth > maxWidth then
-                    maxWidth = textWidth
-                end
+                local w = leftLine:GetStringWidth()
+                if w > maxWidth then maxWidth = w end
             end
         end
         if maxWidth > 0 and (maxWidth + padding) > self:GetWidth() then
             self:SetWidth(maxWidth + padding)
-        end
-		
-    else
-        if statusBar and statusBar:IsShown() then
-            statusBar:SetStatusBarColor(0.1, 0.8, 0.1)
-        end
-        if unitClassToken == "PALADIN" then
-            local line = _G[self:GetName() .. "TextLeft2"]
-            if line and line:GetText() and line:GetText():find("Oath Breaker") then
-                self:SetUnit(unit)
-            end
         end
     end
 end
@@ -3296,91 +3653,128 @@ local function OnAddonMessage(prefix, message, channel, sender)
     if prefix ~= Purity.ADDON_PREFIX or sender == UnitName("player") .. "-" .. GetRealmName() then
         return
     end
+    
+    -- Strip realm name for cleaner chat display
+    local shortName = string.match(sender, "([^-]+)") or sender
+    
     local command, data = message:match("([^:]+):?(.*)")
-    if command == "STATUS_UPDATE" then
-        local statusData = Purity:Deserialize(data)
-        Purity.roster[sender] = {
-            challenge = statusData.challenge,
-            status = statusData.status,
-            level = statusData.level,
-            class = statusData.class,
-            coefficient = statusData.coefficient, -- Store coefficient
-            uptime = statusData.uptime,       -- Store uptime
-            lastSeen = GetTime() 
-        }
+
+	if command == "STATUS_UPDATE" then
+		local statusData = Purity:Deserialize(data)
+		Purity.roster[sender] = {
+			challenge = statusData.challenge,
+			status = statusData.status,
+			level = statusData.level,
+			class = statusData.class,
+			coefficient = statusData.coefficient,
+			uptime = statusData.uptime,
+			ob_rank = tonumber(statusData.ob_rank) or 0,
+			lastSeen = GetTime() 
+		}
+		Purity:UpdateRosterWindow()
+
+    elseif command == "GOODBYE" then
+        -- Remove from roster
+        Purity.roster[sender] = nil
         Purity:UpdateRosterWindow()
+
+        -- ALERT: LOGOUT
+        if Purity_GlobalSettings.showMemberAlerts then
+            local color = "|cff888888" -- Grey for offline
+            print("|cffFFFF00Purity:|r " .. color .. shortName .. " has gone offline.|r")
+        end
+
     elseif command == "BLOODPOOL_UPDATE" then
         if Purity.roster[sender] then
             local bloodData = Purity:Deserialize(data)
             Purity.roster[sender].bloodPoolCurrent = bloodData.current
             Purity.roster[sender].bloodPoolMax = bloodData.max
         end
+    elseif command == "GLASSHEART_UPDATE" then
+        if Purity.roster[sender] then
+            local glassData = Purity:Deserialize(data)
+            Purity.roster[sender].glassHeartCurrent = glassData.current
+            Purity.roster[sender].glassHeartMax = glassData.max
+        end
     elseif command == "ROSTER_REQUEST" then
         Purity:SendStatusToPlayer(sender)
     end
-    if Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
+    -- Refresh frames if either module is active
+    if Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
         Purity.GlobalModules.BLOOD_MAGE_BARGAIN:RefreshGroupFrames()
+    end
+    if Purity.GlobalModules.GLASS_HEART and Purity.GlobalModules.GLASS_HEART.RefreshGroupFrames then
+        Purity.GlobalModules.GLASS_HEART:RefreshGroupFrames()
     end
 end
 
 local function OnPlayerLogin()
     Purity:EnforceDefaultClassColors()
     Purity:BuildChallengeTypeMap()
-	Purity:StartModifierMonitor()
+    Purity:StartModifierMonitor()
     C_ChatInfo.RegisterAddonMessagePrefix(Purity.ADDON_PREFIX)
-	
-	if not Purity.Original_ChatFrame1_AddMessage then
-        Purity.Original_ChatFrame1_AddMessage = ChatFrame1.AddMessage
-    end
-
-    ChatFrame1.AddMessage = function(self, text, ...)
-        -- Check if we are expecting to hide messages (Buffer > 0)
-        if HIDE_RTP_CHAT_MSG_BUFFER > 0 and text then
-             -- Strip the "%s" from the global strings to match the text
-             local totalPrefix = string.gsub(TIME_PLAYED_TOTAL, "%%s", "") 
-             local levelPrefix = string.gsub(TIME_PLAYED_LEVEL, "%%s", "")
-             
-             -- Hide "Total time played"
-             if string.find(text, totalPrefix, 1, true) then
-                 return 
-             end
-             
-             -- Hide "Time played this level" and decrement the buffer
-             if string.find(text, levelPrefix, 1, true) then
-                 HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER - 1
-                 if HIDE_RTP_CHAT_MSG_BUFFER < 0 then HIDE_RTP_CHAT_MSG_BUFFER = 0 end
-                 return 
-             end
-        end
-        -- If not hidden, pass it to the real chat frame
-        return Purity.Original_ChatFrame1_AddMessage(self, text, ...)
-    end
-	
-    CharacterFrame:HookScript("OnShow", function()
-        Purity:UpdateCharacterFrameClassName()
-    end)
-
-    CharacterFrameTab1:HookScript("OnClick", function()
-        C_Timer.After(0.01, function()
-            Purity:UpdateCharacterFrameClassName()
-        end)
-    end)
     
-	C_Timer.NewTicker(60, function()
-		local currentTime = GetTime()
-		local playersToRemove = {}
-		for playerName, data in pairs(Purity.roster) do
-			if currentTime - (data.lastSeen or 0) > 125 then
-				table.insert(playersToRemove, playerName)
-			end
-		end
-		if #playersToRemove > 0 then
-			for _, name in ipairs(playersToRemove) do
-				Purity.roster[name] = nil
-			end
-			Purity:UpdateRosterWindow()
-		end
-	end)
+    -- Hook ALL Chat Frames (1 through 10) to catch Prat/LTP windows
+    for i = 1, NUM_CHAT_WINDOWS do
+        local frame = _G["ChatFrame"..i]
+        if frame then
+            if not frame.PurityOriginalAddMessage then
+                frame.PurityOriginalAddMessage = frame.AddMessage
+            end
+
+            frame.AddMessage = function(self, text, ...)
+                -- 1. Hide "Time Played" spam
+                if HIDE_RTP_CHAT_MSG_BUFFER > 0 and text then
+                     local totalPrefix = string.gsub(TIME_PLAYED_TOTAL, "%%s", "") 
+                     local levelPrefix = string.gsub(TIME_PLAYED_LEVEL, "%%s", "")
+                     if string.find(text, totalPrefix, 1, true) then return end
+                     if string.find(text, levelPrefix, 1, true) then
+                         HIDE_RTP_CHAT_MSG_BUFFER = HIDE_RTP_CHAT_MSG_BUFFER - 1
+                         if HIDE_RTP_CHAT_MSG_BUFFER < 0 then HIDE_RTP_CHAT_MSG_BUFFER = 0 end
+                         return 
+                     end
+                end
+
+                -- 2. Recolor Oath Breakers
+                -- We iterate over ANY color code (|cff......) 
+                if text and string.find(text, "|cff%x%x%x%x%x%x") then
+                    text = string.gsub(text, "(|cff%x%x%x%x%x%x)(.-)(|r)", function(colorCode, content, resetCode)
+                        -- 'content' is the text inside the color. 
+                        -- In your log, the name was exactly: "Oathbreakerr" inside the color tags.
+                        
+                        -- 1. Strip potential brackets or spaces just in case
+                        local cleanName = content:gsub("[%[%]%(%)<>]", ""):gsub("^%s*(.-)%s*$", "%1")
+
+                        -- 2. Check if this specific text is an Oath Breaker
+                        if Purity:IsOathBreaker(cleanName) then
+                            -- It is! Return RED + Content + Reset
+                            return "|cffFF0000" .. content .. resetCode
+                        end
+                        
+                        -- Not an Oath Breaker? Return the original color and content
+                        return colorCode .. content .. resetCode
+                    end)
+                end
+
+                return frame.PurityOriginalAddMessage(self, text, ...)
+            end
+        end
+    end
+    
+    CharacterFrame:HookScript("OnShow", function() Purity:UpdateCharacterFrameClassName() end)
+    CharacterFrameTab1:HookScript("OnClick", function() C_Timer.After(0.01, function() Purity:UpdateCharacterFrameClassName() end) end)
+    
+    C_Timer.NewTicker(60, function()
+        local currentTime = GetTime()
+        local playersToRemove = {}
+        for playerName, data in pairs(Purity.roster) do
+            if currentTime - (data.lastSeen or 0) > 125 then table.insert(playersToRemove, playerName) end
+        end
+        if #playersToRemove > 0 then
+            for _, name in ipairs(playersToRemove) do Purity.roster[name] = nil end
+            Purity:UpdateRosterWindow()
+        end
+    end)
 end
 
 mainFrame:SetScript("OnEvent", function(self, event, ...)
@@ -3404,6 +3798,15 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
                     isSelf = true
                 end
             end
+			
+			if not isSelf and msg == "!purity_ping" and Purity_GlobalSettings.showMemberAlerts then
+                 local shortName = string.match(sender, "([^-]+)") or sender
+                 -- Check lastSeen to prevent spam if they spam the macro (60 second throttle)
+                 local lastSeen = Purity.roster[sender] and Purity.roster[sender].lastSeen or 0
+                 if (GetTime() - lastSeen) > 60 then
+                      print("|cffFFFF00Purity:|r |cff00FF00" .. shortName .. " has come online.|r")
+                 end
+            end
 
             if (msg == "!purity_ping" or msg == "joins channel") and sender and not isSelf then
                 Purity:SendStatusToPlayer(sender)
@@ -3420,8 +3823,10 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         return
 
     elseif event == "PLAYER_LOGOUT" then
+		Purity:SendGoodbye()
 		local currentDB = Purity:GetDB()
 		if currentDB and currentDB.isOptedIn then
+			Purity:SyncSequence()
 			if currentDB.activeChallengeID == "DRUNK" then
 				if not currentDB.drunkData then currentDB.drunkData = {} end
 				currentDB.drunkData.lastState = Purity.GlobalModules.DRUNK:GetCurrentState()
@@ -3449,7 +3854,19 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         Purity:EnforceDefaultClassColors()
         local currentDB = Purity:GetDB()
         local currentGUID = UnitGUID("player")
-        
+
+        Purity:PerformIntegrityCheck()
+		
+		if Purity.GlobalModules["GLASS_HEART"] then
+             local gh = Purity.GlobalModules["GLASS_HEART"]
+             if gh.InitializeGroupFrames then gh:InitializeGroupFrames() end
+             if gh.InitializeNameplates then gh:InitializeNameplates() end
+        end
+
+		if currentDB.isOptedIn and currentDB.addonVersion ~= Purity.Version then
+            Purity:PerformSecurityAudit(currentDB)
+        end
+
         -- MIGRATION LOGIC: Check for GUID Mismatch (Transfer)
         if currentDB.playerGUID and currentDB.playerGUID ~= currentGUID then
             -- Instead of resetting immediately, we attempt to migrate the data
@@ -3574,11 +3991,9 @@ function Purity:AttemptDataMigration(db, newGUID)
     local oldSignature = db.dataSignature
     local isValid = false
 
-    -- Try checking integrity using V3, V2, and V1 signatures
+    -- Try checking integrity using Current and Legacy signatures
     if Purity:CreateDataSignature(db) == oldSignature then isValid = true end
-    if not isValid and Purity:CreateDataSignature_V3(db) == oldSignature then isValid = true end
-    if not isValid and Purity:CreateDataSignature_V2(db) == oldSignature then isValid = true end
-    if not isValid and Purity:CreateDataSignature_V1(db) == oldSignature then isValid = true end
+    if not isValid and Purity:CreateDataSignature_Legacy(db) == oldSignature then isValid = true end
 
     -- 2. "Make sure it's an era file" (Check version/format validity)
     -- If the hash validation passed, we know it's a valid Purity file. 
@@ -3637,7 +4052,9 @@ local function Purity_OnTooltipSetUnit_Handler(self)
         end
     end
 
-    if not (rosterData and rosterData.challenge == "The Blood Mage's Bargain" and (rosterData.status == "Passing" or rosterData.status == "Temporary Failure - Uptime")) then
+    if not (rosterData and rosterData.challenge == "The Blood Mage's Bargain" 
+            and (rosterData.status == "Passing" or rosterData.status == "Temporary Failure - Uptime")
+            and (rosterData.ob_rank and rosterData.ob_rank > 0)) then
         return
     end
 
@@ -3802,6 +4219,16 @@ hooksecurefunc(GameTooltip, "SetTalent", function(self, tabIndex, talentIndex)
         self:AddLine(" ", 0, 0, 0, 0)
         self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
         self:Show()
+    end
+	
+	if activeChallenge.GetCustomTalentTooltip then
+        local title, description = activeChallenge:GetCustomTalentTooltip(tabIndex, talentIndex)
+        if title then
+            self:ClearLines()
+            self:AddLine(title, 1, 0, 0)
+            self:AddLine(description, 1, 0.82, 0, true)
+            self:Show()
+        end
     end
 end)
 

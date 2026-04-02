@@ -8,6 +8,9 @@ local RogueModule = {
     challenges = {}
 }
 
+-- ============================================================================
+-- CHALLENGE 1: CONTRACT OF PURITY (The Duelist)
+-- ============================================================================
 RogueModule.challenges.contract = {
     id = "ROGUE_CONTRACT",
     challengeName = "Contract of Purity",
@@ -48,11 +51,6 @@ RogueModule.challenges.contract = {
             "|cff261A0D  • Your blades must be clean. The learning or use of all Poisons is forbidden.|r",
             "|cff261A0D  • Fight with honor. All 'cheap shots' and tricks are forbidden.|r",
             "|cff261A0D     (Includes: Backstab, Gouge, Kidney Shot, Blind, Sap, Distract, and Pick Pocket).|r",
-            " ",
-            "|cffffd100Challenge Conditions:|r",
-            "|cff261A0D  • Must be started on a level 1 Rogue.|r",
-            "|cff261A0D  • Must be accepted before leveling to 2.|r",
-            "|cff261A0D  • An uptime of at least 96.0% must be maintained.|r",
         }
     end,
 
@@ -113,6 +111,9 @@ RogueModule.challenges.contract = {
     end,
 }
 
+-- ============================================================================
+-- CHALLENGE 2: FOIL OF PURITY (Single Blade)
+-- ============================================================================
 RogueModule.challenges.foil = {
     id = "ROGUE_FOIL",
     challengeName = "Foil of Purity",
@@ -131,11 +132,6 @@ RogueModule.challenges.foil = {
             "|cffffd100The Foil of Purity:|r",
             "|cff261A0D  • You may not learn Dual Wield.|r",
             "|cff261A0D  • You may not equip any ranged weapon (Bows, Guns, Crossbows, or Thrown).|r",
-            " ",
-            "|cffffd100Challenge Conditions:|r",
-            "|cff261A0D  • Must be started on a level 1 Rogue.|r",
-            "|cff261A0D  • Must be accepted before leveling to 2.|r",
-            "|cff261A0D  • An uptime of at least 96.0% must be maintained.|r",
         }
     end,
     
@@ -143,8 +139,6 @@ RogueModule.challenges.foil = {
         if not spellId then return false end
         return self.forbiddenSpellIDs and self.forbiddenSpellIDs[spellId] ~= nil
     end,
-
-    IsTalentForbidden = function(self, tabIndex) return false end,
 
     isWeaponAllowed = function(self, itemLink)
         if not itemLink then return true end
@@ -184,6 +178,420 @@ RogueModule.challenges.foil = {
                 end
             end
         end
+    end,
+}
+
+-- ============================================================================
+-- CHALLENGE 3: SHROUD OF PURITY (Exposure / Active Mitigation)
+-- ============================================================================
+RogueModule.challenges.shroud = {
+    id = "Shroud of Purity",
+    challengeName = "Shroud of Purity",
+    description = "You are a stalker, not a soldier. Prolonged open combat leaves you vulnerable. You must strike from the shadows and vanish before your enemies can focus on you. Manage your 'Exposure' to survive.",
+    
+    exposure = 0,
+    maxExposure = 100,
+    genRate = 5,    -- Base gain 5 Exposure per sec in combat (20s limit)
+    decayRate = 10, -- Base loss 10 Exposure per sec while out of combat
+    
+    talentMods = { genReduction = 0 },
+
+    controlBonuses = {
+        ["Vanish"] = 100,      -- Full Reset
+        ["Evasion"] = 40,      -- Massive Mitigation (Active Defense)
+        ["Kidney Shot"] = 25,  -- Heavy Control
+        ["Blind"] = 20,        -- Disorient
+        ["Gouge"] = 15,        -- Incapacitate
+        ["Feint"] = 10,        -- Threat Drop
+        ["Cheap Shot"] = 10,   -- Stun
+        ["Sap"] = 10,          -- CC
+    },
+
+    -- Defines spells that "Pause" exposure generation
+    hardCCs = {
+        ["Gouge"] = true,
+        ["Blind"] = true,
+        ["Sap"] = true,
+        ["Kidney Shot"] = true,
+        ["Cheap Shot"] = true,
+    },
+
+    InitializeOnPlayerEnterWorld = function(self)
+        if self.isInitialized then return end
+        
+        local db = Purity:GetDB()
+        if not db.rogueExposure then db.rogueExposure = 0 end
+        self.exposure = db.rogueExposure
+
+        self:CreateExposureBar()
+        self:CreateWarningUI()
+        
+        C_Timer.After(1.0, function() 
+            self:CheckTalents() 
+            self:SetupTooltips()
+        end)
+        
+        self:StartMonitor()
+        self:RegisterEvents()
+        
+        self.isInitialized = true
+    end,
+
+    SetupTooltips = function(self)
+        -- 1. SPELL TOOLTIP HOOK
+        local function OnTooltipSetSpell(tooltip)
+            local db = Purity:GetDB()
+            if db.activeChallengeID ~= "Shroud of Purity" then return end
+
+            local name = tooltip:GetSpell()
+            if not name then return end
+
+            local r, g, b = 1, 0.82, 0
+
+            if name == "Vanish" then
+                tooltip:AddLine("Instantly resets Exposure to 0.", r, g, b)
+            elseif name == "Evasion" then
+                tooltip:AddLine("Instantly reduces Exposure by 40.", r, g, b)
+            elseif name == "Feint" then
+                tooltip:AddLine("Instantly reduces Exposure by 10.", r, g, b)
+            elseif self.controlBonuses[name] then
+                 local amount = self.controlBonuses[name]
+                 tooltip:AddLine("Reduces Exposure by " .. amount .. ".", r, g, b)
+            end
+            tooltip:Show()
+        end
+        
+        -- 2. TALENT TOOLTIP HOOK (Seamless Integration)
+        -- We scan existing lines for specific keywords and append our text in GOLD.
+        local function OnSetTalent(tooltip)
+            local db = Purity:GetDB()
+            if db.activeChallengeID ~= "Shroud of Purity" then return end
+
+            -- Safe Name Retrieval (Avoiding Crash API)
+            local frameName = tooltip:GetName()
+            if not frameName then return end
+
+            local line1 = _G[frameName .. "TextLeft1"]
+            if not line1 then return end
+            
+            local name = line1:GetText()
+            if not name then return end
+
+            -- Define what to search for and what to append
+            local appendData = nil
+            
+            if name == "Master of Deception" then
+                appendData = {
+                    keyword = "detect you", -- Matches standard description text
+                    text = " Reduces Exposure generation while visible."
+                }
+            elseif name == "Camouflage" then
+                appendData = {
+                    keyword = "stealthed", -- Matches "speed while stealthed"
+                    text = " Increases Exposure decay rate while Stealthed."
+                }
+            end
+
+            if appendData then
+                for i = 2, tooltip:NumLines() do
+                    local line = _G[frameName .. "TextLeft" .. i]
+                    if line then
+                        local text = line:GetText()
+                        if text and string.find(string.lower(text), appendData.keyword) then
+                            -- Append text in GOLD (|cffffd100)
+                            line:SetText(text .. "|cffffd100" .. appendData.text .. "|r")
+                        end
+                    end
+                end
+                tooltip:Show() -- Refresh frame size
+            end
+        end
+
+        if not self.tooltipsHooked then
+            GameTooltip:HookScript("OnTooltipSetSpell", OnTooltipSetSpell)
+            hooksecurefunc(GameTooltip, "SetTalent", OnSetTalent)
+            self.tooltipsHooked = true
+        end
+    end,
+
+    GetRulesText = function()
+        return {
+            "|cffffd100Key Mechanics:|r",
+            "|cff261A0D  • 'Exposure' builds constantly while you are in combat and visible.|r",
+            "|cff261A0D  • Incapacitating enemies (Gouge, Blind, Stun) PAUSES Exposure generation.|r",
+            " ",
+            "|cffff0000FAIL CONDITION:|r",
+            "|cff261A0D  • If Exposure reaches 100%, you are 'Revealed' and the challenge fails immediately.|r",
+            " ",
+            "|cffffd100Active Mitigation:|r",
+            "|cff261A0D  • Evasion: Greatly reduces Exposure.|r",
+            "|cff261A0D  • Feint: Slightly reduces Exposure.|r",
+            "|cff261A0D  • Vanish: Instantly resets Exposure to 0.|r",
+        }
+    end,
+
+    CheckTalents = function(self)
+        self.talentMods = { genReduction = 0 }
+        local numTabs = GetNumTalentTabs()
+        for t = 1, numTabs do
+            local numTalents = GetNumTalents(t)
+            for i = 1, numTalents do
+                local name, _, _, _, rank = GetTalentInfo(t, i)
+                -- Master of Deception: Rank 5 = 25% slower generation.
+                if name == "Master of Deception" and rank > 0 then 
+                    self.talentMods.genReduction = rank * 0.05 
+                end
+            end
+        end
+    end,
+
+    RegisterEvents = function(self)
+        if not self.eventFrame then self.eventFrame = CreateFrame("Frame") end
+        self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+        self.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+        self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
+            if event == "PLAYER_TALENT_UPDATE" then
+                self:CheckTalents()
+            else
+                self:EventHandler(event, ...)
+            end
+        end)
+    end,
+
+    EventHandler = function(self, event, ...)
+        local db = Purity:GetDB()
+        
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+            local unit, _, spellId = ...
+            if unit == "player" then
+                local spellName = GetSpellInfo(spellId)
+                
+                if self.controlBonuses[spellName] then
+                    -- [[ FIX: Throttle duplicate events ]]
+                    -- UNIT_SPELLCAST_SUCCEEDED often fires twice for instants.
+                    -- We ignore the second event if it happens within 0.5 seconds of the first.
+                    local now = GetTime()
+                    if self.lastReductionTime and (now - self.lastReductionTime < 0.5) and (self.lastReductionSpell == spellName) then
+                        return
+                    end
+                    
+                    -- Update timestamp to lock this spell out for 0.5s
+                    self.lastReductionTime = now
+                    self.lastReductionSpell = spellName
+
+                    local reduction = self.controlBonuses[spellName]
+                    self.exposure = math.max(0, self.exposure - reduction)
+                    self:UpdateBar()
+                    
+                    if spellName == "Vanish" then
+                        self:HideWarning()
+                        if not db.challengeStats then db.challengeStats = {} end
+                        db.challengeStats.vanishesUsed = (db.challengeStats.vanishesUsed or 0) + 1
+                    end
+                end
+            end
+        end
+        
+        if event == "PLAYER_REGEN_ENABLED" then
+            self:HideWarning()
+        end
+    end,
+
+    IsTargetControlled = function(self)
+        if not UnitExists("target") then return false end
+        for i = 1, 40 do
+            local name = UnitDebuff("target", i)
+            if not name then break end
+            if self.hardCCs[name] then return true end
+        end
+        return false
+    end,
+	
+	IsUnitControlled = function(self, unit)
+        if not UnitExists(unit) then return false end
+        for i = 1, 40 do
+            local name = UnitDebuff(unit, i)
+            if not name then break end
+            if self.hardCCs[name] then return true end
+        end
+        return false
+    end,
+
+    AreAllThreatsControlled = function(self)
+        local threatFound = false
+
+        -- Helper to check a specific unit
+        local function CheckUnit(unit)
+            if UnitExists(unit) and not UnitIsDead(unit) then
+                -- API Call: Is the player on this mob's threat table?
+                -- Returns 0-3 if yes, nil if no.
+                local isThreat = UnitThreatSituation("player", unit)
+                
+                if isThreat then
+                    threatFound = true
+                    -- If this mob is angry at us, is it CC'd?
+                    if not self:IsUnitControlled(unit) then 
+                        return false -- Found an angry mob that is NOT CC'd. Not safe.
+                    end
+                end
+            end
+            return true -- This unit is either not a threat or is controlled. Keep checking.
+        end
+
+        -- 1. Check Target
+        if not CheckUnit("target") then return false end
+
+        -- 2. Check Nameplates (Visible Enemies)
+        for i = 1, 40 do
+            if not CheckUnit("nameplate"..i) then return false end
+        end
+
+        -- 3. Anti-Cheese / Safety Check
+        -- If we are in combat but found ZERO mobs on our threat table (e.g. they are off-screen),
+        -- we default to "Unsafe" so the bar keeps running.
+        if not threatFound then return false end
+
+        -- If we found threats, and ALL of them were CC'd, we are safe.
+        return true
+    end,
+
+    StartMonitor = function(self)
+        if self.monitorTicker then return end
+        
+        self.monitorTicker = C_Timer.NewTicker(0.1, function()
+            local db = Purity:GetDB()
+            if UnitIsDeadOrGhost("player") then 
+                self.exposure = 0; self:UpdateBar(); return 
+            end
+
+            local inCombat = UnitAffectingCombat("player")
+            local isStealthed = IsStealthed() or self:HasStealthBuff()
+            
+            if inCombat and not isStealthed then
+                -- [[ UPDATED LOGIC ]]
+                -- Only pause if ALL mobs actively threatening you are CC'd.
+                if self:AreAllThreatsControlled() then
+                    -- PAUSED (Exposure does not increase)
+                else
+                    -- RUNNING (Apply Talent Reduction if applicable)
+                    local rate = self.genRate * (1.0 - self.talentMods.genReduction)
+                    self.exposure = self.exposure + (rate * 0.1)
+                end
+            else
+                local decayMult = isStealthed and 2.0 or 1.0
+                self.exposure = self.exposure - (self.decayRate * decayMult * 0.1)
+            end
+
+            if self.exposure < 0 then self.exposure = 0 end
+            if self.exposure > self.maxExposure then self.exposure = self.maxExposure end
+
+            if self.exposure >= self.maxExposure then
+                Purity:Violation("You remained exposed for too long.")
+                self.exposure = 0 
+            end
+            
+            if self.exposure > 80 then
+                self:ShowWarning()
+            else
+                self:HideWarning()
+            end
+
+            db.rogueExposure = self.exposure
+            self:UpdateBar()
+        end)
+    end,
+
+    HasStealthBuff = function(self)
+        for i=1,40 do
+            local name = UnitBuff("player", i)
+            if name == "Stealth" or name == "Vanish" or name == "Shadowmeld" then return true end
+        end
+        return false
+    end,
+
+    CreateExposureBar = function(self)
+        if self.barFrame then return end
+        
+        local f = CreateFrame("Frame", "PurityRogueExposureFrame", UIParent)
+        f:SetSize(200, 25)
+        f:SetPoint("CENTER", 0, -180)
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        
+        f.bg = f:CreateTexture(nil, "BACKGROUND")
+        f.bg:SetAllPoints(true)
+        f.bg:SetColorTexture(0, 0, 0, 0.8)
+        
+        f.bar = f:CreateTexture(nil, "ARTWORK")
+        f.bar:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+        f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2)
+        f.bar:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 2, 2)
+        f.bar:SetWidth(0) 
+        f.bar:SetVertexColor(1, 0.8, 0) 
+        
+        f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        f.text:SetPoint("CENTER")
+        f.text:SetText("Exposure: 0%")
+        
+        f.border = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        f.border:SetPoint("TOPLEFT", -2, 2)
+        f.border:SetPoint("BOTTOMRIGHT", 2, -2)
+        f.border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+        
+        self.barFrame = f
+    end,
+
+    UpdateBar = function(self)
+        if not self.barFrame then return end
+        
+        local pct = self.exposure / self.maxExposure
+        local totalWidth = self.barFrame:GetWidth() - 4
+        
+        self.barFrame.bar:SetWidth(math.max(1, totalWidth * pct))
+        self.barFrame.text:SetText(string.format("Exposure: %.0f%%", self.exposure))
+        
+        if pct < 0.5 then
+            self.barFrame.bar:SetVertexColor(1, 0.8, 0) 
+        elseif pct < 0.8 then
+            self.barFrame.bar:SetVertexColor(1, 0.5, 0) 
+        else
+            self.barFrame.bar:SetVertexColor(1, 0, 0) 
+        end
+    end,
+
+    CreateWarningUI = function(self)
+        if self.warningFrame then return end
+        local f = CreateFrame("Frame", "PurityRogueWarning", UIParent)
+        f:SetSize(256, 128)
+        f:SetPoint("TOP", 0, -200)
+        f:Hide()
+        
+        f.tex = f:CreateTexture(nil, "ARTWORK")
+        f.tex:SetAllPoints(true)
+        f.tex:SetTexture("Interface\\Icons\\Ability_Stealth") 
+        f.tex:SetAlpha(0.5)
+        
+        f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+        f.text:SetPoint("BOTTOM", f, "TOP", 0, 5)
+        f.text:SetText("EXPOSED!")
+        f.text:SetTextColor(1, 0, 0)
+        
+        self.warningFrame = f
+    end,
+
+    ShowWarning = function(self)
+        if self.warningFrame and not self.warningFrame:IsShown() then
+            self.warningFrame:Show()
+            PlaySound(8959)
+        end
+    end,
+
+    HideWarning = function(self)
+        if self.warningFrame then self.warningFrame:Hide() end
     end,
 }
 

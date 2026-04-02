@@ -1,8 +1,8 @@
-# Purity Challenge AddOn for World of Warcraft: Classic Era
+# Purity Challenge AddOn for World of Warcraft
 
-Purity is a hardcore challenge addon for World of Warcraft: Classic Era that allows players to opt into strict, class-specific and global challenges. These challenges are designed to be completed from level 1 to 60, testing your knowledge of the game and forcing you to play in new and interesting ways.
+Purity is a hardcore challenge addon for World of Warcraft (Classic Era, WotLK, and MoP) that allows players to opt into strict, class-specific and global challenges. These challenges are designed to be completed from level 1 to level cap, testing your knowledge of the game and forcing you to play in new and interesting ways.
 
-The addon is lightweight, modular, and designed to provide a verifiable path for proving your accomplishment.
+The addon is modular and designed to provide a verifiable path for proving your accomplishment.
 
 ## Links
 
@@ -12,9 +12,9 @@ The addon is lightweight, modular, and designed to provide a verifiable path for
 
 ## Features
 
-* **Global & Class-Specific Challenges:** Unique, thematic challenges available to all players, plus specific vows for all nine original classes.
+* **Global & Class-Specific Challenges:** Unique, thematic challenges available to all players, plus specific vows for all classes (including expansion-specific classes).
 * **Live Player Roster:** See other Purity players on your server, their class, level, and current challenge status in real-time. The roster automatically refreshes when you view it.
-* **Specialization Paths:** Many challenges require you to choose a specific sub-path, further restricting gameplay and offering diverse experiences.
+* **Specialization Paths:** Many challenges require you to choose a specific sub-path or difficulty, further restricting gameplay and offering diverse experiences.
 * **Real-Time Violation Monitoring:** The addon actively monitors your actions, talents, and spells to ensure the rules are being followed. A single violation fails the challenge permanently for that character.
 * **In-Game Status UI:** Use `/purity status` to view your current standing, uptime, and other important information.
 * **Web-Based Verification System:** Upon challenge completion, a unique verification code is generated. **Post this code on our official [Verification Website](https://purity.pythonanywhere.com/) to have your run automatically verified and posted to the public leaderboard.**
@@ -24,11 +24,21 @@ The addon is lightweight, modular, and designed to provide a verifiable path for
 
 The addon will automatically present the challenge selection screen to you at level 1. If you decline, you can use the `/purity` slash commands to interact with the UI.
 
+**General Commands:**
 * `/purity` : Shows a summary of your current challenge status in the chat window.
 * `/purity status` : Opens the main interface to the Status tab.
 * `/purity rules` : Opens the main interface to the Rules tab.
 * `/purity roster` : Opens the Roster tab and automatically refreshes the list of online players.
+* `/purity rankings` : Opens the Rankings tab to see difficulty coefficients.
 * `/purity verify` : Opens the verification window with your completion code.
+* `/purity options` : Opens the Options menu.
+* `/purity requestfrom <PlayerName>` : Manually requests challenge status from a specific player via whisper.
+
+**Challenge-Specific Commands:**
+* `/purity bloodbar` : (Blood Mage) Toggles the Blood bar between overlay mode and a separate, movable frame.
+* `/purity bloodlog [reset]` : (Blood Mage) Toggles the Blood Log window. Add `reset` to reset its position.
+* `/purity glasslog` : (Glass Heart) Toggles the damage log window.
+* `/purity drunk` : (Drunken Master) Toggles the Drunken Master status window.
 
 ---
 
@@ -54,9 +64,17 @@ The Way of the Staggering Fist. You are a master of chaotic grace, fighting best
 The devoted angler. You have forsaken all worldly possessions in pursuit of the perfect catch.
 * **Key Prohibition:** You may ONLY equip items that you have personally fished from the water (vendor-purchased fishing poles are an exception).
 
+### The Glass Heart
+Your resilience is shattered. While your body appears intact, your tolerance for trauma is significantly reduced. This penalty is permanent.
+* **The Rules:** Your Health Bar is replaced by a "Glass Heart" bar. You take significantly increased damage from all sources.
+* **Smart Regen:** Natural regeneration is disabled; Spirit-based regeneration only kicks in when not taking damage (or out of combat).
+* **Difficulties:**
+    * **Hard:** 1.5x Damage Taken.
+    * **Extreme:** 2.0x Damage Taken.
+
 ---
 
-## Class-Specific Challenges
+## Class-Specific Challenges (Classic Era & Onward)
 
 ### Druid
 
@@ -144,7 +162,14 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
     * **Description:** A master of single-blade combat.
     * **Criteria:**
         * You may not equip any item in your off-hand slot.
-        * You may not equip any ranged weapon.
+        * You may not equip any ranged weapon (Bows, Guns, or Thrown).
+
+* **Shroud of Purity: The Stalker**
+    * **Description:** Prolonged open combat leaves you vulnerable. You must strike from the shadows and vanish before your enemies can focus on you.
+    * **Criteria:**
+        * **Exposure:** A bar builds constantly while you are in combat and visible.
+        * **The Vow:** If Exposure reaches 100%, you are Revealed and fail the challenge.
+        * **Mitigation:** Use abilities like Vanish, Evasion, and Feint to reduce your Exposure. Incapacitating enemies (Gouge, Blind, Stun) pauses generation.
 
 ### Shaman
 
@@ -159,6 +184,12 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
     * **Criteria:**
         * **Level 1-9:** Free to use any ability.
         * **Level 10+:** Only Fire spells and Fire totems may be used. Physical attacks are allowed.
+
+* **Tether of Purity**
+    * **Description:** You are a conduit for the spirits. Planting totems creates a "Tether" zone. The strength of your connection scales purely with distance.
+    * **Criteria:**
+        * **Analog Connection:** Standing on a Totem = 100% Signal. Max Range (30y) = 0% Signal.
+        * **The Vow:** Casting a spell (Bolt, Shock, Heal) while at 0% Connection is a violation.
 
 ### Warlock
 
@@ -195,11 +226,52 @@ The devoted angler. You have forsaken all worldly possessions in pursuit of the 
 
 ---
 
+## Expansion-Specific Classes
+
+### Death Knight (WotLK & MoP Only)
+
+* **Ashes of Purity**
+    * **Description:** Ashes are the tangible remains of the Death Knight's past life. You vow to start with nothing.
+    * **Criteria:**
+        * Must be started by sacrificing a character at level 55-58.
+        * You may NOT equip the gear you started with (Acherus set).
+
+* **Sigil of Purity**
+    * **Description:** The sigil marks a berserker's vow. Focus only on destruction; refuse to use any magic or item to heal wounds.
+    * **Criteria:**
+        * No self-healing abilities (Death Strike, Rune Tap) or items (Potions, Food, Bandages).
+        * You may only equip Two-Handed Axes, Maces, or Swords.
+
+* **Phylactery of Purity**
+    * **Description:** Bound to a warlock's phylactery, you reject the Lich King's chilling frost magic entirely.
+    * **Criteria:**
+        * You may NOT learn or use any Frost spells.
+        * You may NOT allocate points in the Frost talent tree (or activate Frost specialization in MoP).
+
+### Monk (MoP Only)
+
+* **Chalice of Purity**
+    * **Description:** The Monk symbolically forsakes the alcoholic and magical brews they would normally rely on.
+    * **Criteria:**
+        * You may not use any abilities with 'Brew' or 'Tea' in the name.
+
+* **Bindings of Purity**
+    * **Description:** This Monk has sworn to be a mountain—unmoving, patient, and resolute.
+    * **Criteria:**
+        * You may not use high-mobility abilities (Roll, Flying Serpent Kick, Transcendence).
+
+* **Gauntlets of Purity**
+    * **Description:** These gauntlets symbolize a vow to never use a crafted weapon in combat.
+    * **Criteria:**
+        * You may not deal any damage while a weapon is equipped (you must fight unarmed).
+
+---
+
 ## Installation
 
 1.  Download the latest version from [CurseForge](https://www.curseforge.com/wow/addons/purity).
 2.  Unzip the package.
-3.  Copy the `Purity` folder into your `World of Warcraft/_classic_era_/Interface/AddOns/` directory.
+3.  Copy the `Purity` folder into your `World of Warcraft/_retail_/Interface/AddOns/` (or `_classic_` / `_classic_era_`) directory depending on your game version.
 
 ## License
 
