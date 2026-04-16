@@ -1,8 +1,10 @@
 -- Purity AddOn - Global Challenge: The Glass Heart
--- Mechanics: Replaces Player Health Bar. Damage is Multiplied.
--- Features: Smart Spirit-Based Regen, BMB-Style Log (Option Controlled), Native UI.
 
-if not Purity then return end
+if not Purity then
+	return
+end
+
+local secureGlassHeartState = { current = 0, max = 0 }
 
 local GlassHeart = {
     id = "GLASS_HEART",
@@ -111,7 +113,7 @@ local GlassHeart = {
                 lastUpdate = 0
                 local db = Purity:GetDB()
                 if db and db.activeChallengeID == self.id then
-                    local data = { current = self.currentHP, max = UnitHealthMax("player") }
+                    local data = { current = secureGlassHeartState.current, max = UnitHealthMax("player") }
                     C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "GLASSHEART_UPDATE:" .. Purity:Serialize(data), "PARTY")
                 end
             end
@@ -120,6 +122,8 @@ local GlassHeart = {
 
     InitializeOnPlayerEnterWorld = function(self)
         local db = Purity:GetDB()
+		secureGlassHeartState.current = db.glassHeartHP or UnitHealthMax("player")
+        secureGlassHeartState.max = UnitHealthMax("player")
         local mult = db.glassHeartMultiplier or 1.5
         
         self:StartEngine(mult)
@@ -149,6 +153,21 @@ local GlassHeart = {
                 module:UpdateBar(UnitHealthMax("player"))
             end)
             self.characterFrameHooked = true
+        end
+        if not self.portraitTextHooked then
+            hooksecurefunc("CombatFeedback_OnCombatEvent", function(frame, event, flags, amount, type)
+                if frame == PlayerFrame and event == "WOUND" and amount and amount > 0 then
+                    local db = Purity:GetDB()
+                    
+                    if db and db.isOptedIn and db.activeChallengeID == self.id then
+                        local multiplier = db.glassHeartMultiplier or 1.5
+                        local visualDamage = math.floor(amount * multiplier)
+
+                        frame.feedbackText:SetText("-" .. visualDamage)
+                    end
+                end
+            end)
+            self.portraitTextHooked = true
         end
     end,
 
@@ -450,10 +469,15 @@ local GlassHeart = {
     StartEngine = function(self, multiplier)
         self.multiplier = multiplier
         self.lastRealHP = UnitHealth("player")
-        self.currentHP = UnitHealth("player")
+        secureGlassHeartState.current = UnitHealth("player")
 
         local db = Purity:GetDB()
-        if db.glassHeartHP then self.currentHP = db.glassHeartHP end
+        if db.glassHeartHP then secureGlassHeartState.current = db.glassHeartHP end
+
+        -- [[ TEMPORARILY MUTE DEFAULT INCOMING DAMAGE ]]
+        if db.glassHeartFCTEnabled ~= false then
+            Purity:DisableDefaultIncomingDamageText()
+        end
 
         self:ApplyVisuals()
         self:StartMonitor()
@@ -502,15 +526,15 @@ local GlassHeart = {
                             local maxHP = UnitHealthMax("player")
                             
                             -- Only apply if we actually have room to heal in the Glass Bar
-                            if self.currentHP < maxHP then
-                                self.currentHP = self.currentHP + overhealing
+                            if secureGlassHeartState.current < maxHP then
+                                secureGlassHeartState.current = secureGlassHeartState.current + overhealing
                                 
                                 -- Clamp to Max
-                                if self.currentHP > maxHP then self.currentHP = maxHP end
+                                if secureGlassHeartState.current > maxHP then secureGlassHeartState.current = maxHP end
                                 
                                 -- Save & Update
                                 local db = Purity:GetDB()
-                                if db then db.glassHeartHP = self.currentHP end
+                                if db then db.glassHeartHP = secureGlassHeartState.current end
                                 self:UpdateBar(maxHP)
                             end
                         end
@@ -519,7 +543,7 @@ local GlassHeart = {
 
             elseif event == "PLAYER_LEVEL_UP" then
                 local newMax = UnitHealthMax("player")
-                self.currentHP = newMax
+                secureGlassHeartState.current = newMax
                 self.maxRealHP = newMax
                 self.lastRealHP = UnitHealth("player")
                 
@@ -532,8 +556,8 @@ local GlassHeart = {
                 local oldMax = self.maxRealHP or UnitHealthMax("player")
                 local newMax = UnitHealthMax("player")
                 if oldMax > 0 and newMax > 0 and oldMax ~= newMax then
-                    local ratio = self.currentHP / oldMax
-                    self.currentHP = newMax * ratio
+                    local ratio = secureGlassHeartState.current / oldMax
+                    secureGlassHeartState.current = newMax * ratio
                 end
                 self.maxRealHP = newMax
                 self.lastRealHP = UnitHealth("player")
@@ -573,7 +597,7 @@ local GlassHeart = {
                 end
             end
 
-            if (realHP >= maxHP and self.currentHP < maxHP) or (UnitAffectingCombat("player") and isTroll) then
+            if (realHP >= maxHP and secureGlassHeartState.current < maxHP) or (UnitAffectingCombat("player") and isTroll) then
                 local _, spirit = UnitStat("player", 5)
                 local baseRegen = (spirit * 0.50) + 2 
                 
@@ -590,9 +614,8 @@ local GlassHeart = {
                     end
                 end
                 
-                self.currentHP = math.min(maxHP, self.currentHP + baseRegen)
-                
-                db.glassHeartHP = self.currentHP
+                secureGlassHeartState.current = math.min(maxHP, secureGlassHeartState.current + baseRegen)
+                db.glassHeartHP = secureGlassHeartState.current
                 self:UpdateBar(maxHP)
             end
         end)
@@ -611,34 +634,53 @@ local GlassHeart = {
             local damageTaken = math.abs(delta)
             local glassDamage = damageTaken * self.multiplier
             
-            self.currentHP = self.currentHP - glassDamage
+            secureGlassHeartState.current = secureGlassHeartState.current - glassDamage
             
             self:LogDamage(damageTaken, glassDamage)
             
             if not db.challengeStats then db.challengeStats = {} end
             db.challengeStats.glassDamageTaken = (db.challengeStats.glassDamageTaken or 0) + glassDamage
 
+            -- [[ CUSTOM FCT INJECTION ]]
+            if db.glassHeartFCTEnabled ~= false then
+                -- Force load the Blizzard Combat Text engine if it's asleep
+                if not IsAddOnLoaded("Blizzard_CombatText") then
+                    -- Support for both modern and older Classic client APIs
+                    if C_AddOns and C_AddOns.LoadAddOn then
+                        C_AddOns.LoadAddOn("Blizzard_CombatText")
+                    else
+                        LoadAddOn("Blizzard_CombatText")
+                    end
+                end
+
+                -- Now safely inject our custom message
+                if CombatText_AddMessage then
+                    local displayDamage = math.floor(glassDamage)
+                    CombatText_AddMessage("-" .. displayDamage, CombatText_StandardScroll, 1, 0, 0)
+                end
+            end
+
         elseif delta > 0 then
             -- HEALING
-            self.currentHP = self.currentHP + delta
+            secureGlassHeartState.current = secureGlassHeartState.current + delta
         end
 
-        if self.currentHP > maxRealHP then self.currentHP = maxRealHP end
-        if self.currentHP > currentRealHP then self.currentHP = currentRealHP end
+        if secureGlassHeartState.current > maxRealHP then secureGlassHeartState.current = maxRealHP end
+        if secureGlassHeartState.current > currentRealHP then secureGlassHeartState.current = currentRealHP end
 
-        if self.currentHP < maxRealHP then
-            local currentPct = (self.currentHP / maxRealHP) * 100
+        if secureGlassHeartState.current < maxRealHP then
+            local currentPct = (secureGlassHeartState.current / maxRealHP) * 100
             if not db.challengeStats then db.challengeStats = {} end
             if (not db.challengeStats.lowestGlassHP or currentPct < db.challengeStats.lowestGlassHP) and currentPct > 0 then
                 db.challengeStats.lowestGlassHP = currentPct
             end
         end
         
-        db.glassHeartHP = self.currentHP
+        db.glassHeartHP = secureGlassHeartState.current
         self.lastRealHP = currentRealHP
         self:UpdateBar(maxRealHP)
 
-        if self.currentHP <= 0 and not UnitIsDeadOrGhost("player") then
+        if secureGlassHeartState.current <= 0 and not UnitIsDeadOrGhost("player") then
             Purity:Violation("Succumbed to wounds (Effective HP hit 0).")
         end
     end,
@@ -833,7 +875,7 @@ local GlassHeart = {
     UpdateBar = function(self, maxHP)
         if not self.overlayBar or not self.textContainer then return end
         
-        local current = math.max(0, math.floor(self.currentHP))
+        local current = math.max(0, math.floor(secureGlassHeartState.current))
         local max = math.max(1, maxHP)
         
         self.overlayBar:SetMinMaxValues(0, max)
@@ -883,7 +925,22 @@ local GlassHeart = {
         end
     end,
     
-    EventHandler = function(self, event, ...) end,
+    EventHandler = function(self, event, ...) 
+        if event == "PLAYER_LOGOUT" then
+            local db = Purity:GetDB()
+            db.glassHeartHP = secureGlassHeartState.current
+        end
+	end,
+	
+    SyncTruth = function(self, db)
+        -- Crush any HP injections every 1 second
+        if db.glassHeartHP ~= secureGlassHeartState.current then
+            db.glassHeartHP = secureGlassHeartState.current
+            
+            -- Force the UI bar to show the real (non-cheated) value
+            if self.UpdateBar then self:UpdateBar() end
+        end
+    end,
     IsSpellForbidden = function() return false end,
     IsItemForbidden = function() return false end,
 }

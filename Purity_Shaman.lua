@@ -7,6 +7,8 @@ local ShamanModule = {
     isAddonFullyLoaded = false,
 }
 
+local secureConnection = 100
+
 -- ============================================================================
 -- CHALLENGE 1: COMMUNION OF PURITY (Weaponless)
 -- ============================================================================
@@ -247,7 +249,7 @@ ShamanModule.challenges.tether = {
         if self.isInitialized then return end
         local db = Purity:GetDB()
         if not db.shamanConnection then db.shamanConnection = 100 end
-        self.connection = db.shamanConnection
+        secureConnection = db.shamanConnection
 
         self:CreateConnectionBar()
         self:CreateWarningUI()
@@ -387,7 +389,7 @@ ShamanModule.challenges.tether = {
         
         -- [[ 0. CHECK UNLOCK STATUS ]]
         if not self:HasUnlockedTotems() then 
-            self.connection = 100
+            secureConnection = 100
             if self.barFrame then self.barFrame:Hide() end
             return 
         end
@@ -395,7 +397,7 @@ ShamanModule.challenges.tether = {
         if self.barFrame and not self.barFrame:IsShown() then self.barFrame:Show() end
 
         if event == "PLAYER_LEVEL_UP" then
-            self.connection = 100; db.shamanConnection = self.connection; self:UpdateBar()
+            secureConnection = 100; db.shamanConnection = secureConnection; self:UpdateBar()
         
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             local unit, _, spellId = ...
@@ -406,7 +408,7 @@ ShamanModule.challenges.tether = {
                 if string.find(spellName, "Totem") then return end
                 if self.ignoredSpells[spellName] then return end
                 
-                if self.connection <= 0 then
+                if secureConnection <= 0 then
                     Purity:Violation("Cast '" .. spellName .. "' with severed Connection.")
                 end
             end
@@ -420,7 +422,7 @@ ShamanModule.challenges.tether = {
                     if pos then
                         local x, y = pos:GetXY()
                         self.activeTotems[destGUID] = { x = x, y = y, map = mapID, name = destName }
-                        self.connection = math.min(100, self.connection + 5)
+                        secureConnection = math.min(100, secureConnection + 5)
                     end
                 end
             end
@@ -449,7 +451,7 @@ ShamanModule.challenges.tether = {
 
             -- [[ PRE-AWAKENING CHECK ]]
             if not self:HasUnlockedTotems() then 
-                self.connection = 100
+                secureConnection = 100
                 if self.barFrame then self.barFrame:Hide() end
                 return 
             end
@@ -488,24 +490,24 @@ ShamanModule.challenges.tether = {
                 -- Gain is proportional to signal
                 local gain = self.genRate * signalStrength
                 local actualGain = gain * elapsed
-                self.connection = self.connection + actualGain
+                secureConnection = secureConnection + actualGain
                 
                 if not db.challengeStats then db.challengeStats = {} end
                 db.challengeStats.connectionGenerated = (db.challengeStats.connectionGenerated or 0) + actualGain
             else
-                self.connection = self.connection - (self.decayRate * elapsed)
+                secureConnection = secureConnection - (self.decayRate * elapsed)
             end
 
-            if self.connection < 0 then self.connection = 0 end
-            if self.connection > self.maxConnection then self.connection = self.maxConnection end
+            if secureConnection < 0 then secureConnection = 0 end
+            if secureConnection > self.maxConnection then secureConnection = self.maxConnection end
 
-            if self.connection <= 20 and self.connection > 0 then
+            if secureConnection <= 20 and secureConnection > 0 then
                 self:ShowWarning()
             else
                 self:HideWarning()
             end
 
-            db.shamanConnection = self.connection
+            db.shamanConnection = secureConnection
             self:UpdateBar(signalStrength)
         end)
     end,
@@ -526,7 +528,7 @@ ShamanModule.challenges.tether = {
 
     UpdateBar = function(self, signal)
         if not self.barFrame then return end
-        local pct = self.connection / self.maxConnection
+        local pct = secureConnection / self.maxConnection
         local totalWidth = self.barFrame:GetWidth() - 4
         self.barFrame.bar:SetWidth(math.max(1, totalWidth * pct))
         
@@ -543,7 +545,7 @@ ShamanModule.challenges.tether = {
             signalText = "|cff808080(No Signal)|r"
         end
 
-        self.barFrame.text:SetText(string.format("Connection: %.0f%% %s", self.connection, signalText))
+        self.barFrame.text:SetText(string.format("Connection: %.0f%% %s", secureConnection, signalText))
         
         if pct <= 0 then self.barFrame.bar:SetVertexColor(0.5, 0.5, 0.5)
         elseif pct < 0.3 then self.barFrame.bar:SetVertexColor(1, 0.2, 0.2)
@@ -565,6 +567,16 @@ ShamanModule.challenges.tether = {
 
     ShowWarning = function(self) if self.warningFrame and not self.warningFrame:IsShown() then self.warningFrame:Show() end end,
     HideWarning = function(self) if self.warningFrame then self.warningFrame:Hide() end end,
+	SyncTruth = function(self, db)
+        if db.shamanConnection ~= secureConnection then
+            db.shamanConnection = secureConnection
+            if self.UpdateBar then self:UpdateBar() end
+        end
+    end,
+	SaveData = function(self)
+        local db = Purity:GetDB()
+        db.shamanConnection = secureConnection
+    end,
 }
 
 function ShamanModule:GetActiveChallengeObject()

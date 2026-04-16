@@ -4,6 +4,8 @@ if not Purity then
     return
 end
 
+local secureHumanoidsInCombat = {}
+
 -- HELPER: Precision Scan for Anniversary API
 local function IsIDInForbiddenTree(id, forbiddenTreeName)
     if not id then return false end
@@ -35,7 +37,6 @@ local TestamentOfPurity = {
     id = "PRIEST_TESTAMENT",
     challengeName = "Testament of Purity",
     description = "A true vessel of the Light, this Priest has sworn off the corrupting and seductive whispers of the Shadow. Their Purity is a testament to their unwavering faith, relying solely on Holy and Disciplinary magic to aid their allies and smite their foes.",
-    humanoidsInCombat = {},
     needsWeaponWarning = true,
     optInWarningText = "|cffff0000IMPORTANT: This challenge forbids all weapons. You must unequip your mace before you begin.|r",
 
@@ -130,16 +131,16 @@ local TestamentOfPurity = {
         if event == "CHAT_MSG_COMBAT_XP_GAIN" then
             local message = ...
             local creatureName = string.match(message, "(.+) dies")
-            if creatureName and self.humanoidsInCombat[creatureName] == 1 then
+            if creatureName and secureHumanoidsInCombat[creatureName] == 1 then
                 Purity:Violation("You have taken a sapient life, staining your soul and violating your sacred vow.")
                 return
             end
         elseif event == "PLAYER_TARGET_CHANGED" then
             if UnitCreatureType("target") == "Humanoid" and UnitCanAttack("player", "target") then
-                self.humanoidsInCombat[UnitName("target")] = 1
+                secureHumanoidsInCombat[UnitName("target")] = 1
             end
         elseif event == "PLAYER_LEAVE_COMBAT" then
-            self.humanoidsInCombat = {}
+            secureHumanoidsInCombat = {}
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
             Purity:CheckWeaponState()
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then

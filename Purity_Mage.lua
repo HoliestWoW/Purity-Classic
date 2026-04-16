@@ -46,6 +46,8 @@ local MageModule = {
     challenges = {}
 }
 
+local secureMageCharge = 0
+
 -- ============================================================================
 -- CHALLENGE 1: TOME OF PURITY
 -- ============================================================================
@@ -224,6 +226,7 @@ MageModule.challenges.conduit = {
         
         local db = Purity:GetDB()
         if not db.mageCharge then db.mageCharge = 0 end
+		secureMageCharge = db.mageCharge
         if db.mageBarDetached == nil then db.mageBarDetached = false end
         
         self.charge = db.mageCharge
@@ -1001,8 +1004,8 @@ MageModule.challenges.conduit = {
         self.monitorTicker = C_Timer.NewTicker(0.1, function()
             local db = Purity:GetDB()
             if UnitIsDeadOrGhost("player") then 
-                self.charge = 0
-                db.mageCharge = 0
+                secureMageCharge = 0 -- SECURE: Reset the vault
+                db.mageCharge = 0    -- MIRROR: Reset the database
                 self:UpdateBar()
                 return 
             end
@@ -1017,32 +1020,36 @@ MageModule.challenges.conduit = {
 
             if currentSpeed > 0 then
                 self.lastMoveTime = now
-                -- [[ FROST BONUS: Gen Speed ]]
                 local genMultiplier = 1.0 + (self.talentMods and self.talentMods.gen or 0)
                 
                 local velocityFactor = currentSpeed / BASE_SPEED 
                 velocityFactor = math.min(velocityFactor, 2.0)
                 
                 chargeChange = (currentGenRate * genMultiplier * elapsed) * velocityFactor 
-                self.charge = self.charge + chargeChange
+                
+                -- SECURE: Add to the hidden vault
+                secureMageCharge = secureMageCharge + chargeChange
             else
-                -- [[ FIRE BONUS: Grace Period ]]
                 local grace = self.talentMods and self.talentMods.grace or 0
                 local timeStopped = now - self.lastMoveTime
                 
                 if timeStopped < grace then
                     chargeChange = 0 
                 else
-                    -- [[ ARCANE BONUS: Passive Decay Reduction ]]
                     local decayMultiplier = 1.0 - (self.talentMods and self.talentMods.decay or 0)
                     if decayMultiplier < 0 then decayMultiplier = 0 end
 
                     chargeChange = -(self.decayRate * decayMultiplier * elapsed)
                 end
 
-                self.charge = self.charge + chargeChange
+                -- SECURE: Add/Subtract from the hidden vault
+                secureMageCharge = secureMageCharge + chargeChange
             end
             
+            -- CLAMP: Ensure vault stays between 0 and 100
+            if secureMageCharge > 100 then secureMageCharge = 100
+            elseif secureMageCharge < 0 then secureMageCharge = 0 end
+
             if UnitAffectingCombat("player") and chargeChange > 0 then
                 local stats = db.challengeStats or {}
                 db.challengeStats = stats 
@@ -1050,7 +1057,9 @@ MageModule.challenges.conduit = {
                 stats.chargeAccumulatedCombat = math.floor(newAccumulated * 10) / 10
             end
             
-            db.mageCharge = self.charge
+            -- MIRROR: Overwrite the database with the secure truth for the UI to read
+            db.mageCharge = secureMageCharge
+			self.charge = secureMageCharge
             self:UpdateBar()
         end)
     end,
@@ -1195,8 +1204,7 @@ MageModule.challenges.conduit = {
         
         -- RESET ON LEVEL UP
         if event == "PLAYER_LEVEL_UP" then
-            self.charge = self.maxCharge
-            db.mageCharge = self.charge
+            secureMageCharge = self.maxCharge
             self:UpdateBar()
             return
         end
@@ -1210,8 +1218,7 @@ MageModule.challenges.conduit = {
                 if self.activeCast.isViolation then
                     self:HideWarning()
                 elseif self.activeCast.paid and self.activeCast.paid > 0 then
-                    self.charge = self.charge + self.activeCast.paid
-                    db.mageCharge = self.charge
+                    secureMageCharge = secureMageCharge + self.activeCast.paid
                     self:UpdateBar()
                 end
             end
@@ -1255,16 +1262,14 @@ MageModule.challenges.conduit = {
                              cost = cost * (1.0 - self.talentMods.cost) 
                         end
                         
-                        self.charge = self.charge + (cost * self.talentMods.refund)
-                        db.mageCharge = self.charge
+                        secureMageCharge = secureMageCharge + (cost * self.talentMods.refund)
                         self:UpdateBar()
                     end
                 end
                 
                 -- Blink Bonus
                 if subEvent == "SPELL_CAST_SUCCESS" and spellName == "Blink" then
-                    self.charge = self.charge + self.blinkBonus
-                    db.mageCharge = self.charge
+                    secureMageCharge = secureMageCharge + self.blinkBonus
                     self:UpdateBar()
                 end
             end
@@ -1299,9 +1304,8 @@ MageModule.challenges.conduit = {
                     self:ShowWarning()
                     -- Note: Audio is handled by ShowWarning
                 else
-                    self.charge = self.charge - cost
-                    if self.charge < 0 then self.charge = 0 end -- Clamp to 0
-                    db.mageCharge = self.charge
+                    secureMageCharge = secureMageCharge - cost
+                    if secureMageCharge < 0 then secureMageCharge = 0 end -- Clamp to 0
                     self:UpdateBar()
                     self.activeCast = { name = spellName, cost = cost, isViolation = false, paid = cost, isClearcast = isFree }
                 end
@@ -1350,15 +1354,13 @@ MageModule.challenges.conduit = {
                     Purity:Violation("Started cast " .. spellName .. " with insufficient Static Charge.")
                 else
                     if wasFree and self.activeCast.paid > 0 then
-                        self.charge = self.charge + self.activeCast.paid
-                        db.mageCharge = self.charge
+                        secureMageCharge = secureMageCharge + self.activeCast.paid
                         self:UpdateBar()
                     elseif not wasFree and self.activeCast.paid == 0 then
                         local lateFee = 30 
                         if self.activeCast.cost > 0 then lateFee = self.activeCast.cost end
-                        self.charge = self.charge - lateFee
-                        if self.charge < 0 then self.charge = 0 end -- Clamp to 0
-                        db.mageCharge = self.charge
+                        secureMageCharge = secureMageCharge - lateFee
+                        if secureMageCharge < 0 then secureMageCharge = 0 end -- Clamp to 0
                         self:UpdateBar()
                     end
                 end
@@ -1382,22 +1384,35 @@ MageModule.challenges.conduit = {
                     -- [[ BUFFER LOGIC ]]
                     local effectiveThreshold = math.max(0, purityCost - BUFFER)
 
-                    if self.charge < effectiveThreshold then
+                    if secureMageCharge < effectiveThreshold then
                         -- You were significantly below cost (e.g. 0 charge for 15 cost).
                         Purity:Violation("Cast " .. spellName .. " with insufficient Static Charge.")
                     else
                         -- You were within the buffer (e.g. 14 charge for 15 cost).
                         -- Allow cast, but clamp charge to 0.
-                        self.charge = self.charge - purityCost
-                        if self.charge < 0 then self.charge = 0 end
-                        db.mageCharge = self.charge
+                        secureMageCharge = secureMageCharge - purityCost
+                        if secureMageCharge < 0 then secureMageCharge = 0 end
                         self:UpdateBar()
                     end
                 end
             end
             self.activeCast = nil
             self.manaSnapshot = nil
+        elseif event == "PLAYER_LOGOUT" then
+            self:SaveData()
         end
+	end,
+	SyncTruth = function(self, db)
+        -- Forcefully sync the visual DB and the internal self.charge property
+        if db.mageCharge ~= secureMageCharge then
+            db.mageCharge = secureMageCharge
+            self.charge = secureMageCharge
+            self:UpdateBar()
+        end
+    end,
+    SaveData = function(self)
+        local db = Purity:GetDB()
+        db.mageCharge = secureMageCharge
     end,
 }
 

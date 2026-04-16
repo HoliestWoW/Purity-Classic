@@ -8,6 +8,8 @@ local RogueModule = {
     challenges = {}
 }
 
+local secureExposure = 0
+
 -- ============================================================================
 -- CHALLENGE 1: CONTRACT OF PURITY (The Duelist)
 -- ============================================================================
@@ -221,7 +223,7 @@ RogueModule.challenges.shroud = {
         
         local db = Purity:GetDB()
         if not db.rogueExposure then db.rogueExposure = 0 end
-        self.exposure = db.rogueExposure
+        secureExposure = db.rogueExposure
 
         self:CreateExposureBar()
         self:CreateWarningUI()
@@ -381,7 +383,7 @@ RogueModule.challenges.shroud = {
                     self.lastReductionSpell = spellName
 
                     local reduction = self.controlBonuses[spellName]
-                    self.exposure = math.max(0, self.exposure - reduction)
+                    secureExposure = math.max(0, secureExposure - reduction)
                     self:UpdateBar()
                     
                     if spellName == "Vanish" then
@@ -462,7 +464,7 @@ RogueModule.challenges.shroud = {
         self.monitorTicker = C_Timer.NewTicker(0.1, function()
             local db = Purity:GetDB()
             if UnitIsDeadOrGhost("player") then 
-                self.exposure = 0; self:UpdateBar(); return 
+                secureExposure = 0; self:UpdateBar(); return 
             end
 
             local inCombat = UnitAffectingCombat("player")
@@ -476,28 +478,28 @@ RogueModule.challenges.shroud = {
                 else
                     -- RUNNING (Apply Talent Reduction if applicable)
                     local rate = self.genRate * (1.0 - self.talentMods.genReduction)
-                    self.exposure = self.exposure + (rate * 0.1)
+                    secureExposure = secureExposure + (rate * 0.1)
                 end
             else
                 local decayMult = isStealthed and 2.0 or 1.0
-                self.exposure = self.exposure - (self.decayRate * decayMult * 0.1)
+                secureExposure = secureExposure - (self.decayRate * decayMult * 0.1)
             end
 
-            if self.exposure < 0 then self.exposure = 0 end
-            if self.exposure > self.maxExposure then self.exposure = self.maxExposure end
+            if secureExposure < 0 then secureExposure = 0 end
+            if secureExposure > self.maxExposure then secureExposure = self.maxExposure end
 
-            if self.exposure >= self.maxExposure then
+            if secureExposure >= self.maxExposure then
                 Purity:Violation("You remained exposed for too long.")
-                self.exposure = 0 
+                secureExposure = 0 
             end
             
-            if self.exposure > 80 then
+            if secureExposure > 80 then
                 self:ShowWarning()
             else
                 self:HideWarning()
             end
 
-            db.rogueExposure = self.exposure
+            db.rogueExposure = secureExposure
             self:UpdateBar()
         end)
     end,
@@ -548,11 +550,11 @@ RogueModule.challenges.shroud = {
     UpdateBar = function(self)
         if not self.barFrame then return end
         
-        local pct = self.exposure / self.maxExposure
+        local pct = secureExposure / self.maxExposure
         local totalWidth = self.barFrame:GetWidth() - 4
         
         self.barFrame.bar:SetWidth(math.max(1, totalWidth * pct))
-        self.barFrame.text:SetText(string.format("Exposure: %.0f%%", self.exposure))
+        self.barFrame.text:SetText(string.format("Exposure: %.0f%%", secureExposure))
         
         if pct < 0.5 then
             self.barFrame.bar:SetVertexColor(1, 0.8, 0) 
@@ -592,6 +594,16 @@ RogueModule.challenges.shroud = {
 
     HideWarning = function(self)
         if self.warningFrame then self.warningFrame:Hide() end
+    end,
+	SyncTruth = function(self, db)
+        if db.rogueExposure ~= secureExposure then
+            db.rogueExposure = secureExposure
+            if self.UpdateBar then self:UpdateBar() end
+        end
+    end,
+    SaveData = function(self)
+        local db = Purity:GetDB()
+        db.rogueExposure = secureExposure
     end,
 }
 

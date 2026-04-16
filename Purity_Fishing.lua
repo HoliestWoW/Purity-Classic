@@ -15,6 +15,8 @@ local FishingModule = {
 	showAllowedTooltip = true,
 }
 
+local secureAllowedItems = {}
+
 local DIRECT_FISHED_EQUIPPABLES = {
     [6292] = true, [6294] = true, [6364] = true, [13882] = true,
     [13915] = true, [13905] = true, [8350] = true, [6360] = true,
@@ -53,9 +55,9 @@ function FishingModule:IsItemForbidden(itemLink)
 
     local cleanItemName = self:SanitizeItemName(itemName)
     
-    if cleanItemName and db.fishingFishedItemLinks and db.fishingFishedItemLinks[cleanItemName] then 
-        return false -- It's allowed.
-    end
+    if cleanItemName and secureAllowedItems[cleanItemName] then 
+		return false -- It's allowed.
+	end
     
     if DIRECT_FISHED_EQUIPPABLES[itemID] then return false end
     if VENDOR_PURCHASABLE_FISHING_POLES[itemID] then return false end
@@ -67,12 +69,12 @@ end
 --- Checks if a weapon is allowed.
 function FishingModule:isWeaponAllowed(itemLink)
     if not itemLink then return false end
-    local db = Purity:GetDB()
+    
     local itemName, _, _, _, _, _, itemSubType = GetItemInfo(itemLink)
     local itemID = tonumber(string.match(itemLink, "item:(%d+)"))
     local cleanItemName = self:SanitizeItemName(itemName)
 
-    if cleanItemName and db.fishingFishedItemLinks and db.fishingFishedItemLinks[cleanItemName] then return true end
+    if cleanItemName and secureAllowedItems[cleanItemName] then return true end
     if itemSubType == "Fishing Pole" or itemSubType == "Fishing Poles" then return true end
     if itemID and DIRECT_FISHED_EQUIPPABLES[itemID] then return true end
 
@@ -94,7 +96,16 @@ end
 
 --- These functions now only update the data signature. The data itself is modified directly.
 function FishingModule:SaveData()
-    Purity:GetDB().dataSignature = Purity:CreateDataSignature(Purity:GetDB())
+    local db = Purity:GetDB()
+    
+    -- Copy our secure memory over to the global save file
+    db.fishingFishedItemLinks = {}
+    for name, value in pairs(secureAllowedItems) do
+        db.fishingFishedItemLinks[name] = value
+    end
+
+    -- Hash and lock it
+    db.dataSignature = Purity:CreateDataSignature(db)
 end
 function FishingModule:SaveDataOnLogout()
     Purity:GetDB().dataSignature = Purity:CreateDataSignature(Purity:GetDB())
@@ -124,7 +135,7 @@ function FishingModule:EventHandler(event, ...)
                     local itemName, _, _, _, _, itemType = GetItemInfo(itemLink)
                     if itemName and (itemType == "Armor" or itemType == "Weapon") then
                         local cleanItemName = self:SanitizeItemName(itemName)
-                        if cleanItemName then currentDB.fishingFishedItemLinks[cleanItemName] = true end
+                        if cleanItemName then secureAllowedItems[cleanItemName] = true end
                     end
                 end
             end
@@ -146,7 +157,7 @@ function FishingModule:EventHandler(event, ...)
 
         if DIRECT_FISHED_EQUIPPABLES[itemID] then
             local cleanItemName = self:SanitizeItemName(itemName)
-            if cleanItemName then currentDB.fishingFishedItemLinks[cleanItemName] = true end
+            if cleanItemName then secureAllowedItems[cleanItemName] = true end
         end
         
         -- Stat tracking for trunks
@@ -174,7 +185,6 @@ function FishingModule:EventHandler(event, ...)
 end
 
 function FishingModule:ScanAndPurgeAllowedList()
-    local db = Purity:GetDB()
     local currentPossessedNames = {}
     local inventorySlots = {
         INVSLOT_HEAD, INVSLOT_NECK, INVSLOT_SHOULDER, INVSLOT_CHEST,
@@ -206,9 +216,8 @@ function FishingModule:ScanAndPurgeAllowedList()
         currentPossessedNames[name] = true
     end
 
-    local allowedItems = db.fishingFishedItemLinks or {}
     local namesToPurge = {}
-    for allowedName, _ in pairs(allowedItems) do
+    for allowedName, _ in pairs(secureAllowedItems) do
         if not currentPossessedNames[allowedName] then
             table.insert(namesToPurge, allowedName)
         end
@@ -216,7 +225,7 @@ function FishingModule:ScanAndPurgeAllowedList()
 
     if #namesToPurge > 0 then
         for _, nameToPurge in ipairs(namesToPurge) do
-            db.fishingFishedItemLinks[nameToPurge] = nil
+            secureAllowedItems[nameToPurge] = nil
         end
         self:SaveData()
     end
@@ -226,6 +235,15 @@ function FishingModule:InitializeOnPlayerEnterWorld()
     local db = Purity:GetDB()
     if not db.fishingFishedItemLinks then
         db.fishingFishedItemLinks = {}
+    end
+	
+	wipe(secureAllowedItems)
+	
+	for dirtyItemName, value in pairs(db.fishingFishedItemLinks) do
+        local cleanName = self:SanitizeItemName(dirtyItemName)
+        if cleanName then
+            secureAllowedItems[cleanName] = value
+        end
     end
 
     if not self.hasPerformedInitialPurge then

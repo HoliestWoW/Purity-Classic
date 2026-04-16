@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 if not Purity then Purity = {} end
-Purity.Version = "11.2.0"
+Purity.Version = "11.2.3"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -87,6 +87,22 @@ Purity.ClassModules = {}
 Purity.GlobalModules = {}
 Purity.selectedChallenge = nil
 Purity.hasUIBeenCreated = false
+
+-- The Core Shadow Vault
+local secureCoreState = {
+    isActive = false,
+    status = "Not Participating",
+    weaponInfractions = 0,
+    physicalStrikes = 0
+}
+
+function Purity:SyncSecureStateFromDB()
+    local db = self:GetDB()
+    secureCoreState.status = db.status or "Not Participating"
+    secureCoreState.weaponInfractions = db.weaponInfractions or 0
+    secureCoreState.physicalStrikes = db.physicalStrikes or 0
+    secureCoreState.isActive = true
+end
 
 local _, _, _, interfaceVersion = GetBuildInfo()
 local isMoP = (interfaceVersion >= 50000)
@@ -559,11 +575,54 @@ function Purity:InitializeDatabase()
     end
 end
 
+local FCT_INCOMING_DAMAGE_EVENTS = {
+    "DAMAGE",
+    "DAMAGE_CRIT",
+    "SPELL_DAMAGE",
+    "SPELL_DAMAGE_CRIT",
+    "PERIODIC_DAMAGE"
+}
+
+function Purity:DisableDefaultIncomingDamageText()
+    -- Ensure the Blizzard addon is awake so we can edit its table
+    if not IsAddOnLoaded("Blizzard_CombatText") then
+        if C_AddOns and C_AddOns.LoadAddOn then
+            C_AddOns.LoadAddOn("Blizzard_CombatText")
+        else
+            LoadAddOn("Blizzard_CombatText")
+        end
+    end
+
+    if COMBAT_TEXT_TYPE_INFO then
+        for _, event in ipairs(FCT_INCOMING_DAMAGE_EVENTS) do
+            if COMBAT_TEXT_TYPE_INFO[event] then
+                COMBAT_TEXT_TYPE_INFO[event].show = false
+            end
+        end
+    end
+end
+
+function Purity:RestoreDefaultIncomingDamageText()
+    if IsAddOnLoaded("Blizzard_CombatText") and COMBAT_TEXT_TYPE_INFO then
+        for _, event in ipairs(FCT_INCOMING_DAMAGE_EVENTS) do
+            if COMBAT_TEXT_TYPE_INFO[event] then
+                COMBAT_TEXT_TYPE_INFO[event].show = true
+            end
+        end
+    end
+end
+
 function Purity:InternalResetChallenge()
     local db = Purity:GetDB()
+	
+	Purity:RestoreDefaultIncomingDamageText()
     
     db.isOptedIn = false
     db.status = "Not Participating"
+	if secureCoreState then
+        secureCoreState.status = "Not Participating"
+        secureCoreState.isActive = false
+    end
     db.startDate = "N/A"
     db.completionDate = "N/A"
     db.addonRuntime = 0
@@ -1756,6 +1815,31 @@ function Purity:BuildOptionsMenu()
             end
         end)
         self.optionsPane.widgets.glassLog = glassLogCheck
+		
+		-- [Glass Heart: Custom FCT]
+        local glassFCTCheck = CreateFrame("CheckButton", "PurityGlassFCTCheck", self.optionsPane, "UICheckButtonTemplate")
+        local gfText = _G[glassFCTCheck:GetName() .. "Text"]
+        if gfText then
+            gfText:SetText("Enable Glass Heart Floating Combat Text Values")
+            gfText:SetFontObject(GameFontNormalSmall)
+            gfText:ClearAllPoints()
+            gfText:SetPoint("LEFT", glassFCTCheck, "RIGHT", 2, 0)
+            gfText:SetTextColor(1, 0.82, 0)
+        end
+        glassFCTCheck:SetScript("OnClick", function(btn)
+            local isChecked = btn:GetChecked()
+            local db = Purity:GetDB()
+            db.glassHeartFCTEnabled = isChecked
+            
+            if db.activeChallengeID == "GLASS_HEART" then
+                if isChecked then
+                    Purity:DisableDefaultIncomingDamageText()
+                else
+                    Purity:RestoreDefaultIncomingDamageText()
+                end
+            end
+        end)
+        self.optionsPane.widgets.glassFCT = glassFCTCheck
 
         -- [Druid: Astrolabe]
         local astrolabeCheck = CreateFrame("CheckButton", "PurityAstrolabeNumbersCheck", self.optionsPane, "UICheckButtonTemplate")
@@ -1862,9 +1946,12 @@ function Purity:BuildOptionsMenu()
 	-- Glass Heart
     if id == "GLASS_HEART" then
         local glBtn = self.optionsPane.widgets.glassLog
-        -- Ensure the button updates to match the current DB state
         glBtn:SetChecked(db.glassLogVisible or false)
         PlaceWidget(glBtn)
+        
+        local gfBtn = self.optionsPane.widgets.glassFCT
+        gfBtn:SetChecked(db.glassHeartFCTEnabled ~= false) 
+        PlaceWidget(gfBtn)
     end
 
     -- Druid: Astrolabe
@@ -2217,6 +2304,7 @@ function Purity.CreateCoreUI()
 		db.dataSignature = Purity:CreateDataSignature(db, "Passing", db.playerGUID)
     
         Purity.optInFrame:Hide()
+		Purity:SyncSecureStateFromDB()
         Purity:ActivateMonitoring()
 		local activeChallenge = Purity:GetActiveChallengeObject()
 		if activeChallenge and activeChallenge.ApplyThematicClassRename then
@@ -2708,6 +2796,11 @@ function Purity:Violation(message, isFromAudit)
     if currentDB.status ~= "Passing" and currentDB.status ~= "Temporary Failure - Uptime" then
         return
     end
+	
+	-- [[ RESTORE FCT MEMORY & 3D DAMAGE ]]
+    SHOW_COMBAT_TEXT = "1"
+    SetCVar("floatingCombatTextCombatDamage", "1")
+    SetCVar("CombatDamage", "1")
     
     self.notificationBanner.title:SetText("Vow of Purity Broken")
     self.notificationBanner.title:SetTextColor(1, 1, 1) 
@@ -2721,6 +2814,7 @@ function Purity:Violation(message, isFromAudit)
 	print("|cffFFFF00Purity:|r |cffFFD700Reason:|r " .. message)
 
     currentDB.status = "Failed"
+	secureCoreState.status = "Failed"
 	currentDB.failureReason = message
     currentDB.dataSignature = self:CreateDataSignature(currentDB)
     
@@ -2760,6 +2854,7 @@ end
 function Purity:HandlePhysicalStrike()
     local db = self:GetDB()
     db.physicalStrikes = (db.physicalStrikes or 0) + 1
+	secureCoreState.physicalStrikes = db.physicalStrikes
 
     if db.physicalStrikes == 1 then
         self:ShowWarningBanner("The Light recoils from your act of physical violence, but its grace allows this transgression. This is your first strike.", 10, 1)
@@ -2878,6 +2973,11 @@ function Purity:CompleteChallenge()
 
     C_Timer.After(0.1, function()
         local db = Purity:GetDB()
+		
+		-- [[ RESTORE FCT MEMORY & 3D DAMAGE ]]
+		SHOW_COMBAT_TEXT = "1"
+		SetCVar("floatingCombatTextCombatDamage", "1")
+		SetCVar("CombatDamage", "1")
 
         local effectiveRuntime = (db.addonRuntime or 0) + (db.uptimeGrace or 0)
         local finalUptime = (db.totalPlayedTime > 0 and (effectiveRuntime / db.totalPlayedTime) * 100) or 0
@@ -2905,6 +3005,7 @@ function Purity:CompleteChallenge()
         local currentDate = date("%Y-%m-%d %H:%M:%S")
         db.completionDate = currentDate
         db.status = "Passed"
+		secureCoreState.status = "Passed"
         db.finalUptime = finalUptime
         db.dataSignature = Purity:CreateDataSignature(db)
 
@@ -2966,6 +3067,7 @@ function Purity:CheckWeaponState()
             end
             
             db.weaponInfractions = infractions + 1
+			secureCoreState.weaponInfractions = db.weaponInfractions
             
             local warningMessage = "Forbidden Weapon Equipped, Unequip to avoid failure!\nTime remaining: %.1f"
             local gracePeriod = (db.weaponInfractions == 1) and 10 or 7
@@ -3018,10 +3120,36 @@ function Purity:ActivateMonitoring()
     if purityRuntimeTicker then purityRuntimeTicker:Cancel() end
     purityRuntimeTicker = C_Timer.NewTicker(1, function()
         local db = Purity:GetDB()
+        if secureCoreState.isActive then
+            local tampered = false
+            if db.status ~= secureCoreState.status then
+                db.status = secureCoreState.status
+                tampered = true
+            end
+            if db.weaponInfractions ~= secureCoreState.weaponInfractions then
+                db.weaponInfractions = secureCoreState.weaponInfractions
+                tampered = true
+            end
+            if db.physicalStrikes ~= secureCoreState.physicalStrikes then
+                db.physicalStrikes = secureCoreState.physicalStrikes
+                tampered = true
+            end
+            if tampered then
+                db.dataSignature = Purity:CreateDataSignature(db)
+                
+                if Purity.mainInterfaceFrame and Purity.mainInterfaceFrame:IsShown() then
+                    Purity:UpdateAndGetStatusStrings()
+                end
+                if _G["UpdateCharacterPurity"] and _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
+                    _G["UpdateCharacterPurity"]()
+                end
+            end
+        end
+
         if db.status == "Failed" or db.status == "Not Participating" then
-            if purityRuntimeTicker then purityRuntimeTicker:Cancel(); purityRuntimeTicker = nil end
             return
         end
+        
         db.addonRuntime = db.addonRuntime + 1
 
         if db.totalPlayedTime > 0 then
@@ -3035,6 +3163,10 @@ function Purity:ActivateMonitoring()
                     db.status = "Passing"
                 end
             end
+        end
+		local activeChallenge = Purity:GetActiveChallengeObject()
+            if activeChallenge and activeChallenge.SyncTruth then
+                activeChallenge:SyncTruth(db)
         end
     end)
     if purityPlayedTimeTicker then purityPlayedTimeTicker:Cancel() end
@@ -3050,6 +3182,13 @@ function Purity:ActivateMonitoring()
         monitorFrame = CreateFrame("Frame")
         monitorFrame:SetScript("OnEvent", function(_, event, ...)
             local db = Purity:GetDB()
+            if event == "PLAYER_LOGOUT" then
+                local aChallenge = Purity:GetActiveChallengeObject()
+                if aChallenge and aChallenge.EventHandler then
+                    aChallenge:EventHandler(event, ...)
+                end
+                return
+            end
             if db.status == "Failed" or db.status == "Not Participating" then
                 return
             end
@@ -3120,6 +3259,7 @@ function Purity:ActivateMonitoring()
 		monitorFrame:RegisterEvent("LOOT_READY")
 		monitorFrame:RegisterEvent("LOOT_CLOSED")
 		monitorFrame:RegisterEvent("INSPECT_READY")
+		monitorFrame:RegisterEvent("ITEM_LOCK_CHANGED")
         monitorFrame:RegisterEvent("BAG_UPDATE")
 		monitorFrame:RegisterEvent("CVAR_UPDATE")
 		monitorFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
@@ -3351,6 +3491,7 @@ SlashCmdList["PURITY"] = function(msg)
             db.failureReason = nil
             db.dataSignature = Purity:CreateDataSignature(db)
             
+			Purity:SyncSecureStateFromDB()
             Purity:ActivateMonitoring()
             print("|cffFFFF00Purity:|r |cff00FF00Appeal code accepted. Challenge status restored to Passing.|r")
             
@@ -3823,9 +3964,15 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         return
 
     elseif event == "PLAYER_LOGOUT" then
+		Purity:RestoreDefaultIncomingDamageText()
 		Purity:SendGoodbye()
 		local currentDB = Purity:GetDB()
 		if currentDB and currentDB.isOptedIn then
+			if secureCoreState and secureCoreState.isActive then
+                currentDB.status = secureCoreState.status
+                currentDB.weaponInfractions = secureCoreState.weaponInfractions
+                currentDB.physicalStrikes = secureCoreState.physicalStrikes
+            end
 			Purity:SyncSequence()
 			if currentDB.activeChallengeID == "DRUNK" then
 				if not currentDB.drunkData then currentDB.drunkData = {} end
@@ -3874,6 +4021,8 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         end
     
         Purity.CreateCoreUI()
+        
+        Purity:SyncSecureStateFromDB()
         
         C_Timer.After(7, function()
              JoinChannelByName("PurityUsers", "a-unique-password")
@@ -4246,24 +4395,39 @@ GameTooltip.SetAction = function(self, actionSlot)
         return
     end
 
-    local actionType, actionID = GetActionInfo(actionSlot)
+    local actionType, id, subType = GetActionInfo(actionSlot)
+    local spellId = nil
 
+    -- Resolve the actual Spell ID from the Action Slot
     if actionType == "spell" then
-        local spellName = GetSpellInfo(actionID)
+        spellId = id
+    elseif actionType == "macro" then
+        -- WoW's API changed in 8.0.1. Modern/Classic clients return the ID first.
+        -- Older clients returned: name, rank, ID. This covers all versions.
+        local v1, v2, v3 = GetMacroSpell(id)
+        if type(v1) == "number" then
+            spellId = v1
+        elseif type(v3) == "number" then
+            spellId = v3
+        end
+    end
+
+    if spellId then
+        local spellName = GetSpellInfo(spellId)
 
         -- [[ 1. FORBIDDEN SPELLS ]]
-        if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(actionID) then
+        if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(spellId) then
             local challengeName = Purity:GetDB().challengeTitle or "Purity Challenge"
             self:AddLine(" ")
             self:AddLine("Forbidden by your " .. challengeName .. ".", 1, 0.1, 0.1)
             self:Show()
         end
 
-        -- [[ 2. BLOOD MAGE COSTS ]]
+        -- [[ 2. BLOOD MAGE COSTS (Macro Support) ]]
         local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
         if bloodMageModule and activeChallenge.id == bloodMageModule.id then
             if spellName and not bloodMageModule.healingSpells[spellName] then
-                local bloodCost = bloodMageModule:GetBloodCostForSpell(actionID)
+                local bloodCost = bloodMageModule:GetBloodCostForSpell(spellId)
                 if bloodCost and bloodCost > 0 then
                     local weakenedCost = math.max(1, math.floor(bloodCost * 2.0))
                     local costToDisplay = bloodMageModule.sanguineWeaknessActive and weakenedCost or bloodCost
@@ -4291,6 +4455,7 @@ GameTooltip.SetAction = function(self, actionSlot)
             end
         end
     end
+    
     Purity.isActionTooltip = false
 end
 

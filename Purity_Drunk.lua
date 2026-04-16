@@ -12,12 +12,21 @@ local DrunkModule = {
     description = "The Way of the Staggering Fist. Years spent as the town drunk were not wasted. Countless barroom brawls have honed your clumsy stumbles into an unpredictable martial art. Your enemies see a swaying fool, but you are a master of chaotic grace, turning staggering into evasion and slurred shouts into battle cries. To fight with a clear head would be to forget your training; only in the haze of ale can you find true focus.",
     isGlobalChallenge = true,
     needsWeaponWarning = false,
+	SyncTruth = function(self, db)
+        if not db.drunkData then db.drunkData = {} end
+        
+        -- If the global DB has been tampered with, snap it back to the Vault's value
+        if db.drunkData.lastState ~= currentDrunkState then
+            db.drunkData.lastState = currentDrunkState
+            self:UpdateStatusDisplay()
+        end
+    end,
 }
 
-function DrunkModule:SetDrunkState(newState)
+local function SetDrunkState(newState)
     if currentDrunkState == newState then return end
     currentDrunkState = newState
-    self:UpdateStatusDisplay()
+    DrunkModule:UpdateStatusDisplay()
 
     local db = Purity:GetDB()
     if not db.drunkData then db.drunkData = {} end
@@ -61,15 +70,14 @@ local function DrunkModule_EventHandler(self, event, ...)
         
         if message then
             if string.find(message, "^You") then
-
                 if string.find(message, "completely smashed") then
-                    DrunkModule:SetDrunkState("Smashed")
+                    SetDrunkState("Smashed")
                 elseif string.find(message, "feel drunk") then
-                    DrunkModule:SetDrunkState("Drunk")
+                    SetDrunkState("Drunk")
                 elseif string.find(message, "feel tipsy") then
-                    DrunkModule:SetDrunkState("Tipsy")
+                    SetDrunkState("Tipsy")
                 elseif string.find(message, "sober again") then
-                    DrunkModule:SetDrunkState("Sober")
+                    SetDrunkState("Sober")
                 end
             end
         end
@@ -78,15 +86,20 @@ local function DrunkModule_EventHandler(self, event, ...)
         local newLevel = ...
 
         local professionSpellIDs = {
-            2259, -- Alchemy
-            2018, -- Blacksmithing
-            7411, -- Enchanting
-            4036, -- Engineering
-            2366, -- Herbalism
-            2108, -- Leatherworking
-            2575, -- Mining
-            8613, -- Skinning
-            3908, -- Tailoring
+            -- Primary Professions (Classic)
+            2259,  -- Alchemy
+            2018,  -- Blacksmithing
+            7411,  -- Enchanting
+            4036,  -- Engineering
+            2366,  -- Herbalism
+            2108,  -- Leatherworking
+            2575,  -- Mining
+            8613,  -- Skinning
+            3908,  -- Tailoring
+            
+            -- Primary Professions (Expansions)
+            25229, -- Jewelcrafting (TBC)
+            51313, -- Inscription (WotLK)
         }
 
         -- Build the validProfessions table dynamically based on client language

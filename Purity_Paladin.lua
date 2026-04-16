@@ -1,8 +1,11 @@
--- Purity AddOn - Paladin Module (v5.1 Update)
+-- Purity AddOn - Paladin Module
 
 if not Purity then
     return
 end
+
+local secureHostileAttackers = {}
+local secureCombatants = {}
 
 local function IsIDInForbiddenTree(id, forbiddenTreeName)
     if not id then return false end
@@ -39,7 +42,6 @@ PaladinModule.challenges.oath = {
         return "The ultimate guardian, the Paladin's Oath is to be a selfless shield. " .. pronoun .. " has forsaken retribution and personal glory, vowing to never be the aggressor."
     end,
     needsWeaponWarning = false,
-    hostileAttackers = {},
 
     forbiddenSpellIDs = {
         [24275] = "Hammer of Wrath",
@@ -76,7 +78,7 @@ PaladinModule.challenges.oath = {
 
     EventHandler = function(self, event, ...)
         if event == "PLAYER_REGEN_ENABLED" then
-            self.hostileAttackers = {}
+            secureHostileAttackers = {}
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, sourceFlags, _, destGUID, _, destFlags, _, spellId = CombatLogGetCurrentEventInfo()
 
@@ -97,11 +99,11 @@ PaladinModule.challenges.oath = {
             if not (string.find(subEvent, "_DAMAGE") or string.find(subEvent, "_MISSED")) then return end
 
             if destGUID == UnitGUID("player") and sourceGUID and bit.band(sourceFlags, COMBATLOG_OBJECT_TYPE_NPC) > 0 then
-                self.hostileAttackers[sourceGUID] = true
+                secureHostileAttackers[sourceGUID] = true
             elseif sourceGUID == UnitGUID("player") and destGUID and bit.band(destFlags, COMBATLOG_OBJECT_TYPE_NPC) > 0 then
-                if not self.hostileAttackers[destGUID] then
+                if not secureHostileAttackers[destGUID] then
                     Purity:Violation("Initiated combat, breaking your oath as a guardian.")
-                    self.hostileAttackers[destGUID] = true 
+                    secureHostileAttackers[destGUID] = true 
                 end
             end
 		elseif event == "PLAYER_TALENT_UPDATE" then
@@ -129,7 +131,6 @@ PaladinModule.challenges.libram = {
         return "The Undead Bane. You dedicate your sacred might solely to purging the impure Undead from the world. You cannot land the killing blow on any other type of enemy (including unclassified type mobs)."
     end,
     needsWeaponWarning = false,
-    combatants = {},
 
     GetRulesText = function()
         return {
@@ -166,11 +167,11 @@ PaladinModule.challenges.libram = {
                 local targetGUID = UnitGUID("target")
                 local creatureType = UnitCreatureType("target")
                 if targetGUID then
-                    self.combatants[targetGUID] = creatureType
+                    secureCombatants[targetGUID] = creatureType
                 end
             end
         elseif event == "PLAYER_LEAVE_COMBAT" or event == "PLAYER_REGEN_ENABLED" then
-            self.combatants = {}
+            secureCombatants = {}
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, _, _, destGUID, destName, destFlags, _, spellId = CombatLogGetCurrentEventInfo()
 
@@ -187,8 +188,8 @@ PaladinModule.challenges.libram = {
             end
 
             if subEvent == "UNIT_DIED" and destGUID and bit.band(destFlags, COMBATLOG_OBJECT_TYPE_NPC) > 0 then
-                if UnitAffectingCombat("player") and self.combatants[destGUID] then
-                    if self.combatants[destGUID] ~= "Undead" then
+                if UnitAffectingCombat("player") and secureCombatants[destGUID] then
+                    if secureCombatants[destGUID] ~= "Undead" then
                         Purity:Violation("Landed the killing blow on a non-Undead creature: " .. destName)
                         return
                     end

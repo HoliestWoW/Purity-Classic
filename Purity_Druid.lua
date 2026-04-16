@@ -31,6 +31,8 @@ local DruidModule = {
     challenges = {}
 }
 
+local secureAstrolabeBalance = 0
+
 DruidModule.challenges.pact = {
     id = "Pact of Purity",
     challengeName = "Pact of Purity",
@@ -189,6 +191,8 @@ DruidModule.challenges.astrolabe = {
         if not db.astrolabeBalance then 
             db.astrolabeBalance = 0 
         end
+		
+		secureAstrolabeBalance = db.astrolabeBalance
         
         self:CreateBalanceFrame()
         self:CreateVignetteFrame()
@@ -567,10 +571,10 @@ DruidModule.challenges.astrolabe = {
             if subEvent == "SPELL_CAST_SUCCESS" then
                 
                 if isNature then
-                    db.astrolabeBalance = db.astrolabeBalance + 1
+                    secureAstrolabeBalance = secureAstrolabeBalance + 1
                     self.lastDamageSpellSchool = "Nature"
                 elseif isArcane then
-                    db.astrolabeBalance = db.astrolabeBalance - 1
+                    secureAstrolabeBalance = secureAstrolabeBalance - 1
                     self.lastDamageSpellSchool = "Arcane"
                 end
 
@@ -578,9 +582,9 @@ DruidModule.challenges.astrolabe = {
                 self:UpdateVignette()
                 self:UpdateActionbarOverlay()
 
-                if db.astrolabeBalance > 2 then
+                if secureAstrolabeBalance > 2 then
                     Purity:Violation("Nature Overload! The Astrolabe shattered.\nMax 2 consecutive charges allowed.")
-                elseif db.astrolabeBalance < -2 then
+                elseif secureAstrolabeBalance < -2 then
                     Purity:Violation("Arcane Overload! The Astrolabe shattered.\nMax 2 consecutive charges allowed.")
                 end
                 
@@ -589,16 +593,28 @@ DruidModule.challenges.astrolabe = {
 
             elseif subEvent == "SPELL_MISSED" then
                 if isNature then
-                    db.astrolabeBalance = db.astrolabeBalance - 1
+                    secureAstrolabeBalance = secureAstrolabeBalance - 1
                 elseif isArcane then
-                    db.astrolabeBalance = db.astrolabeBalance + 1
+                    secureAstrolabeBalance = secureAstrolabeBalance + 1
                 end
                 
                 self:UpdateBalanceFrame()
                 self:UpdateVignette()
                 self:UpdateActionbarOverlay()
             end
+        elseif event == "PLAYER_LOGOUT" then
+            self:SaveData()
         end
+	end,
+	SyncTruth = function(self, db)
+        if db.astrolabeBalance ~= secureAstrolabeBalance then
+            db.astrolabeBalance = secureAstrolabeBalance
+            self:UpdateBalanceFrame()
+        end
+    end,
+	SaveData = function(self)
+        local db = Purity:GetDB()
+        db.astrolabeBalance = secureAstrolabeBalance
     end,
 }
 

@@ -288,18 +288,25 @@ function UpdateCharacterPurity()
 	local ssfLabel = CreateLabel(goldColor .. "Solo Self-Found:|r " .. ssfStatusText .. "|r", 12, 20)
 
 	if db.isSSFRun and not isHardcoreStatusValid then
-		local function addTooltip(this)
-			GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+		if not PuritySSFHitbox then
+			PuritySSFHitbox = CreateFrame("Frame", "PuritySSFHitbox", UIParent)
+			PuritySSFHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		end
+		
+		local ssfHitBox = PuritySSFHitbox
+		ssfHitBox:SetParent(ssfLabel.frame)
+		ssfHitBox:ClearAllPoints()
+		ssfHitBox:SetSize(ssfLabel.label:GetStringWidth(), ssfLabel.label:GetStringHeight())
+		ssfHitBox:SetPoint("CENTER", ssfLabel.frame, "CENTER", 0, 0)
+		ssfHitBox:EnableMouse(true)
+
+		ssfHitBox:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip:AddLine("Invalid Hardcore Status", 1, 1, 1)
 			GameTooltip:AddLine(" ")
 			GameTooltip:AddLine(validationReason, 1, 0.82, 0)
 			GameTooltip:Show()
-		end
-		local function hideTooltip()
-			GameTooltip:Hide()
-		end
-		ssfLabel.frame:SetScript("OnEnter", addTooltip)
-		ssfLabel.frame:SetScript("OnLeave", hideTooltip)
+		end)
 	end
 	
 	local _, baseCoeff = Purity:GetCurrentChallengeInfo()
@@ -323,7 +330,19 @@ function UpdateCharacterPurity()
 	
 	if totalCoeff == baseCoeff then
 		local coeffLabel = CreateLabel(goldColor .. "Coefficient:|r " .. whiteColor .. string.format("%.2f", totalCoeff), 12, 16)
-		coeffLabel.frame:SetScript("OnEnter", function(self)
+		
+		if not PurityScoreHitbox then
+			PurityScoreHitbox = CreateFrame("Frame", "PurityScoreHitbox", UIParent)
+			PurityScoreHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		end
+		local scoreHitBox = PurityScoreHitbox
+		scoreHitBox:SetParent(coeffLabel.frame)
+		scoreHitBox:ClearAllPoints()
+		scoreHitBox:SetSize(coeffLabel.label:GetStringWidth(), coeffLabel.label:GetStringHeight())
+		scoreHitBox:SetPoint("CENTER", coeffLabel.frame, "CENTER", 0, 0)
+		scoreHitBox:EnableMouse(true)
+
+		scoreHitBox:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip:AddLine("Score Calculation", 1, 1, 1)
 			GameTooltip:AddLine(" ")
@@ -331,12 +350,22 @@ function UpdateCharacterPurity()
 			GameTooltip:AddDoubleLine(title .. " Coefficient:", string.format("%.2f", baseCoeff), 1, 1, 1, 1, 1, 1)
 			GameTooltip:Show()
 		end)
-		coeffLabel.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	else
 		local baseLabel = CreateLabel(goldColor .. "Base Coefficient:|r " .. whiteColor .. string.format("%.2f", baseCoeff), 12, 16)
 		local totalLabel = CreateLabel(goldColor .. "Total Coefficient:|r " .. whiteColor .. string.format("%.2f", totalCoeff), 12, 16)
 		
-		totalLabel.frame:SetScript("OnEnter", function(self)
+		if not PurityScoreHitbox then
+			PurityScoreHitbox = CreateFrame("Frame", "PurityScoreHitbox", UIParent)
+			PurityScoreHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		end
+		local scoreHitBox = PurityScoreHitbox
+		scoreHitBox:SetParent(totalLabel.frame)
+		scoreHitBox:ClearAllPoints()
+		scoreHitBox:SetSize(totalLabel.label:GetStringWidth(), totalLabel.label:GetStringHeight())
+		scoreHitBox:SetPoint("CENTER", totalLabel.frame, "CENTER", 0, 0)
+		scoreHitBox:EnableMouse(true)
+		
+		scoreHitBox:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip:AddLine("Score Calculation", 1, 1, 1)
 			GameTooltip:AddLine(" ")
@@ -349,20 +378,86 @@ function UpdateCharacterPurity()
 			GameTooltip:AddDoubleLine("Final Score:", string.format("%.2f", totalCoeff), 1, 0.82, 0, 1, 0.82, 0)
 			GameTooltip:Show()
 		end)
-		totalLabel.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	end
+	
+	if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
+		CreateLabel("", 1, 10)
+		CreateLabel(" ", 16, 16)
+		CreateLabel("Blood Efficiency", 16, 22)
+		
+		local powerType = UnitPowerType("player")
+		local baseDivisor = (powerType == 0 and 200) or (powerType == 3 and 500) or 100
+		local level = UnitLevel("player")
+		local scaledDivisor = baseDivisor + (level * 20)
+		local _, spirit = UnitStat("player", 5)
+		
+		local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+		local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
+		local spiritFactor = 12.0 + (rank * 2.4)
+		
+		local spiritDivisor = spirit * spiritFactor
+		local totalDivisor = scaledDivisor + spiritDivisor
+		
+		local reduction = 0
+		if totalDivisor > 0 then
+			reduction = (1 - (scaledDivisor / totalDivisor)) * 100
+		end
+		
+		local reductionText = string.format("%.1f%%", reduction)
+		local reductionLine = CreateLabel(goldColor .. "Cost Reduction:|r " .. greenColor .. reductionText, 12, 16)
+		
+		if not PurityBloodCostHitbox then
+			PurityBloodCostHitbox = CreateFrame("Frame", "PurityBloodCostHitbox", UIParent)
+			PurityBloodCostHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		end
+		
+		local hitBox = PurityBloodCostHitbox
+		hitBox:SetParent(reductionLine.frame)
+		hitBox:ClearAllPoints()
+		
+		hitBox:SetSize(reductionLine.label:GetStringWidth(), reductionLine.label:GetStringHeight())
+		hitBox:SetPoint("CENTER", reductionLine.frame, "CENTER", 0, 0)
+		hitBox:EnableMouse(true)
+		
+		hitBox:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText("Blood Cost Reduction", 1, 1, 1)
+			GameTooltip:AddLine("Decreases the Blood cost of your abilities and melee swings.", 1, 0.82, 0, true)
+			GameTooltip:AddLine("The amount of reduction is influenced by your active resource, your level, and your Spirit.", 1, 0.82, 0, true)
+			GameTooltip:AddLine(" ")
+			GameTooltip:AddDoubleLine("Spirit:", spirit, 0.8, 0.8, 0.8, 1, 1, 1)
+			GameTooltip:AddDoubleLine("Current cost reduction:", string.format("%.1f%%", reduction), 0.8, 0.8, 0.8, 0.1, 1, 0.1)
+			GameTooltip:Show()
+		end)
+		
+		hitBox:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		reductionLine.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	end
 
 	if (db.challengeStats and next(db.challengeStats)) or (db.activeChallengeID == "FISHING") or (db.activeChallengeID == "DRUNK") then
 		CreateLabel("", 1, 10)
-		local statsLabel = CreateLabel("\nFun Stats", 16, 22)
-		statsLabel.frame:SetScript("OnEnter", function(self)
+		CreateLabel(" ", 16, 16)
+		local statsLabel = CreateLabel("Fun Stats", 16, 22)
+		
+		if not PurityFunStatsHitbox then
+			PurityFunStatsHitbox = CreateFrame("Frame", "PurityFunStatsHitbox", UIParent)
+			PurityFunStatsHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		end
+		
+		local statsHitBox = PurityFunStatsHitbox
+		statsHitBox:SetParent(statsLabel.frame)
+		statsHitBox:ClearAllPoints()
+		statsHitBox:SetSize(statsLabel.label:GetStringWidth(), statsLabel.label:GetStringHeight())
+		statsHitBox:SetPoint("CENTER", statsLabel.frame, "CENTER", 0, 0)
+		statsHitBox:EnableMouse(true)
+
+		statsHitBox:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip:AddLine("Just for Fun!", 1, 1, 1)
 			GameTooltip:AddLine("This is a simple counter of an iconic action for your current challenge.", 0.8, 0.8, 0.8, true)
 			GameTooltip:Show()
 		end)
-		statsLabel.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
+		
 		local statValue, statName = nil, nil
 		
 		if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then

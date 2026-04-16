@@ -2,6 +2,8 @@
 
 if not Purity then return end
 
+local secureHasChargedForCombat = false
+
 local function IsIDInForbiddenTree(id, forbiddenTreeName)
     if not id then return false end
     local forbiddenTabIndex = nil
@@ -45,7 +47,6 @@ WarriorModule.challenges.brand = {
     description = "The Berserker. No shields or defensive stance. All combat must be initiated with Charge or Intercept, forsaking all caution.",
     needsWeaponWarning = true,
     optInWarningText = "|cffff0000IMPORTANT: Most Warriors begin with a shield. This challenge forbids shields at all times. You must unequip your shield before you begin.|r",
-    hasChargedForCombat = false,
 
     GetRulesText = function()
         return {
@@ -145,7 +146,7 @@ EventHandler = function(self, event, ...)
             Purity:CheckWeaponState()
         
         elseif event == "PLAYER_REGEN_ENABLED" then
-            self.hasChargedForCombat = false
+            secureHasChargedForCombat = false
         
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, _, _, destGUID, _, _, _, spellId = CombatLogGetCurrentEventInfo()
@@ -155,7 +156,7 @@ EventHandler = function(self, event, ...)
                     local db = Purity:GetDB()
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.chargeInterceptCasts = (db.challengeStats.chargeInterceptCasts or 0) + 1
-                    self.hasChargedForCombat = true
+                    secureHasChargedForCombat = true
                 end
             end
             
@@ -166,7 +167,7 @@ EventHandler = function(self, event, ...)
             
             if playerLevel >= 4 then
                 if UnitAffectingCombat("player") then
-                    if sourceGUID == UnitGUID("player") and not self.hasChargedForCombat then
+                    if sourceGUID == UnitGUID("player") and not secureHasChargedForCombat then
                         
                         local isSafeSpell = false
                         if subEvent == "SPELL_CAST_SUCCESS" then
