@@ -1,6 +1,6 @@
 -- Purity AddOn - The Ascetic's Path Challenge
 
-if not Purity then return end
+local addonName, Purity = ...
 
 -- Create a dedicated, hidden tooltip for internal checks to avoid UI interference.
 PurityCheckTooltip = CreateFrame("GameTooltip", "PurityCheckTooltip", UIParent, "GameTooltipTemplate")
@@ -45,13 +45,17 @@ local AsceticModule = {
                     db.asceticChallengeData.soldItemHistory[itemLink] = true
                     
                     if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        _G["UpdateCharacterPurity"]()
+                        Purity:UpdateCharacterStatus()
                     end
                 end
                 
                 -- Clear the attempt variable immediately after processing.
                 self.lastItemSaleAttempt = nil
             end
+        elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+            -- Mirroring Fisherman's Folly: Force a full scan of all equipment slots,
+            -- completely ignoring the potentially buggy WoW event arguments.
+            Purity:CheckWeaponState()
         end
     end,
 }

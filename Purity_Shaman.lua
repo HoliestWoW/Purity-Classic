@@ -1,6 +1,6 @@
 -- Purity AddOn - Shaman Module: The Totemic Tether (Final)
 
-if not Purity then return end
+local addonName, Purity = ...
 
 local ShamanModule = {
     challenges = {},

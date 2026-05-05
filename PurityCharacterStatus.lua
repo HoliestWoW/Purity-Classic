@@ -1,3 +1,5 @@
+local addonName, Purity = ...
+
 local CLASS_COLORS = {
 	["WARRIOR"] = "C69B6D", ["MAGE"] = "3FC7EB", ["ROGUE"] = "FFF468",
 	["DRUID"] = "FF7C0A", ["HUNTER"] = "AAD372", ["SHAMAN"] = "0070DD",
@@ -5,6 +7,7 @@ local CLASS_COLORS = {
 }
 local AceGUI = LibStub("AceGUI-3.0")
 local statusRefreshTicker = nil
+local UpdateCharacterPurity
 
 Purity.characterPanel = CreateFrame("Frame", "PurityCharacterPanel", CharacterFrame)
 Purity.characterPanel:SetAllPoints(true)
@@ -64,7 +67,7 @@ purity_highlight:SetBlendMode("ADD")
 
 PurityTabGUI:SetHighlightTexture(purity_highlight)
 
-function ShowCharacterPurity()
+local function ShowCharacterPurity()
 	for _, texture in pairs(activeTextures) do texture:Show() end
 	for _, texture in pairs(inactiveTextures) do texture:Hide() end
 	PurityTabGUI.text:SetFontObject(GameFontHighlightSmall)
@@ -73,7 +76,7 @@ function ShowCharacterPurity()
 	Purity.characterPanel:Show()
 end
 
-function HideCharacterPurity()
+local function HideCharacterPurity()
 	for _, texture in pairs(activeTextures) do texture:Hide() end
 	for _, texture in pairs(inactiveTextures) do texture:Show() end
 	PurityTabGUI.text:SetFontObject(GameFontNormalSmall)
@@ -229,7 +232,7 @@ hooksecurefunc("PanelTemplates_SetTab", function(frame, id)
 	end
 end)
 
-function UpdateCharacterPurity()
+UpdateCharacterPurity = function()
 	PurityContentFrame:ReleaseChildren()
 	Purity:SilentRequestTimePlayed()
 	
@@ -518,6 +521,30 @@ function UpdateCharacterPurity()
 			if silver > 0 or gold > 0 then moneyString = moneyString .. silver .. "|cffc7c7cfs|r " end
 			moneyString = moneyString .. copper .. "|cffeda55fc|r"
 			statValue = moneyString
+		elseif db.challengeTitle == "The Ringbearer's Vow" then 
+            local totalSeconds = db.challengeStats.timeSpentFishing or 0
+            local formattedTime = ""
+            
+            if totalSeconds <= 90 then
+                formattedTime = totalSeconds .. " sec"
+            elseif totalSeconds <= 5400 then
+                -- Greater than 90 seconds, up to 90 minutes (5400 seconds)
+                local m = math.floor(totalSeconds / 60)
+                local s = totalSeconds % 60
+                formattedTime = string.format("%d min %d sec", m, s)
+            else
+                -- Greater than 90 minutes
+                local h = math.floor(totalSeconds / 3600)
+                local m = math.floor((totalSeconds % 3600) / 60)
+                local s = totalSeconds % 60
+                formattedTime = string.format("%d hr %d min %d sec", h, m, s)
+            end
+
+            statValue = formattedTime
+            statName = "Time Spent Fishing:"
+            
+            local campfiresBuilt = db.challengeStats.campfiresBuilt or 0
+            CreateLabel(goldColor .. "Campfires Built:|r " .. whiteColor .. campfiresBuilt, 12, 16)
 		end
 
 		if statName and statValue then

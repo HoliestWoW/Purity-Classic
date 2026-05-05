@@ -1,8 +1,6 @@
 -- Purity AddOn - Paladin Module
 
-if not Purity then
-    return
-end
+local addonName, Purity = ...
 
 local secureHostileAttackers = {}
 local secureCombatants = {}
@@ -90,7 +88,7 @@ PaladinModule.challenges.oath = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.holyLightCasts = (db.challengeStats.holyLightCasts or 0) + 1
                     if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        _G["UpdateCharacterPurity"]()
+                        Purity:UpdateCharacterStatus()
                     end
                 end
             end
@@ -182,7 +180,7 @@ PaladinModule.challenges.libram = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.exorcismCasts = (db.challengeStats.exorcismCasts or 0) + 1
 					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        _G["UpdateCharacterPurity"]()
+                        Purity:UpdateCharacterStatus()
                     end
                 end
             end

@@ -1,8 +1,6 @@
 -- Purity AddOn - Global Module: The Blood Mage's Bargain (Final Dual-Mode Version)
 
-if not Purity then
-    return
-end
+local addonName, Purity = ...
 
 local function GetBloodCostPercentForSpeed(speed)
     if not speed or speed < 2.0 then
@@ -98,7 +96,9 @@ local BloodMageModule = {
 			end
 		end
 
-		if IsAddOnLoaded("Blizzard_TalentUI") then
+		local isTalentLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_TalentUI") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_TalentUI"))
+
+		if isTalentLoaded then
 			hooksecurefunc("TalentFrame_Update", ApplyCustomIcon)
 		else
 			local f = CreateFrame("Frame")
@@ -1634,7 +1634,8 @@ EventHandler = function(self, event, ...)
         db.bloodPoolCurrent = secureBloodState.current
 
         -- [[ 1. FCT INJECTION ]]
-        if IsAddOnLoaded("Blizzard_CombatText") and CombatText_AddMessage and GetCVar("enableFloatingCombatText") == "1" then
+        local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
+        if isLoaded and CombatText_AddMessage and GetCVar("enableFloatingCombatText") == "1" then
             local displayCost = math.floor(finalAmount)
             CombatText_AddMessage("-" .. displayCost, CombatText_StandardScroll, 1, 0, 0)
         end
@@ -1779,7 +1780,8 @@ EventHandler = function(self, event, ...)
                             
                             self:LogSanguineWeakness(spellName)
 
-                            if IsAddOnLoaded("Blizzard_CombatText") and CombatText_AddMessage and GetCVar("enableFloatingCombatText") == "1" then
+                            local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
+                            if isLoaded and CombatText_AddMessage and GetCVar("enableFloatingCombatText") == "1" then
                                 CombatText_AddMessage("-Sanguine Weakness", CombatText_StandardScroll, 0.8, 0.2, 0.8)
                             end
                             

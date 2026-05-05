@@ -1,8 +1,6 @@
 -- Purity AddOn - Hunter Module
 
-if not Purity then
-    return
-end
+local addonName, Purity = ...
 
 local HunterModule = {
     challenges = {}
@@ -149,7 +147,7 @@ HunterModule.challenges.bond = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.mendPetCasts = (db.challengeStats.mendPetCasts or 0) + 1
                     if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        _G["UpdateCharacterPurity"]()
+                        Purity:UpdateCharacterStatus()
                     end
                 end
             end
@@ -296,7 +294,7 @@ HunterModule.challenges.quiver = {
                         if not db.challengeStats then db.challengeStats = {} end
                         db.challengeStats.aimedShotCasts = (db.challengeStats.aimedShotCasts or 0) + 1
 						if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-							_G["UpdateCharacterPurity"]()
+							Purity:UpdateCharacterStatus()
 						end
                     end
                 end

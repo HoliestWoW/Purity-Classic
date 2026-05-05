@@ -1,8 +1,6 @@
 -- Purity AddOn - Mage Module (Final Merged: Tome + Conduit + Visuals)
 
-if not Purity then
-    return
-end
+local addonName, Purity = ...
 
 -- ============================================================================
 -- SHARED HELPERS (TOME DATA)

@@ -1,6 +1,6 @@
 -- Purity AddOn - Warrior Module
 
-if not Purity then return end
+local addonName, Purity = ...
 
 local secureHasChargedForCombat = false
 
@@ -247,7 +247,7 @@ WarriorModule.challenges.bulwark = {
                 db.challengeStats = db.challengeStats or {}
                 db.challengeStats.blocks = (db.challengeStats.blocks or 0) + 1
 				if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                    _G["UpdateCharacterPurity"]()
+                    Purity:UpdateCharacterStatus()
                 end
             end
 		elseif event == "PLAYER_TALENT_UPDATE" then

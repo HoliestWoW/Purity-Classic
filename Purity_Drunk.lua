@@ -1,4 +1,4 @@
-if not Purity then return end
+local addonName, Purity = ...
 
 local isPlayerInCombat = false
 local currentDrunkState = "Sober"

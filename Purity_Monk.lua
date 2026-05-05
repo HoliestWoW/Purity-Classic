@@ -1,6 +1,6 @@
 -- Purity AddOn - Monk Module (Corrected API)
 
-if not Purity then return end
+local addonName, Purity = ...
 
 -- Compatibility Wrapper for MoP 5.4.8 support
 local function GetCombatLogInfo(...)

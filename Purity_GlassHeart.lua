@@ -1,8 +1,6 @@
 -- Purity AddOn - Global Challenge: The Glass Heart
 
-if not Purity then
-	return
-end
+local addonName, Purity = ...
 
 local secureGlassHeartState = { current = 0, max = 0 }
 
@@ -643,8 +641,10 @@ local GlassHeart = {
 
             -- [[ CUSTOM FCT INJECTION ]]
             if db.glassHeartFCTEnabled ~= false then
+                local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
+
                 -- Force load the Blizzard Combat Text engine if it's asleep
-                if not IsAddOnLoaded("Blizzard_CombatText") then
+                if not isLoaded then
                     -- Support for both modern and older Classic client APIs
                     if C_AddOns and C_AddOns.LoadAddOn then
                         C_AddOns.LoadAddOn("Blizzard_CombatText")

@@ -2,8 +2,8 @@
 
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
-if not Purity then Purity = {} end
-Purity.Version = "11.2.3"
+local addonName, Purity = ...
+Purity.Version = "12.0.1"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -126,7 +126,7 @@ local activeClassModule = nil
 local monitorFrame = nil
 local trainerKey = "a7K9!zPq@3rT$5wX&8nMbVcFgHjL"
 
-Base64 = {}
+local Base64 = {}
 local BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 Purity.DRINK_LIST = {
@@ -215,6 +215,7 @@ end)
 
 Purity.ChallengeCoefficients = {
 	["Path of the Unburdened"] = 5.00,
+	["The Ringbearer's Vow"] = 4.90,
 	["Path of Resilience"] = 4.86,
     ["The Blood Mage's Bargain"] = 4.65,
 	["The Glass Heart (Extreme)"] = 4.50,
@@ -584,8 +585,10 @@ local FCT_INCOMING_DAMAGE_EVENTS = {
 }
 
 function Purity:DisableDefaultIncomingDamageText()
+    local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
+
     -- Ensure the Blizzard addon is awake so we can edit its table
-    if not IsAddOnLoaded("Blizzard_CombatText") then
+    if not isLoaded then
         if C_AddOns and C_AddOns.LoadAddOn then
             C_AddOns.LoadAddOn("Blizzard_CombatText")
         else
@@ -603,7 +606,9 @@ function Purity:DisableDefaultIncomingDamageText()
 end
 
 function Purity:RestoreDefaultIncomingDamageText()
-    if IsAddOnLoaded("Blizzard_CombatText") and COMBAT_TEXT_TYPE_INFO then
+    local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
+
+    if isLoaded and COMBAT_TEXT_TYPE_INFO then
         for _, event in ipairs(FCT_INCOMING_DAMAGE_EVENTS) do
             if COMBAT_TEXT_TYPE_INFO[event] then
                 COMBAT_TEXT_TYPE_INFO[event].show = true
@@ -1077,7 +1082,9 @@ function Purity:CreateDataSignature_Legacy(db)
             if key == "fishingFishedItemLinks" then
                 local sortedLinks = {}
                 if type(value) == "table" then
-                    for link, _ in pairs(value) do table.insert(sortedLinks, link) end
+                    for link, _ in pairs(value) do 
+                        table.insert(sortedLinks, tostring(link)) 
+                    end
                 end
                 table.sort(sortedLinks)
                 stringToSign = stringToSign .. table.concat(sortedLinks, "")
@@ -1110,7 +1117,9 @@ function Purity:CreateDataSignature(db)
             if key == "fishingFishedItemLinks" then
                 local sortedLinks = {}
                 if type(value) == "table" then
-                    for link, _ in pairs(value) do table.insert(sortedLinks, link) end
+                    for link, _ in pairs(value) do 
+                        table.insert(sortedLinks, tostring(link)) 
+                    end
                 end
                 table.sort(sortedLinks)
                 stringToSign = stringToSign .. table.concat(sortedLinks, "")
@@ -1160,7 +1169,9 @@ function Purity:GenerateWebVerificationString()
     if db.isOptedIn and db.activeChallengeModuleType == "Global" and db.activeChallengeID == "FISHING" then
         local fishedLinks = {}
         if type(db.fishingFishedItemLinks) == "table" then
-            for link, _ in pairs(db.fishingFishedItemLinks) do table.insert(fishedLinks, link) end
+            for link, _ in pairs(db.fishingFishedItemLinks) do 
+                table.insert(fishedLinks, tostring(link)) 
+            end
         end
         table.sort(fishedLinks)
         fishedItemsPayload = table.concat(fishedLinks, "")
@@ -2484,7 +2495,9 @@ function Purity.CreateCoreUI()
 			-- Load Current Class
 			if Purity.ClassModules[playerClass] then
 				for _, data in pairs(Purity.ClassModules[playerClass].challenges) do
-					table.insert(availableChallenges, data)
+					if not data.IsEligible or data:IsEligible() then
+						table.insert(availableChallenges, data)
+					end
 				end
 			end
 			
@@ -3037,61 +3050,78 @@ function Purity:IsWeaponEquipped()
     return false
 end
 
-function Purity:CheckWeaponState()
+--- Checks all equipment slots and rejects ANY forbidden gear.
+function Purity:CheckEquipmentState(slotId)
     local activeChallenge = self:GetActiveChallengeObject()
     if not activeChallenge then return end
-    
-    if not activeChallenge.needsWeaponWarning then return end
 
-    local isForbiddenWeaponEquipped = false
-    local weaponSlots = { INVSLOT_RANGED, INVSLOT_MAINHAND, INVSLOT_OFFHAND }
-    for _, slotId in ipairs(weaponSlots) do
-        local itemLink = GetInventoryItemLink("player", slotId)
+    local dataPending = false
+    
+    -- All standard equippable slots: 1 (Head) through 19 (Tabard)
+    local allSlots = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }
+    
+    -- If the event passes a specific slot, check only that one. 
+    -- Otherwise, scan all equipment slots.
+    local slotsToCheck = slotId and {slotId} or allSlots
+    
+    for _, slot in ipairs(slotsToCheck) do
+        local itemLink = GetInventoryItemLink("player", slot)
         if itemLink then
-            if not activeChallenge:isWeaponAllowed(itemLink) then
-                isForbiddenWeaponEquipped = true
-                break
+            local itemName = GetItemInfo(itemLink)
+            -- If GetItemInfo returns nil, the server hasn't sent the item data yet
+            if not itemName then
+                dataPending = true
+            else
+                local isForbidden = false
+                
+                -- 1. Global Item Check (Armor, Trinkets, Rings, etc.)
+                if activeChallenge.IsItemForbidden and activeChallenge:IsItemForbidden(itemLink) then
+                    isForbidden = true
+                end
+                
+                -- 2. Weapon-Specific Check (Fallback for older modules that separated the logic)
+                if (slot == 16 or slot == 17 or slot == 18) and activeChallenge.isWeaponAllowed then
+                    if not activeChallenge:isWeaponAllowed(itemLink) then 
+                        isForbidden = true 
+                    end
+                end
+
+                -- THE INSTANT AUTO-UNEQUIP (Bag Bounce)
+                if isForbidden then
+                    ClearCursor() -- Ensure the cursor is completely empty first
+                    PickupInventoryItem(slot) -- Rip the item from the equipment slot
+                    
+                    -- Auto-dump into the first available bag slot
+                    local itemPlaced = false
+                    for bag = 0, 4 do
+                        for bslot = 1, C_Container.GetContainerNumSlots(bag) do
+                            -- Find an empty slot
+                            if not C_Container.GetContainerItemInfo(bag, bslot) then
+                                C_Container.PickupContainerItem(bag, bslot) -- Drop it in
+                                itemPlaced = true
+                                break
+                            end
+                        end
+                        if itemPlaced then break end
+                    end
+                    
+                    -- Play the error sound and notify the player
+                    PlaySound(847) 
+                    UIErrorsFrame:AddMessage("Your vow forbids you from equipping this item.", 1.0, 0.1, 0.1, 1.0)
+                end
             end
         end
     end
 
-    if isForbiddenWeaponEquipped then
-        if not weaponTimer then
-            local db = Purity:GetDB()
-            if db.weaponInfractions == nil then db.weaponInfractions = 0 end
-            local infractions = db.weaponInfractions
-            
-            if infractions >= 2 then
-                Purity:Violation("Equipped a forbidden weapon after all warnings were used.")
-                return
-            end
-            
-            db.weaponInfractions = infractions + 1
-			secureCoreState.weaponInfractions = db.weaponInfractions
-            
-            local warningMessage = "Forbidden Weapon Equipped, Unequip to avoid failure!\nTime remaining: %.1f"
-            local gracePeriod = (db.weaponInfractions == 1) and 10 or 7
-            local countdown = gracePeriod
-            
-            Purity:ShowWarningBanner(string.format(warningMessage, countdown), nil, db.weaponInfractions)
-            
-            weaponTimer = C_Timer.NewTicker(0.1, function()
-                countdown = countdown - 0.1
-                countdown = math.max(0, countdown)
-                Purity.notificationBanner.text:SetText(string.format(warningMessage, countdown))
-                if countdown <= 0 then
-                    Purity:Violation("Failed to unequip forbidden weapon in time.")
-                    if weaponTimer then weaponTimer:Cancel(); weaponTimer = nil end
-                    Purity.notificationBanner:Hide()
-                end
-            end)
-        end
-    elseif weaponTimer then
-        weaponTimer:Cancel()
-        weaponTimer = nil
-        Purity.notificationBanner:Hide()
+    -- If the item was missing from your local cache, wait for the server to send it
+    if dataPending then
+        C_Timer.After(1, function() Purity:CheckEquipmentState(slotId) end)
     end
 end
+
+-- Alias for backward compatibility: 
+-- Any older modules calling CheckWeaponState will seamlessly route to CheckEquipmentState.
+Purity.CheckWeaponState = Purity.CheckEquipmentState
 
 function Purity:ActivateMonitoring()
     local currentDB = self:GetDB()
@@ -3220,7 +3250,6 @@ function Purity:ActivateMonitoring()
                         bloodMageModule:ManageBloodRegen()
                     end
 				end
-				return
 			end
 
             local aChallenge = Purity:GetActiveChallengeObject()
@@ -3233,6 +3262,14 @@ function Purity:ActivateMonitoring()
                         Purity:CompleteChallenge()
                     end
                     Purity:DisplayCompletionStats()
+                end
+            end
+			
+			if event == "PLAYER_EQUIPMENT_CHANGED" then
+                local slotId, hasItem = ...
+                -- hasItem is true when putting an item ON. We only want to check when equipping!
+                if hasItem then
+                    Purity:CheckEquipmentState(slotId)
                 end
             end
 
@@ -3313,8 +3350,18 @@ function Purity:ActivateMonitoring()
     end
 end
 
-    C_Timer.After(2, function()
-        Purity:CheckWeaponState()
+    C_Timer.After(3, function()
+        local itemLink = GetInventoryItemLink("player", INVSLOT_MAINHAND)
+        if itemLink then
+            local itemName = GetItemInfo(itemLink)
+            if itemName then
+                Purity:CheckWeaponState()
+            else
+                C_Timer.After(2, function() Purity:CheckWeaponState() end)
+            end
+        else
+            Purity:CheckWeaponState()
+        end
     end)
 
     if activeChallenge and activeChallenge.EventHandler then
@@ -4460,3 +4507,15 @@ GameTooltip.SetAction = function(self, actionSlot)
 end
 
 GameTooltip:HookScript("OnUpdate", Purity_TooltipOnUpdateHandler)
+
+-- Export ONLY harmless UI functions to the global environment
+_G.Purity_UI = {
+    TogglePanel = Purity.TogglePanel,
+    -- Add any other purely visual functions here if necessary
+}
+
+-- Make sure your Slash Command points to the local table, not a global one
+SLASH_PURITY1 = "/purity"
+SlashCmdList["PURITY"] = function(msg)
+    Purity:SlashCommand(msg)
+end

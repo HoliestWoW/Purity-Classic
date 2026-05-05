@@ -1,8 +1,6 @@
 -- Purity AddOn - Druid Module (Final Merged Build)
 
-if not Purity then
-    return
-end
+local addonName, Purity = ...
 
 -- HELPER: Precision Scan for Anniversary API
 local function IsIDInForbiddenTree(id, forbiddenTreeName)
@@ -94,7 +92,7 @@ DruidModule.challenges.pact = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.shapeshiftCasts = (db.challengeStats.shapeshiftCasts or 0) + 1
 					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        _G["UpdateCharacterPurity"]()
+                        Purity:UpdateCharacterStatus()
                     end
                 end
             end

@@ -1,8 +1,6 @@
 -- Purity AddOn - Priest Module
 
-if not Purity then
-    return
-end
+local addonName, Purity = ...
 
 local secureHumanoidsInCombat = {}
 
@@ -153,7 +151,7 @@ local TestamentOfPurity = {
                         if not db.challengeStats then db.challengeStats = {} end
                         db.challengeStats.smiteCasts = (db.challengeStats.smiteCasts or 0) + 1
 						if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-							_G["UpdateCharacterPurity"]()
+							Purity:UpdateCharacterStatus()
 						end
                     end
                 end
@@ -309,7 +307,7 @@ local CovenantOfPurity = {
                         if not db.challengeStats then db.challengeStats = {} end
                         db.challengeStats.mindFlayCasts = (db.challengeStats.mindFlayCasts or 0) + 1
 						if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-							_G["UpdateCharacterPurity"]()
+							Purity:UpdateCharacterStatus()
 						end
                     end
                 end

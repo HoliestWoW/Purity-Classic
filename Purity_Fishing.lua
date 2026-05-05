@@ -1,8 +1,6 @@
 -- Purity AddOn - Fishing Module
 
-if not Purity then
-    return
-end
+local addonName, Purity = ...
 
 local FishingModule = {
     challengeName = "Fisherman's Folly",
@@ -15,6 +13,7 @@ local FishingModule = {
 	showAllowedTooltip = true,
 }
 
+local recentlyFished = false
 local secureAllowedItems = {}
 
 local DIRECT_FISHED_EQUIPPABLES = {
@@ -48,34 +47,40 @@ end
 --- Checks directly against the database if an item is forbidden.
 function FishingModule:IsItemForbidden(itemLink)
     if not itemLink then return nil end
-    local db = Purity:GetDB()
-    local itemName, _, _, _, _, itemType = GetItemInfo(itemLink)
-    local itemID = itemLink and tonumber(string.match(itemLink, "item:(%d+)"))
+    
+    local itemID, _, _, _, _, itemClassID, itemSubClassID = GetItemInfoInstant(itemLink)
     if not itemID then return nil end
 
+    if itemClassID == 2 and itemSubClassID == 20 then return false end
+
+    local itemName = GetItemInfo(itemLink)
     local cleanItemName = self:SanitizeItemName(itemName)
     
-    if cleanItemName and secureAllowedItems[cleanItemName] then 
-		return false -- It's allowed.
-	end
+    if cleanItemName and secureAllowedItems[cleanItemName] then return false end
+    if secureAllowedItems[itemID] then return false end
     
     if DIRECT_FISHED_EQUIPPABLES[itemID] then return false end
     if VENDOR_PURCHASABLE_FISHING_POLES[itemID] then return false end
-    if itemType ~= "Armor" and itemType ~= "Weapon" then return nil end
     
-    return true -- It's forbidden.
+    if itemClassID ~= 4 and itemClassID ~= 2 then return nil end
+    
+    return true
 end
 
 --- Checks if a weapon is allowed.
 function FishingModule:isWeaponAllowed(itemLink)
     if not itemLink then return false end
     
-    local itemName, _, _, _, _, _, itemSubType = GetItemInfo(itemLink)
-    local itemID = tonumber(string.match(itemLink, "item:(%d+)"))
+    local itemID, _, _, _, _, itemClassID, itemSubClassID = GetItemInfoInstant(itemLink)
+
+    if itemClassID == 2 and itemSubClassID == 20 then return true end
+
+    local itemName = GetItemInfo(itemLink)
     local cleanItemName = self:SanitizeItemName(itemName)
 
     if cleanItemName and secureAllowedItems[cleanItemName] then return true end
-    if itemSubType == "Fishing Pole" or itemSubType == "Fishing Poles" then return true end
+    if itemID and secureAllowedItems[itemID] then return true end
+    
     if itemID and DIRECT_FISHED_EQUIPPABLES[itemID] then return true end
 
     return false
@@ -127,65 +132,104 @@ function FishingModule:EventHandler(event, ...)
             end
         end
     elseif event == "LOOT_READY" then
+        -- 1. Handle Fishing Loot
+        if IsFishingLoot and IsFishingLoot() then
+            local db = Purity:GetDB()
+            db.challengeStats = db.challengeStats or {}
+            
+            -- Increment catches once per successful cast
+            db.challengeStats.totalCatches = (db.challengeStats.totalCatches or 0) + 1
+            
+            local numItems = GetNumLootItems()
+            for i = 1, numItems do
+                local itemLink = GetLootSlotLink(i)
+                if itemLink then
+                    local itemID, _, _, _, _, itemClassID = GetItemInfoInstant(itemLink)
+                    local itemName = GetItemInfo(itemLink)
+                    
+                    -- Track trunks
+                    if itemName and string.find(itemName, "Trunk") then
+                        db.challengeStats.trunksFished = (db.challengeStats.trunksFished or 0) + 1
+                    end
+                    
+                    -- Add fished gear to the allowed items list (2 = Weapon, 4 = Armor)
+                    if itemClassID == 2 or itemClassID == 4 then
+                        -- Always save the itemID as a fallback for cache misses
+                        if itemID then secureAllowedItems[itemID] = true end 
+                        
+                        if itemName then
+                            local cleanItemName = self:SanitizeItemName(itemName)
+                            if cleanItemName then secureAllowedItems[cleanItemName] = true end
+                        end
+                    end
+                end
+            end
+            
+            if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
+                Purity:UpdateCharacterStatus()
+            end
+        end
+
+        -- 2. Handle Container Loot (e.g., Opening Trunks)
         if self.isExpectingLootFromContainer then
             local numItems = GetNumLootItems()
             for i = 1, numItems do
                 local itemLink = GetLootSlotLink(i)
                 if itemLink then
-                    local itemName, _, _, _, _, itemType = GetItemInfo(itemLink)
-                    if itemName and (itemType == "Armor" or itemType == "Weapon") then
-                        local cleanItemName = self:SanitizeItemName(itemName)
-                        if cleanItemName then secureAllowedItems[cleanItemName] = true end
+                    local itemID, _, _, _, _, itemClassID = GetItemInfoInstant(itemLink)
+                    local itemName = GetItemInfo(itemLink)
+                    
+                    if itemClassID == 2 or itemClassID == 4 then
+                        if itemID then secureAllowedItems[itemID] = true end
+                        
+                        if itemName then
+                            local cleanItemName = self:SanitizeItemName(itemName)
+                            if cleanItemName then secureAllowedItems[cleanItemName] = true end
+                        end
                     end
                 end
             end
         end
+
     elseif event == "LOOT_CLOSED" then
         self.isExpectingLootFromContainer = false
+
     elseif event == "CHAT_MSG_LOOT" then
         local message = ...
         local itemLink = string.match(message, "You receive loot: (.+).")
         if not itemLink then return end
-        local itemName, _, _, _, _, itemType = GetItemInfo(itemLink)
+        
         local itemID = tonumber(string.match(itemLink, "item:(%d+)"))
-        if not itemName or not itemID then return end
-
-        -- Increment total catches for every valid item looted from fishing
-        local db = Purity:GetDB()
-        db.challengeStats = db.challengeStats or {}
-        db.challengeStats.totalCatches = (db.challengeStats.totalCatches or 0) + 1
+        local itemName = GetItemInfo(itemLink)
+        if not itemID then return end
 
         if DIRECT_FISHED_EQUIPPABLES[itemID] then
-            local cleanItemName = self:SanitizeItemName(itemName)
-            if cleanItemName then secureAllowedItems[cleanItemName] = true end
+            secureAllowedItems[itemID] = true
+            if itemName then
+                local cleanItemName = self:SanitizeItemName(itemName)
+                if cleanItemName then secureAllowedItems[cleanItemName] = true end
+            end
         end
         
         -- Stat tracking for trunks
         if itemName and string.find(itemName, "Trunk") then
+            local db = Purity:GetDB()
+            db.challengeStats = db.challengeStats or {}
             db.challengeStats.trunksFished = (db.challengeStats.trunksFished or 0) + 1
         end
 
         if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-            _G["UpdateCharacterPurity"]()
+            Purity:UpdateCharacterStatus()
         end
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         Purity:CheckWeaponState()
-        local inventorySlots = { INSLOT_HEAD, INSLOT_NECK, INSLOT_SHOULDER, INSLOT_CHEST, INSLOT_WAIST, INSLOT_LEGS, INSLOT_FEET, INSLOT_WRIST, INSLOT_HAND, INSLOT_FINGER1, INSLOT_FINGER2, INSLOT_TRINKET1, INSLOT_TRINKET2, INSLOT_BACK, INSLOT_MAINHAND, INSLOT_OFFHAND, INSLOT_RANGED, INSLOT_TABARD }
-        for _, slotId in ipairs(inventorySlots) do
-            local itemLink = GetInventoryItemLink("player", slotId)
-            if itemLink and self:IsItemForbidden(itemLink) then
-                local itemName = GetItemInfo(itemLink)
-                Purity:Violation("Equipped a forbidden item: " .. (itemName or "Unknown Item"))
-                return
-            end
-        end
     elseif event == "PLAYER_LOGOUT" then
         self:SaveData()
     end
 end
 
 function FishingModule:ScanAndPurgeAllowedList()
-    local currentPossessedNames = {}
+    local currentPossessed = {}
     local inventorySlots = {
         INVSLOT_HEAD, INVSLOT_NECK, INVSLOT_SHOULDER, INVSLOT_CHEST,
         INVSLOT_WAIST, INVSLOT_LEGS, INVSLOT_FEET, INVSLOT_WRIST,
@@ -197,8 +241,11 @@ function FishingModule:ScanAndPurgeAllowedList()
     for _, slotId in ipairs(inventorySlots) do
         local link = GetInventoryItemLink("player", slotId)
         if link then 
+            local itemID = tonumber(string.match(link, "item:(%d+)"))
+            if itemID then currentPossessed[itemID] = true end
+            
             local name = self:SanitizeItemName(GetItemInfo(link))
-            if name then currentPossessedNames[name] = true; end
+            if name then currentPossessed[name] = true end
         end
     end
     
@@ -206,26 +253,29 @@ function FishingModule:ScanAndPurgeAllowedList()
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local itemInfo = C_Container.GetContainerItemInfo(bag, slot)
             if itemInfo and itemInfo.hyperlink then
+                local itemID = tonumber(string.match(itemInfo.hyperlink, "item:(%d+)"))
+                if itemID then currentPossessed[itemID] = true end
+                
                 local name = self:SanitizeItemName(GetItemInfo(itemInfo.hyperlink))
-                if name then currentPossessedNames[name] = true; end
+                if name then currentPossessed[name] = true end
             end
         end
     end
 
-    for name, _ in pairs(self.bankedItemNames) do
-        currentPossessedNames[name] = true
+    for nameOrId, _ in pairs(self.bankedItemNames) do
+        currentPossessed[nameOrId] = true
     end
 
-    local namesToPurge = {}
-    for allowedName, _ in pairs(secureAllowedItems) do
-        if not currentPossessedNames[allowedName] then
-            table.insert(namesToPurge, allowedName)
+    local itemsToPurge = {}
+    for allowedItem, _ in pairs(secureAllowedItems) do
+        if not currentPossessed[allowedItem] then
+            table.insert(itemsToPurge, allowedItem)
         end
     end
 
-    if #namesToPurge > 0 then
-        for _, nameToPurge in ipairs(namesToPurge) do
-            secureAllowedItems[nameToPurge] = nil
+    if #itemsToPurge > 0 then
+        for _, itemToPurge in ipairs(itemsToPurge) do
+            secureAllowedItems[itemToPurge] = nil
         end
         self:SaveData()
     end
@@ -239,19 +289,30 @@ function FishingModule:InitializeOnPlayerEnterWorld()
 	
 	wipe(secureAllowedItems)
 	
+    -- Safely load numbers and strings
 	for dirtyItemName, value in pairs(db.fishingFishedItemLinks) do
-        local cleanName = self:SanitizeItemName(dirtyItemName)
-        if cleanName then
-            secureAllowedItems[cleanName] = value
+        if type(dirtyItemName) == "number" or tonumber(dirtyItemName) then
+            local id = tonumber(dirtyItemName)
+            secureAllowedItems[id] = value
+        else
+            local cleanName = self:SanitizeItemName(dirtyItemName)
+            if cleanName then
+                secureAllowedItems[cleanName] = value
+            end
         end
     end
 
     if not self.hasPerformedInitialPurge then
         local cleanFishedItems = {}
         for dirtyItemName, value in pairs(db.fishingFishedItemLinks) do
-            local cleanName = self:SanitizeItemName(dirtyItemName)
-            if cleanName then
-                cleanFishedItems[cleanName] = value
+            if type(dirtyItemName) == "number" or tonumber(dirtyItemName) then
+                local id = tonumber(dirtyItemName)
+                cleanFishedItems[id] = value
+            else
+                local cleanName = self:SanitizeItemName(dirtyItemName)
+                if cleanName then
+                    cleanFishedItems[cleanName] = value
+                end
             end
         end
         db.fishingFishedItemLinks = cleanFishedItems
@@ -261,26 +322,29 @@ function FishingModule:InitializeOnPlayerEnterWorld()
     
     local eventFrame = CreateFrame("Frame")
 
-    -- This function performs a full scan of all bank containers.
     local function fullBankScan(self)
-        self.bankedItemNames = {} -- Start fresh
+        self.bankedItemNames = {}
 
-        -- Scan the main bank (28 slots in Classic)
         for slot = 1, 28 do
             local itemLink = C_Container.GetContainerItemLink(BANK_CONTAINER, slot)
             if itemLink then
+                local itemID = tonumber(string.match(itemLink, "item:(%d+)"))
+                if itemID then self.bankedItemNames[itemID] = true end
+
                 local name = self:SanitizeItemName(GetItemInfo(itemLink))
-                if name then self.bankedItemNames[name] = true; end
+                if name then self.bankedItemNames[name] = true end
             end
         end
 
-        -- Scan the bank bags
         for bag = (NUM_BAG_SLOTS + 1), (NUM_BAG_SLOTS + GetNumBankSlots()) do
             for slot = 1, C_Container.GetContainerNumSlots(bag) do
                 local itemLink = C_Container.GetContainerItemLink(bag, slot)
                 if itemLink then
+                    local itemID = tonumber(string.match(itemLink, "item:(%d+)"))
+                    if itemID then self.bankedItemNames[itemID] = true end
+
                     local name = self:SanitizeItemName(GetItemInfo(itemLink))
-                    if name then self.bankedItemNames[name] = true; end
+                    if name then self.bankedItemNames[name] = true end
                 end
             end
         end
@@ -288,16 +352,11 @@ function FishingModule:InitializeOnPlayerEnterWorld()
 
     eventFrame:SetScript("OnEvent", function(frame, event)
         if event == "BANKFRAME_OPENED" then
-            -- We can't scan immediately. Instead, we'll run the scan on the very next frame.
             frame:SetScript("OnUpdate", function(self_frame)
-                -- The 'self' here is an upvalue pointing to the FishingModule.
                 fullBankScan(self) 
-                
-                -- Unregister the OnUpdate script so it only runs once.
                 self_frame:SetScript("OnUpdate", nil) 
             end)
         elseif event == "BANKFRAME_CLOSED" then
-            -- When the bank closes, the list of banked items is now populated and ready.
             self:ScanAndPurgeAllowedList()
         end
     end)

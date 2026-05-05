@@ -1,6 +1,6 @@
 -- Purity AddOn - Death Knight Module (Fixed for WotLK & MoP)
 
-if not Purity then return end
+local addonName, Purity = ...
 
 -- 1. Version Compatibility Wrapper
 -- WotLK Classic uses CombatLogGetCurrentEventInfo.
@@ -77,6 +77,7 @@ local AshesOfPurity = {
 
     EventHandler = function(self, event, ...)
         if event == "PLAYER_EQUIPMENT_CHANGED" or event == "BAG_UPDATE" then
+			local slotId = ...
             Purity:CheckEquipmentState()
         
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
