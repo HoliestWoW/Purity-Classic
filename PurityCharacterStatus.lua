@@ -38,12 +38,23 @@ local PurityTabGUI = CreateFrame("Button", "PurityCharacterTab", CharacterFrame)
 PurityTabGUI:SetFrameStrata("MEDIUM")
 
 PurityTabGUI:SetWidth(60)
-PurityTabGUI:SetHeight(42)
+PurityTabGUI:SetHeight(45)
 
 PurityTabGUI.text = PurityTabGUI:CreateFontString(nil, "OVERLAY")
 PurityTabGUI.text:SetFontObject(GameFontNormalSmall)
 PurityTabGUI.text:SetPoint("CENTER", 0, 1)
 PurityTabGUI.text:SetText("Purity")
+
+PurityTabGUI:SetScript("OnEnter", function(self)
+	if Purity.characterPanel:IsShown() then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("|cFFFFFFFFPurity|r") 
+    GameTooltip:Show()
+end)
+
+PurityTabGUI:SetScript("OnLeave", function(self)
+    GameTooltip:Hide()
+end)
 
 local activeTextures = {}
 local inactiveTextures = {}
@@ -59,7 +70,7 @@ inactiveTextures.middle = PurityTabGUI:CreateTexture(nil, "ARTWORK"); inactiveTe
 local purity_highlight = PurityTabGUI:CreateTexture(nil, "HIGHLIGHT")
 purity_highlight:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-Tab-RealHighlight")
 
-purity_highlight:SetSize(60, 38)
+purity_highlight:SetSize(54, 38)
 purity_highlight:SetPoint("TOP", 0, 0)
 purity_highlight:SetRotation(3.14)
 purity_highlight:SetTexCoord(1.0, 0.0, 1.0, 0.0)
@@ -73,6 +84,8 @@ local function ShowCharacterPurity()
 	PurityTabGUI.text:SetFontObject(GameFontHighlightSmall)
 	PurityTabGUI.text:SetPoint("CENTER", 0, 3)
 	PurityTabGUI:SetFrameStrata("HIGH")
+	PurityTabGUI:Disable() 
+	if GameTooltip:GetOwner() == PurityTabGUI then GameTooltip:Hide() end   
 	Purity.characterPanel:Show()
 end
 
@@ -82,6 +95,7 @@ local function HideCharacterPurity()
 	PurityTabGUI.text:SetFontObject(GameFontNormalSmall)
 	PurityTabGUI.text:SetPoint("CENTER", 0, 1)
 	PurityTabGUI:SetFrameStrata("MEDIUM")
+	PurityTabGUI:Enable()   
 	Purity.characterPanel:Hide()
 end
 
@@ -142,47 +156,47 @@ function Purity:AdjustCharacterTabs()
 end
 
 hooksecurefunc(CharacterFrame, "Show", function()
-	-- More aggressive shrinking to ensure tabs fit
-	local ADDON_TAB_WIDTH = 45      -- Was 45
-	local ADDON_TAB_OVERLAP = -10   -- Was -10
+	-- Wait 0.01 seconds to let other addons place their tabs
+	C_Timer.After(0.01, function()
+		local ADDON_TAB_WIDTH = 55    
+		local ADDON_TAB_OVERLAP = -10   
 
-	-- Safely shrink the Hardcore Tab if it exists
-	local hcTab = _G["HardcoreCharacterTab"]
-	if hcTab then
-		hcTab:SetWidth(ADDON_TAB_WIDTH)
-	end
+		PurityTabGUI:SetWidth(ADDON_TAB_WIDTH)
 
-	-- Shrink our own Purity Tab
-	PurityTabGUI:SetWidth(ADDON_TAB_WIDTH)
+		-- Get the baseline vertical position from the default first tab
+		local refTab = _G["CharacterFrameTab1"]
+		local rightMostTab = refTab
+		local maxRight = refTab and refTab:GetRight() or 0
+		local refBottom = refTab and refTab:GetBottom() or 0
 
-	-- A list of all possible tabs to check, in order.
-	local tabs_to_check = {
-		"CharacterFrameTab1",
-		"CharacterFrameTab2",
-		"CharacterFrameTab3",
-		"CharacterFrameTab4",
-		"CharacterFrameTab5",
-		"PetPaperDollFrameTab", -- Detects the Pet tab
-		"HardcoreCharacterTab"
-	}
-
-	local anchorFrame = _G["CharacterFrameTab1"] -- Start with a safe default
-
-	-- Find the actual right-most visible tab to anchor to
-	for _, tabName in ipairs(tabs_to_check) do
-		local tab = _G[tabName]
-		if tab and tab:IsShown() then
-			anchorFrame = tab
+		local children = {CharacterFrame:GetChildren()}
+		for _, child in ipairs(children) do
+			local name = child:GetName()
+			-- Look for visible Buttons with "Tab" in the name
+			if name and name ~= "PurityCharacterTab" and child:GetObjectType() == "Button" and string.find(name, "Tab", 1, true) then
+				if child:IsShown() then
+					local childBottom = child:GetBottom()
+					
+					-- NEW: Only consider this tab if it is vertically aligned with Tab1 (within 15 pixels)
+					if childBottom and math.abs(childBottom - refBottom) < 15 then
+						local right = child:GetRight()
+						if right and right > maxRight then
+							maxRight = right
+							rightMostTab = child
+						end
+					end
+				end
+			end
 		end
-	end
 
-	-- Position the Purity tab next to the final anchor using the new overlap
-	if anchorFrame then
-		PurityTabGUI:ClearAllPoints()
-		PurityTabGUI:SetPoint("LEFT", anchorFrame, "RIGHT", ADDON_TAB_OVERLAP, 0)
-	end
-	
-	PurityTabGUI:Show()
+		-- Attach Purity to the furthest right tab that is actually in the bottom row
+		if rightMostTab then
+			PurityTabGUI:ClearAllPoints()
+			PurityTabGUI:SetPoint("LEFT", rightMostTab, "RIGHT", ADDON_TAB_OVERLAP, 0)
+		end
+		
+		PurityTabGUI:Show()
+	end)
 end)
 
 hooksecurefunc(CharacterFrame, "Hide", function()
@@ -273,7 +287,8 @@ UpdateCharacterPurity = function()
 	CreateLabel(goldColor .. "Status:|r " .. statusColor .. data.status .. "|r", 12, 20)
 	
 	--[[ MODIFIED: Removed effectiveRuntime and using direct addonRuntime / totalPlayedTime calculation ]]
-	local uptimeDisplay = string.format("%.2f%%", (data.totalPlayed > 0 and (data.addonRuntime / data.totalPlayed) * 100) or 0)
+	local currentUptime = (data.totalPlayed > 0 and (data.addonRuntime / data.totalPlayed) * 100) or 0
+	local uptimeDisplay = string.format("%.2f%%", math.min(100, currentUptime))
 	
 	CreateLabel(goldColor .. "Addon Uptime:|r " .. whiteColor .. uptimeDisplay, 12, 20)
 	if data.startDate and data.startDate ~= "N/A" then CreateLabel(goldColor .. "Started:|r " .. whiteColor .. data.startDate, 12, 20) end

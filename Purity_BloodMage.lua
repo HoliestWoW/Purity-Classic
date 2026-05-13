@@ -447,244 +447,35 @@ end,
         self.bloodBarFrame:SetValue(db.bloodPoolCurrent)
         self:UpdateBarText()
     end,
-	
-	RefreshLogDisplay = function(self)
-        if not self.bloodLogFrame then return end
-        
-        local db = Purity:GetDB()
-        local filters = db.bloodLogFilters or { costs = true, damage = true, heals = true, alerts = true }
-        local scrollChild = self.bloodLogFrame.scrollChild
-        local visibleLines = {}
-
-        -- Hide all existing font strings first
-        for _, line in ipairs(self.bloodLogFrame.logLines) do
-            line:Hide()
-        end
-
-        -- Filter and display the relevant messages
-        local lineIndex = 1
-        for _, entry in ipairs(self.bloodLogFrame.messageHistory) do
-            if filters[entry.category] then
-                -- Grab an existing font string or create a new one
-                local line = self.bloodLogFrame.logLines[lineIndex]
-                if not line then
-                    line = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-                    line:SetJustifyH("LEFT")
-                    line:SetWidth(scrollChild:GetWidth() - 10)
-                    table.insert(self.bloodLogFrame.logLines, line)
-                end
-
-                line:SetText(entry.message)
-                line:ClearAllPoints()
-                
-                if lineIndex == 1 then
-                    line:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 5, -5)
-                else
-                    line:SetPoint("TOPLEFT", self.bloodLogFrame.logLines[lineIndex - 1], "BOTTOMLEFT", 0, -2)
-                end
-                
-                line:Show()
-                visibleLines[lineIndex] = line
-                lineIndex = lineIndex + 1
-            end
-        end
-
-        -- Adjust scroll height
-        local totalHeight = 0
-        for _, line in pairs(visibleLines) do
-            totalHeight = totalHeight + line:GetHeight() + 2
-        end
-        scrollChild:SetHeight(math.max(self.bloodLogFrame.scrollFrame:GetHeight(), totalHeight))
-        
-        -- Smart Auto-Scrolling Logic
-        local scrollBar = _G[self.bloodLogFrame.scrollFrame:GetName() .. "ScrollBar"]
-        if scrollBar then
-            local currentValue = scrollBar:GetValue()
-            local _, oldMaxValue = scrollBar:GetMinMaxValues()
-            
-            -- Check if we are currently at the bottom (within a small 5-pixel margin of error)
-            local isAtBottom = (oldMaxValue - currentValue) <= 5
-            
-            self.bloodLogFrame.scrollFrame:UpdateScrollChildRect()
-            local _, newMaxValue = scrollBar:GetMinMaxValues()
-            
-            -- Only jump to the new bottom if we were already at the bottom
-            if isAtBottom then
-                scrollBar:SetValue(newMaxValue)
-            end
-        else
-            self.bloodLogFrame.scrollFrame:UpdateScrollChildRect()
-        end
-    end,
 
     _AddNewLogMessage = function(self, message, category)
-        if not self.bloodLogFrame then return end
+        local db = Purity:GetDB()
+		if not db.bloodLogVisible then return end
+        local filters = db.bloodLogFilters or { costs = true, damage = true, heals = true, alerts = true }
         
-        -- Default to 'alerts' if no category is provided
         category = category or "alerts" 
         
-        -- Store in history (max 150 items to prevent memory bloat)
-        table.insert(self.bloodLogFrame.messageHistory, { message = message, category = category })
-        if #self.bloodLogFrame.messageHistory > 150 then
-            table.remove(self.bloodLogFrame.messageHistory, 1)
+        if filters[category] then
+            Purity:LogToChatTab("Blood Log", message)
         end
-        
-        -- Redraw the log if the frame is shown
-        if self.bloodLogFrame:IsShown() then
-            self:RefreshLogDisplay()
-        end
-    end,
-
-    CreateBloodLogFrame = function(self)
-        if self.bloodLogFrame then return end
-
-        local db = Purity:GetDB()
-        -- Initialize filters if they don't exist
-        if type(db.bloodLogFilters) ~= "table" then
-            db.bloodLogFilters = { costs = true, damage = true, heals = true, alerts = true }
-        end
-
-        local frame = CreateFrame("Frame", "PurityBloodLogFrame", UIParent)
-        local width = (db and db.bloodLogDimensions and db.bloodLogDimensions.width) or 350
-        local height = (db and db.bloodLogDimensions and db.bloodLogDimensions.height) or 150
-        frame:SetSize(width, height)
-        frame:SetResizable(true)
-        frame:SetClampedToScreen(true)
-        frame:SetMovable(true)
-        frame:EnableMouse(true)
-        frame:RegisterForDrag("LeftButton")
-        frame:SetScript("OnDragStart", frame.StartMoving)
-        frame:SetScript("OnDragStop", function(f)
-            f:StopMovingOrSizing()
-            local point, _, relativePoint, x, y = f:GetPoint()
-            if not db.bloodLogPosition then db.bloodLogPosition = {} end
-            db.bloodLogPosition = { point = point, relativePoint = relativePoint, x = x, y = y }
-        end)
-
-        frame.bg = frame:CreateTexture(nil, "BACKGROUND")
-        frame.bg:SetAllPoints(true)
-        frame.bg:SetColorTexture(0, 0, 0, 0.7)
-        
-        -- --- NEW: Filter Header Bar ---
-        local headerFrame = CreateFrame("Frame", nil, frame)
-        headerFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-        headerFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-        headerFrame:SetHeight(24)
-        
-        local headerBg = headerFrame:CreateTexture(nil, "BACKGROUND")
-        headerBg:SetAllPoints(true)
-        headerBg:SetColorTexture(0.1, 0.1, 0.1, 0.9)
-
-        local module = self
-        
-        local function CreateFilterCheckbox(parent, label, key, xOffset)
-            local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-            cb:SetSize(20, 20)
-            cb:SetPoint("LEFT", parent, "LEFT", xOffset, 0)
-            
-            if db.bloodLogFilters[key] == nil then db.bloodLogFilters[key] = true end
-            cb:SetChecked(db.bloodLogFilters[key])
-            
-            local text = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            text:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-            text:SetText(label)
-            
-            cb:SetScript("OnClick", function(btn)
-                local isChecked = btn:GetChecked()
-                db.bloodLogFilters[key] = (isChecked == true or isChecked == 1)
-                
-                module:RefreshLogDisplay()
-            end)
-            return cb, text:GetStringWidth() + 25
-        end
-
-        local offset = 5
-        local cb1, w1 = CreateFilterCheckbox(headerFrame, "Costs", "costs", offset)
-        offset = offset + w1
-        local cb2, w2 = CreateFilterCheckbox(headerFrame, "Damage", "damage", offset)
-        offset = offset + w2
-        local cb3, w3 = CreateFilterCheckbox(headerFrame, "Heals", "heals", offset)
-        
-        -- --- End Filter Header Bar ---
-
-        -- Adjust scroll frame to sit below the header
-        local scrollFrame = CreateFrame("ScrollFrame", "PurityBloodLogScrollFrame", frame, "UIPanelScrollFrameTemplate")
-        scrollFrame:SetPoint("TOPLEFT", 5, -29) -- Shifted down to make room for header
-        scrollFrame:SetPoint("BOTTOMRIGHT", -25, 5) 
-
-        local scrollChild = CreateFrame("Frame")
-        scrollChild:SetWidth(frame:GetWidth() - 40)
-        scrollFrame:SetScrollChild(scrollChild)
-        
-        frame:SetScript("OnSizeChanged", function(self, w, h)
-            if self.scrollChild then self.scrollChild:SetWidth(w - 40) end
-            if self.logLines then
-                for _, line in ipairs(self.logLines) do
-                    line:SetWidth(w - 40)
-                end
-            end
-            module:RefreshLogDisplay()
-        end)
-
-        self.bloodLogFrame = frame
-        frame.scrollFrame = scrollFrame
-        frame.scrollChild = scrollChild
-        frame.logLines = {}
-        frame.messageHistory = {} -- New table to hold raw data
-
-        -- Resize Handle (Unchanged from your code)
-        local resizeHandle = CreateFrame("Button", "PurityBloodLogResizeButton", frame)
-        resizeHandle:SetSize(16, 16)
-        resizeHandle:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 2)
-        resizeHandle:SetFrameLevel(frame:GetFrameLevel() + 5)
-        resizeHandle:SetFrameStrata("HIGH")
-        resizeHandle:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Up")
-        resizeHandle:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Down")
-        resizeHandle:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Highlight")
-        resizeHandle:RegisterForDrag("LeftButton")
-        resizeHandle:SetScript("OnDragStart", function(self)
-            frame:StartSizing("BOTTOMLEFT")
-            if frame.scrollFrame then frame.scrollFrame:Hide() end
-            frame:SetScript("OnDragStart", nil)
-        end)
-        resizeHandle:SetScript("OnDragStop", function(self)
-            frame:StopMovingOrSizing()
-            if frame.scrollFrame then frame.scrollFrame:Show() end
-            frame:SetScript("OnDragStart", frame.StartMoving)
-            if not db.bloodLogDimensions then db.bloodLogDimensions = {} end
-            db.bloodLogDimensions.width = frame:GetWidth()
-            db.bloodLogDimensions.height = frame:GetHeight()
-            module:RefreshLogDisplay()
-        end)
-        frame.resizeHandle = resizeHandle
-
-        if db.bloodLogPosition then
-            frame:SetPoint(db.bloodLogPosition.point, UIParent, db.bloodLogPosition.relativePoint, db.bloodLogPosition.x, db.bloodLogPosition.y)
-        else
-            frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 200)
-        end
-        frame:Hide()
     end,
 	
 	LogBloodLoss = function(self, spellName, cost)
-        local timestamp = date("|cffc0c0c0[%H:%M:%S]|r ")
         local spellText = "|cffffffff[" .. spellName .. "]|r"
         local costText = " costs |cffFF4D4D" .. math.floor(cost) .. "|r Blood."
         
-        self:_AddNewLogMessage(timestamp .. spellText .. costText, "costs")
+        self:_AddNewLogMessage(spellText .. costText, "costs")
     end,
 
     LogDamageTaken = function(self, sourceName, spellName, amount)
-        local timestamp = date("|cffc0c0c0[%H:%M:%S]|r ")
         local sourceText = "|cffff8080" .. (sourceName or "Unknown") .. "'s|r"
         local abilityText = " |cffffffff" .. ((spellName and spellName ~= -1) and spellName or "Melee") .. "|r"
         local damageText = " hits you for |cffFF4D4D" .. math.floor(amount) .. "|r Blood."
 
-        self:_AddNewLogMessage(timestamp .. sourceText .. abilityText .. damageText, "damage")
+        self:_AddNewLogMessage(sourceText .. abilityText .. damageText, "damage")
     end,
 
     LogHealingReceived = function(self, sourceName, spellName, amount)
-        local timestamp = date("|cffc0c0c0[%H:%M:%S]|r ")
         
         local roundedAmount = math.floor(amount * 10 + 0.5) / 10
         local displayAmount
@@ -702,27 +493,26 @@ end,
 
         if sourceName == "Passive" then
             local abilityText = "|cffffffff[" .. (spellName or "Regeneration") .. "]|r"
-            finalMessage = timestamp .. abilityText .. healText
+            finalMessage = abilityText .. healText
             
         elseif sourceName == UnitName("player") then
             local abilityText = "|cffffffff[" .. (spellName or "Heal") .. "]|r"
-            finalMessage = timestamp .. "Your " .. abilityText .. healText
+            finalMessage = "Your " .. abilityText .. healText
             
         else
             local sourceText = "|cff80ff80" .. (sourceName or "Unknown") .. "'s|r "
             local abilityText = "|cffffffff[" .. (spellName or "Heal") .. "]|r"
-            finalMessage = timestamp .. sourceText .. abilityText .. healText
+            finalMessage = sourceText .. abilityText .. healText
         end
 
         self:_AddNewLogMessage(finalMessage, "heals")
     end,
     
     LogSanguineWeakness = function(self, healSourceName)
-        local timestamp = date("|cffc0c0c0[%H:%M:%S]|r ")
         local effectText = "|cffff00ff[Sanguine Weakness]|r"
         local description = " applied for 15s from |cffffffff[" .. (healSourceName or "Unknown Heal") .. "]|r."
 
-        self:_AddNewLogMessage(timestamp .. effectText .. description, "alerts")
+        self:_AddNewLogMessage(effectText .. description, "alerts")
     end,
 	
 	ApplyBloodRegen = function(self, hps)
@@ -1501,11 +1291,7 @@ ManageBloodRegen = function(self)
             
             self.characterFrameHooked = true
         end
-		self:CreateBloodLogFrame()
 		local db = Purity:GetDB()
-        if db and db.bloodLogVisible and self.bloodLogFrame then
-            self.bloodLogFrame:Show()
-        end
         if not self.playerFrameTooltipHooked then
             local originalOnEnter = PlayerFrameHealthBar:GetScript("OnEnter")
             local originalOnLeave = PlayerFrameHealthBar:GetScript("OnLeave")

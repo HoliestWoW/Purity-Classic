@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.0.2"
+Purity.Version = "12.0.3"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -386,7 +386,7 @@ end
 
 function Purity:GetCurrentChallengeInfo()
     local db = self:GetDB()
-    if not db or not db.challengeTitle then return nil, 1.0 end
+    if not db or not db.challengeTitle then return nil, 0 end
 
     -- Helper to get coeff for a specific ID
     local function GetCoeff(name)
@@ -446,6 +446,10 @@ function Purity:CalculateTotalCoefficient()
     end
     
     return baseCoeff * multiplier
+end
+
+function Purity:GetTotalCoefficient()
+    return self:CalculateTotalCoefficient()
 end
 
 function Purity:GetGameplayModifiers()
@@ -552,7 +556,7 @@ function Purity:InitializeDatabase()
 		playerGUID = nil,
 		dataSignature = nil,
 		uptimeGrace = 0,
-        addonRuntimeAtLastPlayedSync = 0, -- ADDED THIS LINE
+        addonRuntimeAtLastPlayedSync = 0,
 		physicalStrikes = 0,
 		activeChallengeModuleType = nil,
 		fishingFishedItemLinks = {},
@@ -565,6 +569,8 @@ function Purity:InitializeDatabase()
         bloodBarIsSeparate = false,
 		dkDestinyID = nil,
 		sequenceID = 0,
+		bloodLogVisible = false,
+        glassLogVisible = false,
 	}
     for key, value in pairs(defaults) do
         if Purity_PerCharacterDB[key] == nil then
@@ -968,7 +974,7 @@ function Purity:UpdateAndGetStatusStrings()
     local darkColor = "|cff261a0d"
 
     local currentUptime = (data.totalPlayed > 0 and (data.addonRuntime / data.totalPlayed) * 100) or 0
-    local uptimeDisplay = string.format("%.2f%%", currentUptime)
+    local uptimeDisplay = string.format("%.2f%%", math.min(100, currentUptime))
     local uptimeLabel = "Uptime:|r "
     
     if data.status == "Passed" or data.status == "Failed" then
@@ -1306,6 +1312,7 @@ function Purity:SendStatusToPlayer(playerName)
     local realTimeData = self:GetRawStatusData()
     local totalCoeff = self:CalculateTotalCoefficient()
     local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
+    uptimePercent = math.min(100, uptimePercent)
     
     local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
     local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
@@ -1523,10 +1530,15 @@ local coefficientText = ""
 		coefficientText = "\n\n" .. goldColor .. "Difficulty Coefficient:|r " .. whiteColor .. string.format("%.2f", coeff) .. "|r"
 	end
 
-	Purity.optInFrame.challengeDescription:SetText(descriptionText .. coefficientText)
+	Purity.optInFrame.challengeDescription:SetWordWrap(true)
+    Purity.optInFrame.challengeDescription:SetWidth(Purity.optInFrame.scrollChild:GetWidth() - 20) 
+    Purity.optInFrame.challengeDescription:SetText(descriptionText .. coefficientText)
 
     local rules = challengeData.GetRulesText and challengeData:GetRulesText() or {""}
     local rulesString = table.concat(rules, "\n")
+    
+    Purity.optInFrame.challengeRules:SetWordWrap(true)
+    Purity.optInFrame.challengeRules:SetWidth(Purity.optInFrame.scrollChild:GetWidth() - 20)
     Purity.optInFrame.challengeRules:SetText(rulesString)
 
     if challengeData.optInWarningText then
@@ -1665,6 +1677,7 @@ function Purity:selectTab(tabToShow)
             local realTimeData = self:GetRawStatusData()
             local totalCoeff = self:CalculateTotalCoefficient()
             local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
+            uptimePercent = math.min(100, uptimePercent)
             local playerName = UnitName("player") .. "-" .. GetRealmName()
 
             local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
@@ -1796,15 +1809,11 @@ function Purity:BuildOptionsMenu()
             blText:SetTextColor(1, 0.82, 0)
         end
         bloodLogCheck:SetScript("OnClick", function(btn)
-            local makeVisible = btn:GetChecked()
             local db = Purity:GetDB()
-            db.bloodLogVisible = makeVisible
-            local mod = Purity.GlobalModules.BLOOD_MAGE_BARGAIN
-            if mod then
-                if not mod.bloodLogFrame then mod:CreateBloodLogFrame() end
-                if mod.bloodLogFrame then
-                    if makeVisible then mod.bloodLogFrame:Show() else mod.bloodLogFrame:Hide() end
-                end
+            local isChecked = btn:GetChecked()
+            db.bloodLogVisible = isChecked
+            if isChecked then
+                Purity:LogToChatTab("Blood Log", "|cffFFFF00Purity:|r Blood Log enabled.")
             end
         end)
         self.optionsPane.widgets.bloodLog = bloodLogCheck
@@ -1823,6 +1832,7 @@ function Purity:BuildOptionsMenu()
             local mod = Purity.GlobalModules["GLASS_HEART"]
             if mod then
                 mod:ToggleLog()
+                btn:SetChecked(Purity:GetDB().glassLogVisible)
             end
         end)
         self.optionsPane.widgets.glassLog = glassLogCheck
@@ -2169,7 +2179,7 @@ function Purity.CreateCoreUI()
 
 	local rightPaneContainer = CreateFrame("Frame", nil, Purity.optInFrame)
 	rightPaneContainer:SetSize(350, 400)
-	rightPaneContainer:SetPoint("TOPLEFT", separator, "TOPRIGHT", 15, 0)
+	rightPaneContainer:SetPoint("TOPLEFT", separator, "TOPRIGHT", 15, -5)
 	Purity.optInFrame.rightPane = rightPaneContainer
 
     local scrollFrame = CreateFrame("ScrollFrame", "PurityOptInScrollFrame", rightPaneContainer, "UIPanelScrollFrameTemplate")
@@ -2523,6 +2533,7 @@ function Purity.CreateCoreUI()
     Purity.optInFrame:Hide()
 
     Purity.mainInterfaceFrame = CreateFrame("Frame", "Purity_MainInterfaceFrame", UIParent)
+	tinsert(UISpecialFrames, "Purity_MainInterfaceFrame")
     Purity.mainInterfaceFrame:SetSize(800, 550)
     Purity.mainInterfaceFrame:SetPoint("CENTER")
     Purity:ApplyCustomArt(Purity.mainInterfaceFrame)
@@ -2994,6 +3005,7 @@ function Purity:CompleteChallenge()
 
         local effectiveRuntime = (db.addonRuntime or 0) + (db.uptimeGrace or 0)
         local finalUptime = (db.totalPlayedTime > 0 and (effectiveRuntime / db.totalPlayedTime) * 100) or 0
+        finalUptime = math.min(100, finalUptime)
 
         if finalUptime < 96.0 then
             db.status = "Temporary Failure - Uptime"
@@ -3088,26 +3100,39 @@ function Purity:CheckEquipmentState(slotId)
 
                 -- THE INSTANT AUTO-UNEQUIP (Bag Bounce)
                 if isForbidden then
-                    ClearCursor() -- Ensure the cursor is completely empty first
-                    PickupInventoryItem(slot) -- Rip the item from the equipment slot
+                    local hasEmptySlot = false
+                    for bag = 0, 4 do
+                        for bslot = 1, C_Container.GetContainerNumSlots(bag) do
+                            if not C_Container.GetContainerItemInfo(bag, bslot) then
+                                hasEmptySlot = true
+                                break
+                            end
+                        end
+                        if hasEmptySlot then break end
+                    end
+
+                    if not hasEmptySlot then
+                        -- Bags are full! Just warn them so it doesn't get stuck on the cursor.
+                        UIErrorsFrame:AddMessage("Bags Full! Swap the forbidden item back manually!", 1.0, 0.1, 0.1, 1.0)
+                        PlaySound(847) 
+                        return 
+                    end
+
+                    -- Safe to proceed: Ensure the cursor is completely empty first
+                    ClearCursor() 
+                    PickupInventoryItem(slot) 
                     
-                    -- Auto-dump into the first available bag slot
                     local itemPlaced = false
                     for bag = 0, 4 do
                         for bslot = 1, C_Container.GetContainerNumSlots(bag) do
-                            -- Find an empty slot
                             if not C_Container.GetContainerItemInfo(bag, bslot) then
-                                C_Container.PickupContainerItem(bag, bslot) -- Drop it in
+                                C_Container.PickupContainerItem(bag, bslot)
                                 itemPlaced = true
                                 break
                             end
                         end
                         if itemPlaced then break end
                     end
-                    
-                    -- Play the error sound and notify the player
-                    PlaySound(847) 
-                    UIErrorsFrame:AddMessage("Your vow forbids you from equipping this item.", 1.0, 0.1, 0.1, 1.0)
                 end
             end
         end
@@ -3571,47 +3596,17 @@ SlashCmdList["PURITY"] = function(msg)
 		
 	elseif command == "bloodlog" then
         local db = Purity:GetDB()
-        local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
-        
-        -- Check for the active challenge
-        if db and db.activeChallengeID == "BLOOD_MAGE_BARGAIN" and bloodMageModule then
-            
-            -- If the frame doesn't exist (e.g., first use), create it now.
-            if not bloodMageModule.bloodLogFrame then
-                bloodMageModule:CreateBloodLogFrame()
-            end
-            
-            local frame = bloodMageModule.bloodLogFrame
-            if not frame then -- Safety check
-                 print("|cffFFFF00Purity:|r Blood Log frame failed to create.")
-                 return
-            end
-
-            local arg2 = args[2] and string.lower(args[2]) or nil
-
-            if arg2 == "reset" then
-                frame:ClearAllPoints()
-                frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 200)
-                if db then db.bloodLogPosition = nil end
-                print("|cffFFFF00Purity:|r Blood Log position has been reset.")
-            elseif frame:IsShown() then
-                frame:Hide()
-                if db then db.bloodLogVisible = false end
-            else
-                frame:Show()
-                if db then db.bloodLogVisible = true end
-            end
-        else
-            print("|cffFFFF00Purity:|r Blood Log is only available for the Blood Mage challenge.")
-        end
+        db.bloodLogVisible = true
+        print("|cffFFFF00Purity:|r Blood Log enabled and focused.")
+        Purity:LogToChatTab("Blood Log", nil, true)
         return
 		
 	elseif command == "glasslog" then
-        if Purity.GlobalModules["GLASS_HEART"] then
-            Purity.GlobalModules["GLASS_HEART"]:ToggleLog()
-        else
-            print("|cffFFFF00Purity:|r Glass Heart module not loaded.")
-        end
+        local db = Purity:GetDB()
+        db.glassLogVisible = true
+        print("|cffFFFF00Purity:|r Glass Log enabled and focused.")
+        Purity:LogToChatTab("Glass Log", nil, true)
+        return
 		
     else
         Purity:SilentRequestTimePlayed()
@@ -3634,7 +3629,8 @@ SlashCmdList["PURITY"] = function(msg)
             if data.status == "Passed" or data.status == "Failed" then
                 uptimeLabel = "Final Uptime:|r "
             end
-            print(uptimeLabel .. whiteColor .. string.format("%.2f%%", (data.finalUptime or ((data.totalPlayed > 0 and (data.addonRuntime / data.totalPlayed) * 100) or 0))) .. "|r")
+            local currentUptime = data.finalUptime or ((data.totalPlayed > 0 and (data.addonRuntime / data.totalPlayed) * 100) or 0)
+            print(uptimeLabel .. whiteColor .. string.format("%.2f%%", math.min(100, currentUptime)) .. "|r")
 
             if activeChallenge and activeChallenge.needsWeaponWarning and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
                 print("Weapon Warnings: " .. whiteColor .. (data.weaponInfractions or 0) .. "/2|r")
@@ -3849,12 +3845,16 @@ local function OnAddonMessage(prefix, message, channel, sender)
 
 	if command == "STATUS_UPDATE" then
 		local statusData = Purity:Deserialize(data)
+		local displayCoeff = statusData.coefficient
+		if statusData.status == "Not Participating" or statusData.status == "Failed" then
+			displayCoeff = "0.00"
+		end
 		Purity.roster[sender] = {
 			challenge = statusData.challenge,
 			status = statusData.status,
 			level = statusData.level,
 			class = statusData.class,
-			coefficient = statusData.coefficient,
+			coefficient = displayCoeff,
 			uptime = statusData.uptime,
 			ob_rank = tonumber(statusData.ob_rank) or 0,
 			lastSeen = GetTime() 
@@ -3997,8 +3997,12 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
             end
 
             if (msg == "!purity_ping" or msg == "joins channel") and sender and not isSelf then
-                Purity:SendStatusToPlayer(sender)
-                C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "ROSTER_REQUEST", "WHISPER", sender)
+                local randomDelay = math.random(2, 45)
+                
+                C_Timer.After(randomDelay, function()
+                    Purity:SendStatusToPlayer(sender)
+                    C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "ROSTER_REQUEST", "WHISPER", sender)
+                end)
             else
                 if msg == "!purity_ping" then
                 end
@@ -4026,12 +4030,6 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
 				currentDB.drunkData.lastState = Purity.GlobalModules.DRUNK:GetCurrentState()
 				currentDB.drunkData.logoutTimestamp = GetTime()
 			end
-			if currentDB.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
-                local bloodMageModule = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
-                if bloodMageModule and bloodMageModule.bloodLogFrame then
-                    currentDB.bloodLogVisible = bloodMageModule.bloodLogFrame:IsShown()
-                end
-            end
             if currentDB.totalPlayedTime and currentDB.addonRuntimeAtLastPlayedSync then
                 currentDB.uptimeGrace = currentDB.totalPlayedTime - currentDB.addonRuntimeAtLastPlayedSync
             end
@@ -4514,8 +4512,41 @@ _G.Purity_UI = {
     -- Add any other purely visual functions here if necessary
 }
 
--- Make sure your Slash Command points to the local table, not a global one
-SLASH_PURITY1 = "/purity"
-SlashCmdList["PURITY"] = function(msg)
-    Purity:SlashCommand(msg)
+function Purity:LogToChatTab(tabName, message, focusTab)
+    local targetFrame = nil
+    
+    -- 1. Find the tab if it exists
+    for i = 1, NUM_CHAT_WINDOWS do
+        local name = select(1, FCF_GetChatWindowInfo(i))
+        if name == tabName then
+            targetFrame = _G["ChatFrame"..i]
+            break
+        end
+    end
+
+    -- 2. Create and FORCE DOCK if it doesn't exist
+    if not targetFrame then
+        targetFrame = FCF_OpenNewWindow(tabName)
+        -- This line fixes the "Blank Window" issue by snapping it to the General dock
+        FCF_DockFrame(targetFrame, #GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES + 1, true)
+    end
+
+    -- 3. Send Message
+    if message and targetFrame then
+        targetFrame:AddMessage(message)
+        
+        -- First-time flash logic
+        if targetFrame ~= FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK) then
+            if not Purity_GlobalSettings.seenLogs then Purity_GlobalSettings.seenLogs = {} end
+            if not Purity_GlobalSettings.seenLogs[tabName] then
+                FCF_StartAlertFlash(targetFrame)
+                Purity_GlobalSettings.seenLogs[tabName] = true
+            end
+        end
+    end
+
+    -- 4. Handle Focus (Slash Command)
+    if focusTab and targetFrame then
+        FCF_SelectDockFrame(targetFrame)
+    end
 end

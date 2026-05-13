@@ -188,11 +188,11 @@ RogueModule.challenges.foil = {
 RogueModule.challenges.shroud = {
     id = "Shroud of Purity",
     challengeName = "Shroud of Purity",
-    description = "You are a stalker, not a soldier. Prolonged open combat leaves you vulnerable. You must strike from the shadows and vanish before your enemies can focus on you. Manage your 'Exposure' to survive.",
+    description = "You are a stalker, not a soldier. Prolonged open combat leaves you vulnerable. You must strike from the shadows and vanish before your enemies can focus on you. Manage your Exposure to survive.",
     
     exposure = 0,
     maxExposure = 100,
-    genRate = 5,    -- Base gain 5 Exposure per sec in combat (20s limit)
+    genRate = 2.5,    -- Base gain 5 Exposure per sec in combat (20s limit)
     decayRate = 10, -- Base loss 10 Exposure per sec while out of combat
     
     talentMods = { genReduction = 0 },
@@ -1051,6 +1051,10 @@ RogueModule.challenges.ringbearer = {
                         if itemPlaced then break end
                     end
                     
+                    if not itemPlaced then
+                        UIErrorsFrame:AddMessage("Bags Full! Swap the forbidden item back manually!", 1.0, 0.1, 0.1, 1.0)
+                    end
+                    
                     PlaySound(847) 
                     UIErrorsFrame:AddMessage("Ringbearers do not dual wield.", 1.0, 0.1, 0.1, 1.0)
                     print("|cffFF0000Purity:|r The Ringbearer cannot wield a second weapon.")
@@ -1173,7 +1177,10 @@ RogueModule.challenges.ringbearer = {
 
             -- [NEW: AUTO-SIT & RP LOGIC]
             local currentSpeed = GetUnitSpeed("player")
-            if currentSpeed == 0 and hasCampfire and isRingEquipped then
+            local inCombat = UnitAffectingCombat("player")
+            
+            -- Only allow auto-sit if standing still, near a fire, CARRYING the ring, AND NOT IN COMBAT
+            if currentSpeed == 0 and hasCampfire and hasRing and not inCombat then
                 self.stationaryTime = (self.stationaryTime or 0) + 1
                 
                 -- Trigger the RP Emote and Auto-Sit after 5 seconds of standing still
@@ -1184,7 +1191,7 @@ RogueModule.challenges.ringbearer = {
                     SendChatMessage("stares into the flames, finding a momentary peace from the burden.", "EMOTE")
                 end
             else
-                -- They moved, unequipped the ring, or the fire died
+                -- They moved, lost the ring, the fire died, OR entered combat
                 self.stationaryTime = 0
                 self.isAutoSitting = false
             end

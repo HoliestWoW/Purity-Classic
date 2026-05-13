@@ -14,6 +14,7 @@ local FishingModule = {
 }
 
 local recentlyFished = false
+local lastCatchTime = 0
 local secureAllowedItems = {}
 
 local DIRECT_FISHED_EQUIPPABLES = {
@@ -137,8 +138,11 @@ function FishingModule:EventHandler(event, ...)
             local db = Purity:GetDB()
             db.challengeStats = db.challengeStats or {}
             
-            -- Increment catches once per successful cast
-            db.challengeStats.totalCatches = (db.challengeStats.totalCatches or 0) + 1
+            local now = GetTime()
+            if now - lastCatchTime > 1.5 then
+                db.challengeStats.totalCatches = (db.challengeStats.totalCatches or 0) + 1
+                lastCatchTime = now
+            end
             
             local numItems = GetNumLootItems()
             for i = 1, numItems do
@@ -166,7 +170,9 @@ function FishingModule:EventHandler(event, ...)
             end
             
             if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                Purity:UpdateCharacterStatus()
+                if _G["UpdateCharacterPurity"] then
+                    _G["UpdateCharacterPurity"]()
+                end
             end
         end
 
@@ -219,7 +225,9 @@ function FishingModule:EventHandler(event, ...)
         end
 
         if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-            Purity:UpdateCharacterStatus()
+            if _G["UpdateCharacterPurity"] then
+                _G["UpdateCharacterPurity"]()
+            end
         end
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         Purity:CheckWeaponState()

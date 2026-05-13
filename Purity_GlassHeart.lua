@@ -125,13 +125,8 @@ local GlassHeart = {
         local mult = db.glassHeartMultiplier or 1.5
         
         self:StartEngine(mult)
-        self:CreateGlassLogFrame()
         self:StartBroadcasting()
         self:InitializeGroupFrames() -- Added this line to start target frame monitoring
-
-        if db.glassLogVisible and self.logFrame then
-            self.logFrame:Show()
-        end
 
         -- [[ CHARACTER FRAME HOOKS ]]
         if not self.characterFrameHooked then
@@ -685,119 +680,23 @@ local GlassHeart = {
         end
     end,
 
-    -- [[ LOGGING SYSTEM ]]
-    
-    CreateGlassLogFrame = function(self)
-        if self.logFrame then return end
-
-        local frame = CreateFrame("Frame", "PurityGlassLogFrame", UIParent)
-        local db = Purity:GetDB()
-        
-        local width = (db and db.glassLogDimensions and db.glassLogDimensions.width) or 300
-        local height = (db and db.glassLogDimensions and db.glassLogDimensions.height) or 150
-        frame:SetSize(width, height)
-        frame:SetResizable(true)
-        frame:SetClampedToScreen(true)
-        frame:SetMovable(true); frame:EnableMouse(true); frame:RegisterForDrag("LeftButton")
-        
-        frame:SetScript("OnDragStart", frame.StartMoving)
-        frame:SetScript("OnDragStop", function(f)
-            f:StopMovingOrSizing()
-            local point, _, relativePoint, x, y = f:GetPoint()
-            if not db.glassLogPosition then db.glassLogPosition = {} end
-            db.glassLogPosition = { point = point, relativePoint = relativePoint, x = x, y = y }
-        end)
-        
-        frame:SetScript("OnSizeChanged", function(self, w, h)
-            if self.scrollChild then self.scrollChild:SetWidth(w - 30) end
-            if self.logLines then for _, line in ipairs(self.logLines) do line:SetWidth(w - 30) end end
-            if not db.glassLogDimensions then db.glassLogDimensions = {} end
-            db.glassLogDimensions.width = w; db.glassLogDimensions.height = h
-        end)
-
-        frame.bg = frame:CreateTexture(nil, "BACKGROUND")
-        frame.bg:SetAllPoints(true); frame.bg:SetColorTexture(0, 0, 0, 0.6)
-        
-        local scrollFrame = CreateFrame("ScrollFrame", "PurityGlassLogScroll", frame, "UIPanelScrollFrameTemplate")
-        scrollFrame:SetPoint("TOPLEFT", 5, -5); scrollFrame:SetPoint("BOTTOMRIGHT", -25, 5)
-        
-        local scrollChild = CreateFrame("Frame")
-        scrollChild:SetWidth(frame:GetWidth() - 30)
-        scrollChild:SetHeight(1) 
-        scrollFrame:SetScrollChild(scrollChild)
-        
-        frame.scrollFrame = scrollFrame; frame.scrollChild = scrollChild
-        frame.logLines = {}
-        frame.maxLogLines = 50
-        
-        local resize = CreateFrame("Button", nil, frame)
-        resize:SetSize(16, 16); resize:SetPoint("BOTTOMRIGHT", -1, 1)
-        resize:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Up")
-        resize:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Down")
-        resize:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeHandle-Highlight")
-        resize:SetScript("OnMouseDown", function() frame:StartSizing("BOTTOMRIGHT") end)
-        resize:SetScript("OnMouseUp", function() frame:StopMovingOrSizing() end)
-        
-        self.logFrame = frame
-        
-        if db.glassLogPosition then
-            frame:SetPoint(db.glassLogPosition.point, UIParent, db.glassLogPosition.relativePoint, db.glassLogPosition.x, db.glassLogPosition.y)
-        else
-            frame:SetPoint("BOTTOMLEFT", ChatFrame1, "TOPLEFT", 0, 40)
-        end
-        
-        frame:Hide()
-    end,
-
     LogDamage = function(self, rawDmg, actualDmg)
-        if not self.logFrame or not self.logFrame:IsShown() then return end
-        
-        local sourceText = "|cffff8080Unknown|r"
-        local abilityText = "Hit"
+        -- Removed the frame visibility check so it always logs to chat
+        local sourceText = "|cffff8080" .. (self.lastSource or "Unknown") .. "'s|r"
+        local abilityText = "|cffffffff" .. (self.lastAbility or "Hit") .. "|r"
 
-        if self.lastDamageTime and (GetTime() - self.lastDamageTime < 0.2) then
-            sourceText = "|cffff8080" .. (self.lastSource or "Unknown") .. "'s|r"
-            abilityText = "|cffffffff" .. (self.lastAbility or "Hit") .. "|r"
-        end
-
-        local timestamp = date("|cffc0c0c0[%H:%M:%S]|r ")
-        local msg = string.format("%s%s %s hits you for |cffff0000%.0f|r |cff888888(Base: %.0f)|r", 
-            timestamp, sourceText, abilityText, actualDmg, rawDmg)
+        local msg = string.format("%s %s hits you for |cffff0000%.0f|r |cff888888(Base: %.0f)|r", 
+            sourceText, abilityText, actualDmg, rawDmg)
 
         self:AddLogLine(msg)
     end,
 
     AddLogLine = function(self, msg)
-        local frame = self.logFrame
-        local lines = frame.logLines
-        local child = frame.scrollChild
-        
-        local line = child:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        line:SetJustifyH("LEFT")
-        line:SetWidth(child:GetWidth())
-        line:SetText(msg)
-        
-        local prev = lines[#lines]
-        if prev then
-            line:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -2)
-        else
-            line:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
-        end
-        
-        table.insert(lines, line)
-        
-        if #lines > frame.maxLogLines then
-            local old = table.remove(lines, 1)
-            old:Hide()
-            if lines[1] then lines[1]:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0) end
-        end
-        
-        local h = 0
-        for _, l in ipairs(lines) do h = h + l:GetHeight() + 2 end
-        child:SetHeight(math.max(frame:GetHeight(), h))
-        
-        frame.scrollFrame:UpdateScrollChildRect()
-        frame.scrollFrame:SetVerticalScroll(frame.scrollFrame:GetVerticalScrollRange())
+        local db = Purity:GetDB()
+        if not db.glassLogVisible then return end
+
+        -- Send to the dynamic chat tab
+        Purity:LogToChatTab("Glass Log", msg)
     end,
 
     -- [[ VISUAL ENGINE ]]
@@ -876,7 +775,8 @@ local GlassHeart = {
         if not self.overlayBar or not self.textContainer then return end
         
         local current = math.max(0, math.floor(secureGlassHeartState.current))
-        local max = math.max(1, maxHP)
+        -- Fallback to player max if maxHP is nil
+        local max = math.max(1, maxHP or UnitHealthMax("player"))
         
         self.overlayBar:SetMinMaxValues(0, max)
         self.overlayBar:SetValue(current)
@@ -915,13 +815,12 @@ local GlassHeart = {
     ToggleLog = function(self)
         local db = Purity:GetDB()
         db.glassLogVisible = not db.glassLogVisible
+        
         if db.glassLogVisible then
-            if not self.logFrame then self:CreateGlassLogFrame() end
-            self.logFrame:Show()
-            print("|cffFFFF00Purity:|r Glass Heart Log: |cff00ff00ON|r")
+            print("|cffFFFF00Purity:|r Glass Heart Chat Logging: |cff00ff00ON|r")
+            Purity:LogToChatTab("Glass Log", "|cffFFFF00Purity:|r Glass Heart Damage Log enabled.")
         else
-            if self.logFrame then self.logFrame:Hide() end
-            print("|cffFFFF00Purity:|r Glass Heart Log: |cffff0000OFF|r")
+            print("|cffFFFF00Purity:|r Glass Heart Chat Logging: |cffff0000OFF|r")
         end
     end,
     
