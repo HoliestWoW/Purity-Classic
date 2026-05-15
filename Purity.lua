@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.0.4"
+Purity.Version = "12.0.4a"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -3177,6 +3177,7 @@ function Purity:ActivateMonitoring()
     if purityRuntimeTicker then purityRuntimeTicker:Cancel() end
     purityRuntimeTicker = C_Timer.NewTicker(1, function()
         local db = Purity:GetDB()
+		db.currentLevel = UnitLevel("player")
         if secureCoreState.isActive then
             local tampered = false
             if db.status ~= secureCoreState.status then
