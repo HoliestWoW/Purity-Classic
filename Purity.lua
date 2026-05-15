@@ -3033,6 +3033,8 @@ function Purity:CompleteChallenge()
 		secureCoreState.status = "Passed"
         db.finalUptime = finalUptime
         db.dataSignature = Purity:CreateDataSignature(db)
+		
+		db.PendingLeaderboardUpload = Purity:GenerateWebVerificationString()
 
         isMonitoring = false
         if purityRuntimeTicker then purityRuntimeTicker:Cancel(); purityRuntimeTicker = nil end
@@ -3340,74 +3342,38 @@ function Purity:ActivateMonitoring()
         activeChallenge:EventHandler("SPELLS_CHANGED")
     end
 
-    --[[ MODIFIED: This block now implements your suggested "limbo" logic. ]]
-    -- It only starts if the player is max level AND in a temporary failure state.
-    if purityRuntimeTicker and UnitLevel("player") == MAX_PLAYER_LEVEL and currentDB.status == "Temporary Failure - Uptime" then
-        if uptimeMonitorTicker then uptimeMonitorTicker:Cancel() end
-        print("|cffFFFF00Purity:|r Entered max-level uptime recovery mode. Re-checking status every 30 seconds.")
-        
-        uptimeMonitorTicker = C_Timer.NewTicker(30, function()
-            local tickerDb = Purity:GetDB()
+    if purityRuntimeTicker and UnitLevel("player") == MAX_PLAYER_LEVEL then
+        if currentDB.status == "Passing" then
+            -- Player logged in at level 60 and is already passing. Complete immediately.
+            Purity:CompleteChallenge()
+            
+        elseif currentDB.status == "Temporary Failure - Uptime" then
+            if uptimeMonitorTicker then uptimeMonitorTicker:Cancel() end
+            print("|cffFFFF00Purity:|r Entered max-level uptime recovery mode. Re-checking status every 30 seconds.")
+            
+            uptimeMonitorTicker = C_Timer.NewTicker(30, function()
+                local tickerDb = Purity:GetDB()
 
-            if tickerDb.status == "Passing" then
-                -- Success! The 1-second ticker has recovered the uptime. Now, complete the challenge.
-                print("|cffFFFF00Purity:|r |cff00FF00Uptime has been successfully recovered! Finalizing challenge...|r")
-                Purity:CompleteChallenge()
-                
-                -- The challenge is complete, so we can stop this timer.
-                if uptimeMonitorTicker then
-                    uptimeMonitorTicker:Cancel()
-                    uptimeMonitorTicker = nil
+                if tickerDb.status == "Passing" then
+                    print("|cffFFFF00Purity:|r |cff00FF00Uptime has been successfully recovered! Finalizing challenge...|r")
+                    Purity:CompleteChallenge()
+                    
+                    if uptimeMonitorTicker then
+                        uptimeMonitorTicker:Cancel()
+                        uptimeMonitorTicker = nil
+                    end
+                elseif tickerDb.status ~= "Temporary Failure - Uptime" then
+                    if uptimeMonitorTicker then
+                        uptimeMonitorTicker:Cancel()
+                        uptimeMonitorTicker = nil
+                    end
                 end
-            elseif tickerDb.status ~= "Temporary Failure - Uptime" then
-                -- The status has changed to something else (like Failed), so we should stop monitoring.
-                if uptimeMonitorTicker then
-                    uptimeMonitorTicker:Cancel()
-                    uptimeMonitorTicker = nil
-                end
-            end
-            -- If the status is still "Temporary Failure - Uptime", we do nothing and let the timer loop.
-        end)
+            end)
+        end
     elseif uptimeMonitorTicker then
-        -- If we are not in a limbo state, make sure the timer is cancelled.
         uptimeMonitorTicker:Cancel()
         uptimeMonitorTicker = nil
     end
-end
-
-    C_Timer.After(3, function()
-        local itemLink = GetInventoryItemLink("player", INVSLOT_MAINHAND)
-        if itemLink then
-            local itemName = GetItemInfo(itemLink)
-            if itemName then
-                Purity:CheckWeaponState()
-            else
-                C_Timer.After(2, function() Purity:CheckWeaponState() end)
-            end
-        else
-            Purity:CheckWeaponState()
-        end
-    end)
-
-    if activeChallenge and activeChallenge.EventHandler then
-        activeChallenge:EventHandler("SPELLS_CHANGED")
-    end
-	if purityRuntimeTicker and UnitLevel("player") == MAX_PLAYER_LEVEL and (currentDB.status == "Passing" or currentDB.status == "Temporary Failure - Uptime") then
-    if uptimeMonitorTicker then uptimeMonitorTicker:Cancel() end
-    uptimeMonitorTicker = C_Timer.NewTicker(30, function()
-        local tickerDb = Purity:GetDB()
-        if UnitLevel("player") == MAX_PLAYER_LEVEL and (tickerDb.status == "Passing" or tickerDb.status == "Temporary Failure - Uptime") then
-            Purity:CompleteChallenge()
-        else
-            if uptimeMonitorTicker then
-                uptimeMonitorTicker:Cancel()
-                uptimeMonitorTicker = nil
-            end
-        end
-    end)
-elseif uptimeMonitorTicker then
-    uptimeMonitorTicker:Cancel()
-    uptimeMonitorTicker = nil
 end
 
 
@@ -4025,6 +3991,9 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
                 currentDB.physicalStrikes = secureCoreState.physicalStrikes
             end
 			Purity:SyncSequence()
+			if currentDB.status == "Passed" then
+                currentDB.PendingLeaderboardUpload = Purity:GenerateWebVerificationString()
+            end
 			if currentDB.activeChallengeID == "DRUNK" then
 				if not currentDB.drunkData then currentDB.drunkData = {} end
 				currentDB.drunkData.lastState = Purity.GlobalModules.DRUNK:GetCurrentState()
