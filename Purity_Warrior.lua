@@ -247,8 +247,10 @@ WarriorModule.challenges.bulwark = {
                 db.challengeStats = db.challengeStats or {}
                 db.challengeStats.blocks = (db.challengeStats.blocks or 0) + 1
 				if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                    Purity:UpdateCharacterStatus()
-                end
+					if _G["UpdateCharacterPurity"] then
+						_G["UpdateCharacterPurity"]()
+					end
+				end
             end
 		elseif event == "PLAYER_TALENT_UPDATE" then
             local numTabs = GetNumTalentTabs()

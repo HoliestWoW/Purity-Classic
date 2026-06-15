@@ -34,9 +34,13 @@ PurityContentFrame.frame:SetParent(Purity.characterPanel)
 PurityContentFrame.frame:SetPoint("TOPLEFT", PurityOuterFrame, "TOPLEFT", 20, -30)
 PurityContentFrame.frame:SetPoint("BOTTOMRIGHT", PurityOuterFrame, "BOTTOMRIGHT", -20, 75)
 
+-- =========================================================
+-- Tab Creation & Layout Mechanics
+-- =========================================================
+
+-- Main Horizontal Tab Frame
 local PurityTabGUI = CreateFrame("Button", "PurityCharacterTab", CharacterFrame)
 PurityTabGUI:SetFrameStrata("MEDIUM")
-
 PurityTabGUI:SetWidth(60)
 PurityTabGUI:SetHeight(45)
 
@@ -45,17 +49,121 @@ PurityTabGUI.text:SetFontObject(GameFontNormalSmall)
 PurityTabGUI.text:SetPoint("CENTER", 0, 1)
 PurityTabGUI.text:SetText("Purity")
 
-PurityTabGUI:SetScript("OnEnter", function(self)
-	if Purity.characterPanel:IsShown() then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("|cFFFFFFFFPurity|r") 
-    GameTooltip:Show()
+-- Secondary Side Tab Frame (For Overflow Layouts)
+local PuritySideTabGUI = CreateFrame("Button", "PurityCharacterSideTab", CharacterFrame)
+PuritySideTabGUI:SetSize(60, 60)
+PuritySideTabGUI:SetHitRectInsets(0, 30, 0, 0)
+PuritySideTabGUI:SetFrameStrata("BACKGROUND")
+PuritySideTabGUI:SetFrameLevel(1)
+PuritySideTabGUI:Hide()
+
+local sideBg = PuritySideTabGUI:CreateTexture(nil, "BACKGROUND")
+sideBg:SetAllPoints()
+sideBg:SetTexture("Interface\\Spellbook\\SpellBook-SkillLineTab.png")
+PuritySideTabGUI.bg = sideBg
+
+local sideIcon = PuritySideTabGUI:CreateTexture(nil, "ARTWORK")
+sideIcon:SetSize(26, 26)
+sideIcon:SetPoint("CENTER", PuritySideTabGUI, "CENTER", -12, 5)
+sideIcon:SetTexture("Interface\\AddOns\\Purity\\Media\\PurityLogo.tga") 
+PuritySideTabGUI.icon = sideIcon
+
+local sideHighlight = PuritySideTabGUI:CreateTexture(nil, "OVERLAY")
+sideHighlight:SetSize(30, 30)
+sideHighlight:SetPoint("CENTER", PuritySideTabGUI, "CENTER", -12, 4)
+sideHighlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+sideHighlight:SetBlendMode("ADD")
+sideHighlight:Hide()
+PuritySideTabGUI.highlight = sideHighlight
+
+-- Hook Tooltips & Hover Styling
+local function RegisterTabTooltips(frame, title, isSide)
+	frame:SetScript("OnEnter", function(self)
+		if Purity.characterPanel:IsShown() then return end
+		if self.highlight then self.highlight:Show() end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("|cFFFFFFFF" .. title .. "|r")
+		if isSide then
+			GameTooltip:AddLine("Shift-Click + Drag to move side tab", 0.5, 0.5, 0.5)
+		end
+		GameTooltip:Show()
+	end)
+	frame:SetScript("OnLeave", function(self)
+		if self.highlight and not Purity.characterPanel:IsShown() then self.highlight:Hide() end
+		GameTooltip:Hide()
+	end)
+end
+RegisterTabTooltips(PurityTabGUI, "Purity", false)
+RegisterTabTooltips(PuritySideTabGUI, "Purity Challenge", true)
+
+-- =========================================================
+-- Draggable Behavior for Side Tab
+-- =========================================================
+local isDragging = false
+
+local function SaveSideTabPosition(yOffset)
+	local db = Purity:GetDB()
+	if db then
+		db.sideTabYOffset = yOffset
+	end
+end
+
+local function LoadSideTabPosition()
+	local db = Purity:GetDB()
+	return db and db.sideTabYOffset or -320 -- Default baseline fallback position
+end
+
+local function Clamp(val, min, max)
+	if val < min then return min end
+	if val > max then return max end
+	return val
+end
+
+PuritySideTabGUI:RegisterForDrag("LeftButton")
+PuritySideTabGUI:SetScript("OnDragStart", function(self)
+	if not IsShiftKeyDown() then return end
+	isDragging = true
+	
+	self:SetScript("OnUpdate", function(s)
+		if not isDragging then s:SetScript("OnUpdate", nil) return end
+		
+		-- Break track cycle if structural requirements drop out mid-drag
+		if not IsMouseButtonDown("LeftButton") or not IsShiftKeyDown() then
+			isDragging = false
+			s:SetScript("OnUpdate", nil)
+			local _, _, _, _, _, lastY = s:GetPoint()
+			SaveSideTabPosition(lastY)
+			return
+		end
+		
+		-- Track scale calculations safely relative to UI canvas limits
+		local _, cursorY = GetCursorPosition()
+		local scale = UIParent:GetEffectiveScale()
+		local cursorYScaled = cursorY / scale
+		
+		local frameTop = CharacterFrame:GetTop() or 0
+		local frameHeight = CharacterFrame:GetHeight() or 0
+		
+		local relativeYFromTop = frameTop - cursorYScaled
+		
+		-- Enforce padding limits mirroring Hardcore Achievements layout constraints
+		relativeYFromTop = Clamp(relativeYFromTop, 30, frameHeight - 127)
+		
+		s:ClearAllPoints()
+		s:SetPoint("TOPRIGHT", CharacterFrame, "TOPRIGHT", 25, -relativeYFromTop)
+	end)
 end)
 
-PurityTabGUI:SetScript("OnLeave", function(self)
-    GameTooltip:Hide()
+PuritySideTabGUI:SetScript("OnDragStop", function(self)
+	isDragging = false
+	self:SetScript("OnUpdate", nil)
+	local _, _, _, _, _, finalY = self:GetPoint()
+	SaveSideTabPosition(finalY)
 end)
 
+-- =========================================================
+-- Texture Framework & Visual Overlays
+-- =========================================================
 local activeTextures = {}
 local inactiveTextures = {}
 
@@ -69,13 +177,11 @@ inactiveTextures.middle = PurityTabGUI:CreateTexture(nil, "ARTWORK"); inactiveTe
 
 local purity_highlight = PurityTabGUI:CreateTexture(nil, "HIGHLIGHT")
 purity_highlight:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-Tab-RealHighlight")
-
 purity_highlight:SetSize(54, 38)
 purity_highlight:SetPoint("TOP", 0, 0)
 purity_highlight:SetRotation(3.14)
 purity_highlight:SetTexCoord(1.0, 0.0, 1.0, 0.0)
 purity_highlight:SetBlendMode("ADD")
-
 PurityTabGUI:SetHighlightTexture(purity_highlight)
 
 local function ShowCharacterPurity()
@@ -85,7 +191,8 @@ local function ShowCharacterPurity()
 	PurityTabGUI.text:SetPoint("CENTER", 0, 3)
 	PurityTabGUI:SetFrameStrata("HIGH")
 	PurityTabGUI:Disable() 
-	if GameTooltip:GetOwner() == PurityTabGUI then GameTooltip:Hide() end   
+	if PuritySideTabGUI.highlight then PuritySideTabGUI.highlight:Show() end
+	if GameTooltip:GetOwner() == PurityTabGUI or GameTooltip:GetOwner() == PuritySideTabGUI then GameTooltip:Hide() end   
 	Purity.characterPanel:Show()
 end
 
@@ -96,88 +203,52 @@ local function HideCharacterPurity()
 	PurityTabGUI.text:SetPoint("CENTER", 0, 1)
 	PurityTabGUI:SetFrameStrata("MEDIUM")
 	PurityTabGUI:Enable()   
+	if PuritySideTabGUI.highlight then PuritySideTabGUI.highlight:Hide() end
 	Purity.characterPanel:Hide()
 end
 
--- Add this new function after the HideCharacterPurity() function.
-
 function Purity:AdjustCharacterTabs()
-	-- Define standard and shrunk sizes for the tabs
-	local DEFAULT_TAB_WIDTH = 60
-	local SHRUNK_TAB_WIDTH = 52 -- Slightly smaller width
-	local DEFAULT_TAB_OVERLAP = -10
-	local SHRUNK_TAB_OVERLAP = -12 -- A bit more overlap to save space
-	local MAX_TAB_CONTAINER_WIDTH = 345 -- The approximate available width for tabs
-
-	-- List of all tabs to check, including Purity's and potentially Hardcore's
-	local tabsToCheck = {
-		"CharacterFrameTab1", "CharacterFrameTab2", "CharacterFrameTab3",
-		"CharacterFrameTab4", "CharacterFrameTab5", "HardcoreCharacterTab",
-		"PurityCharacterTab"
-	}
-
-	local totalWidth = 0
-	local visibleTabs = {}
-
-	-- Calculate the total width required by all visible tabs
-	for _, tabName in ipairs(tabsToCheck) do
-		local tab = _G[tabName]
-		if tab and tab:IsShown() then
-			table.insert(visibleTabs, tab)
-			-- For all but the first tab, factor in the overlap
-			if totalWidth > 0 then
-				totalWidth = totalWidth + DEFAULT_TAB_WIDTH + DEFAULT_TAB_OVERLAP
-			else
-				totalWidth = totalWidth + DEFAULT_TAB_WIDTH
-			end
-		end
-	end
-
-	-- Decide whether to shrink the tabs
-	if totalWidth > MAX_TAB_CONTAINER_WIDTH then
-		-- Apply shrunk size to all tabs
-		for _, tabName in ipairs(tabsToCheck) do
-			local tab = _G[tabName]
-			if tab then
-				tab:SetWidth(SHRUNK_TAB_WIDTH)
-			end
-		end
-		return SHRUNK_TAB_OVERLAP -- Return the new overlap for positioning
-	else
-		-- Restore default size to all tabs
-		for _, tabName in ipairs(tabsToCheck) do
-			local tab = _G[tabName]
-			if tab then
-				tab:SetWidth(DEFAULT_TAB_WIDTH)
-			end
-		end
-		return DEFAULT_TAB_OVERLAP -- Return the default overlap
-	end
+	return -10
 end
 
+-- Synchronize Highlight Selection Frames
+hooksecurefunc("PanelTemplates_SelectTab", function(tab)
+	if tab == PurityTabGUI and PuritySideTabGUI.highlight then
+		PuritySideTabGUI.highlight:Show()
+	end
+end)
+
+hooksecurefunc("PanelTemplates_DeselectTab", function(tab)
+	if tab == PurityTabGUI and PuritySideTabGUI.highlight then
+		PuritySideTabGUI.highlight:Hide()
+	end
+end)
+
+-- =========================================================
+-- Core Engine Dynamic Anchor Updates
+-- =========================================================
 hooksecurefunc(CharacterFrame, "Show", function()
-	-- Wait 0.01 seconds to let other addons place their tabs
 	C_Timer.After(0.01, function()
 		local ADDON_TAB_WIDTH = 55    
 		local ADDON_TAB_OVERLAP = -10   
+		local MAX_TAB_CONTAINER_WIDTH = 320 
 
 		PurityTabGUI:SetWidth(ADDON_TAB_WIDTH)
 
-		-- Get the baseline vertical position from the default first tab
 		local refTab = _G["CharacterFrameTab1"]
 		local rightMostTab = refTab
 		local maxRight = refTab and refTab:GetRight() or 0
 		local refBottom = refTab and refTab:GetBottom() or 0
 
+		local baselineLeft = refTab and refTab:GetLeft() or 0
+		local dynamicRowWidth = 0
+
 		local children = {CharacterFrame:GetChildren()}
 		for _, child in ipairs(children) do
 			local name = child:GetName()
-			-- Look for visible Buttons with "Tab" in the name
-			if name and name ~= "PurityCharacterTab" and child:GetObjectType() == "Button" and string.find(name, "Tab", 1, true) then
+			if name and name ~= "PurityCharacterTab" and name ~= "PurityCharacterSideTab" and child:GetObjectType() == "Button" and string.find(name, "Tab", 1, true) then
 				if child:IsShown() then
 					local childBottom = child:GetBottom()
-					
-					-- NEW: Only consider this tab if it is vertically aligned with Tab1 (within 15 pixels)
 					if childBottom and math.abs(childBottom - refBottom) < 15 then
 						local right = child:GetRight()
 						if right and right > maxRight then
@@ -189,51 +260,67 @@ hooksecurefunc(CharacterFrame, "Show", function()
 			end
 		end
 
-		-- Attach Purity to the furthest right tab that is actually in the bottom row
-		if rightMostTab then
-			PurityTabGUI:ClearAllPoints()
-			PurityTabGUI:SetPoint("LEFT", rightMostTab, "RIGHT", ADDON_TAB_OVERLAP, 0)
+		if maxRight and baselineLeft then
+			dynamicRowWidth = maxRight - baselineLeft
 		end
-		
-		PurityTabGUI:Show()
+
+		-- Handle Overflow Switching
+		if (dynamicRowWidth + ADDON_TAB_WIDTH + ADDON_TAB_OVERLAP) > MAX_TAB_CONTAINER_WIDTH then
+			PurityTabGUI:Hide()
+			
+			PuritySideTabGUI:ClearAllPoints()
+			-- Restore saved vertical coordinates from database
+			local savedY = LoadSideTabPosition()
+			PuritySideTabGUI:SetPoint("TOPRIGHT", CharacterFrame, "TOPRIGHT", 25, savedY)
+			PuritySideTabGUI:Show()
+		else
+			PuritySideTabGUI:Hide()
+			if rightMostTab then
+				PurityTabGUI:ClearAllPoints()
+				PurityTabGUI:SetPoint("LEFT", rightMostTab, "RIGHT", ADDON_TAB_OVERLAP, 0)
+			end
+			PurityTabGUI:Show()
+		end
 	end)
 end)
 
 hooksecurefunc(CharacterFrame, "Hide", function()
     PurityTabGUI:Hide()
+    PuritySideTabGUI:Hide()
     if statusRefreshTicker then
         statusRefreshTicker:Cancel()
         statusRefreshTicker = nil
     end
 end)
 
-PurityTabGUI:SetScript("OnClick", function()
+local function OnTabClickAction()
 	PaperDollFrame:Hide(); PetPaperDollFrame:Hide(); HonorFrame:Hide()
 	SkillFrame:Hide(); ReputationFrame:Hide(); TokenFrame:Hide()
 	for i=1, 5 do
 		PanelTemplates_DeselectTab(_G["CharacterFrameTab"..i])
 	end
+	if _G.HardcoreAchievementsFrame then _G.HardcoreAchievementsFrame:Hide() end
     if _G.HideCharacterHC then _G.HideCharacterHC() end
 	ShowCharacterPurity()
 	UpdateCharacterPurity()
 	CharacterFrame.activeTab = 9
 
-    -- Start the refresh timer when the tab is clicked.
     if statusRefreshTicker then statusRefreshTicker:Cancel() end
     statusRefreshTicker = C_Timer.NewTicker(1, function()
         if Purity.characterPanel and Purity.characterPanel:IsShown() then
             UpdateCharacterPurity()
         else
-            -- If the panel is no longer visible for any reason, stop the timer.
             if statusRefreshTicker then
                 statusRefreshTicker:Cancel()
                 statusRefreshTicker = nil
             end
         end
     end)
-end)
+end
 
--- Stop the refresh timer when another tab is selected.
+PurityTabGUI:SetScript("OnClick", OnTabClickAction)
+PuritySideTabGUI:SetScript("OnClick", OnTabClickAction)
+
 hooksecurefunc("PanelTemplates_SetTab", function(frame, id)
 	if frame == CharacterFrame and id and id ~= 9 then
 		if Purity.characterPanel:IsShown() then
@@ -243,6 +330,12 @@ hooksecurefunc("PanelTemplates_SetTab", function(frame, id)
                 statusRefreshTicker = nil
             end
 		end
+	end
+end)
+
+hooksecurefunc("CharacterFrame_ShowSubFrame", function(frameName)
+	if Purity.characterPanel:IsShown() and frameName ~= "PurityCharacterPanel" then
+		HideCharacterPurity()
 	end
 end)
 
@@ -286,7 +379,6 @@ UpdateCharacterPurity = function()
 	CreateLabel(goldColor .. "Challenge:|r " .. whiteColor .. (data.challengeTitle or "None"), 12, 20)
 	CreateLabel(goldColor .. "Status:|r " .. statusColor .. data.status .. "|r", 12, 20)
 	
-	--[[ MODIFIED: Removed effectiveRuntime and using direct addonRuntime / totalPlayedTime calculation ]]
 	local currentUptime = (data.totalPlayed > 0 and (data.addonRuntime / data.totalPlayed) * 100) or 0
 	local uptimeDisplay = string.format("%.2f%%", math.min(100, currentUptime))
 	
@@ -543,12 +635,10 @@ UpdateCharacterPurity = function()
             if totalSeconds <= 90 then
                 formattedTime = totalSeconds .. " sec"
             elseif totalSeconds <= 5400 then
-                -- Greater than 90 seconds, up to 90 minutes (5400 seconds)
                 local m = math.floor(totalSeconds / 60)
                 local s = totalSeconds % 60
                 formattedTime = string.format("%d min %d sec", m, s)
             else
-                -- Greater than 90 minutes
                 local h = math.floor(totalSeconds / 3600)
                 local m = math.floor((totalSeconds % 3600) / 60)
                 local s = totalSeconds % 60

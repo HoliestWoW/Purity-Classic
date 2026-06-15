@@ -62,10 +62,10 @@ DruidModule.challenges.pact = {
         return IsIDInForbiddenTree(id, "Balance")
     end,
     IsItemForbidden = function(self, itemLink)
-        if not itemLink then return false end
-        local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemLink)
-        return itemType == "Armor" and itemSubType == "Leather"
-    end,
+		if not itemLink then return false end
+		local _, _, _, _, _, _, _, _, _, _, _, classID, subclassID = GetItemInfo(itemLink)
+		return classID == 4 and subclassID == 2
+	end,
     isWeaponAllowed = function(self, itemLink) return true end,
 	IsUnitForbidden = function(self, unit)
         if not unit or not UnitExists(unit) then return false end
@@ -73,7 +73,9 @@ DruidModule.challenges.pact = {
     end,
 
     EventHandler = function(self, event, ...)
-        if event == "PLAYER_TARGET_CHANGED" then
+        if event == "PLAYER_EQUIPMENT_CHANGED" then
+            Purity:CheckEquipmentState()
+        elseif event == "PLAYER_TARGET_CHANGED" then
             if UnitExists("target") and UnitCanAttack("player", "target") then
                 local targetGUID = UnitGUID("target")
                 local creatureType = UnitCreatureType("target")
@@ -84,6 +86,7 @@ DruidModule.challenges.pact = {
         elseif event == "PLAYER_LEAVE_COMBAT" or event == "PLAYER_REGEN_ENABLED" then
             self.beastsInCombat = {}
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
+-- ... (keep the rest of your combat log logic intact)
             local _, subEvent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName = CombatLogGetCurrentEventInfo()
             if sourceGUID == UnitGUID("player") and subEvent == "SPELL_CAST_SUCCESS" then
                 local bearFormIDs = { [5487]=true, [9634]=true }
@@ -92,8 +95,10 @@ DruidModule.challenges.pact = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.shapeshiftCasts = (db.challengeStats.shapeshiftCasts or 0) + 1
 					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
-                    end
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
+					end
                 end
             end
 

@@ -147,8 +147,10 @@ HunterModule.challenges.bond = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.mendPetCasts = (db.challengeStats.mendPetCasts or 0) + 1
                     if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
-                    end
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
+					end
                 end
             end
 
@@ -294,7 +296,9 @@ HunterModule.challenges.quiver = {
                         if not db.challengeStats then db.challengeStats = {} end
                         db.challengeStats.aimedShotCasts = (db.challengeStats.aimedShotCasts or 0) + 1
 						if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-							Purity:UpdateCharacterStatus()
+							if _G["UpdateCharacterPurity"] then
+								_G["UpdateCharacterPurity"]()
+							end
 						end
                     end
                 end

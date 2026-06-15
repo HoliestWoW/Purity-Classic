@@ -4,6 +4,9 @@ local addonName, Purity = ...
 
 local secureHostileAttackers = {}
 local secureCombatants = {}
+local recentNonUndeadDeathTime = 0
+local recentNonUndeadDeathName = ""
+local recentXPGainTime = 0
 
 local function IsIDInForbiddenTree(id, forbiddenTreeName)
     if not id then return false end
@@ -88,8 +91,10 @@ PaladinModule.challenges.oath = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.holyLightCasts = (db.challengeStats.holyLightCasts or 0) + 1
                     if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
-                    end
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
+					end
                 end
             end
 
@@ -160,37 +165,70 @@ PaladinModule.challenges.libram = {
     end,
 
     EventHandler = function(self, event, ...)
-        if event == "PLAYER_TARGET_CHANGED" then
-            if UnitExists("target") and UnitCanAttack("player", "target") then
-                local targetGUID = UnitGUID("target")
-                local creatureType = UnitCreatureType("target")
-                if targetGUID then
-                    secureCombatants[targetGUID] = creatureType
+        if event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_MOUSEOVER" then
+            local unit = event == "UPDATE_MOUSEOVER" and "mouseover" or "target"
+            if UnitExists(unit) and UnitCanAttack("player", unit) then
+                local targetGUID = UnitGUID(unit)
+                local creatureType = UnitCreatureType(unit)
+                local unitName = UnitName(unit)
+                
+                if targetGUID and unitName then
+                    -- Cache both the type and the exact name of the mob
+                    secureCombatants[targetGUID] = { type = creatureType, name = unitName }
                 end
             end
+            
         elseif event == "PLAYER_LEAVE_COMBAT" or event == "PLAYER_REGEN_ENABLED" then
             secureCombatants = {}
+            
+        elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then
+            local text = ...
+            -- Parse the string to grab the mob's name before the word "dies"
+            -- Example: "Rockjaw Raider dies, you gain 55 experience." -> "Rockjaw Raider"
+            local slainMobName = text:match("^(.-) dies, you gain")
+            
+            if slainMobName then
+                -- Check our active combat cache for this name
+                for guid, data in pairs(secureCombatants) do
+                    if data.name == slainMobName then
+                        if data.type ~= "Undead" then
+                            Purity:Violation("Gained experience from a non-Undead kill: " .. slainMobName)
+                            return
+                        end
+                    end
+                end
+            end
+            
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, _, _, destGUID, destName, destFlags, _, spellId = CombatLogGetCurrentEventInfo()
 
+            -- Stat tracking for Exorcism
             if sourceGUID == UnitGUID("player") and subEvent == "SPELL_CAST_SUCCESS" then
                 local exorcismIDs = { [879]=true, [5614]=true, [5615]=true, [10312]=true, [10313]=true, [10314]=true }
                 if exorcismIDs[spellId] then
                     local db = Purity:GetDB()
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.exorcismCasts = (db.challengeStats.exorcismCasts or 0) + 1
-					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
+                    if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
                         Purity:UpdateCharacterStatus()
                     end
                 end
             end
 
-            if subEvent == "UNIT_DIED" and destGUID and bit.band(destFlags, COMBATLOG_OBJECT_TYPE_NPC) > 0 then
-                if UnitAffectingCombat("player") and secureCombatants[destGUID] then
-                    if secureCombatants[destGUID] ~= "Undead" then
+            -- Direct Killing Blows
+            if subEvent == "PARTY_KILL" and sourceGUID == UnitGUID("player") and destGUID and bit.band(destFlags, COMBATLOG_OBJECT_TYPE_NPC) > 0 then
+                if secureCombatants[destGUID] then
+                    if secureCombatants[destGUID].type ~= "Undead" then
                         Purity:Violation("Landed the killing blow on a non-Undead creature: " .. destName)
                         return
                     end
+                end
+            end
+            
+            -- Clean up the cache when a mob dies to prevent bloat during long combat
+            if subEvent == "UNIT_DIED" and destGUID then
+                if secureCombatants[destGUID] then
+                    secureCombatants[destGUID] = nil
                 end
             end
         end

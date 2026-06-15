@@ -104,8 +104,10 @@ RogueModule.challenges.contract = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.sinisterStrikeCasts = (db.challengeStats.sinisterStrikeCasts or 0) + 1
 					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
-                    end
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
+					end
                 end
             end
 		end
@@ -174,8 +176,10 @@ RogueModule.challenges.foil = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.riposteCasts = (db.challengeStats.riposteCasts or 0) + 1
 					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
-                    end
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
+					end
                 end
             end
         end

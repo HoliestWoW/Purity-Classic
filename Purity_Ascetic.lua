@@ -22,10 +22,44 @@ local AsceticModule = {
     lastItemSaleAttempt = nil, -- For two-step sale confirmation
 
     specializations = {
-        -- ... (specialization data remains the same) ...
-        { name = "Path of Humility", buttonText = "Path of Humility", id = "EASY", description = "Only items of Common (white) quality or lower may be equipped.", IsItemForbidden = function(itemLink) if not itemLink then return false end local _, _, itemRarity, _, _, itemType = GetItemInfo(itemLink) if itemType ~= "Armor" and itemType ~= "Weapon" then return false end return itemRarity and itemRarity > 1 end },
-        { name = "Path of Resilience", buttonText = "Path of Resilience", id = "MEDIUM", description = "No armor may be worn. Weapons and shields are permitted.", IsItemForbidden = function(itemLink) if not itemLink then return false end local _, _, _, _, _, itemType = GetItemInfo(itemLink) return itemType == "Armor" end },
-        { name = "Path of the Unburdened", buttonText = "Path of the Unburdened", id = "HARD", description = "No items may be equipped whatsoever. You must face the world with nothing.", IsItemForbidden = function(itemLink) if not itemLink then return false end local _, _, _, _, _, itemType, _, _, equipSlot = GetItemInfo(itemLink) if itemType == "Armor" or itemType == "Weapon" then return true end if equipSlot and equipSlot ~= "INVTYPE_NON_EQUIP" then return true end return false end }
+        { 
+            name = "Path of Humility", 
+            buttonText = "Path of Humility", 
+            id = "EASY", 
+            description = "Only items of Common (white) quality or lower may be equipped.", 
+            IsItemForbidden = function(itemLink) 
+                if not itemLink then return false end 
+                local _, _, itemRarity, _, _, itemType, _, _, equipSlot = GetItemInfo(itemLink) 
+                if not equipSlot or equipSlot == "" or equipSlot == "INVTYPE_NON_EQUIP" or equipSlot == "INVTYPE_BAG" then return false end
+                if itemType ~= "Armor" and itemType ~= "Weapon" then return false end 
+                return itemRarity and itemRarity > 1 
+            end 
+        },
+        { 
+            name = "Path of Resilience", 
+            buttonText = "Path of Resilience", 
+            id = "MEDIUM", 
+            description = "No armor may be worn. Weapons and shields are permitted.", 
+            IsItemForbidden = function(itemLink) 
+                if not itemLink then return false end 
+                local _, _, _, _, _, itemType, _, _, equipSlot = GetItemInfo(itemLink) 
+                if not equipSlot or equipSlot == "" or equipSlot == "INVTYPE_NON_EQUIP" or equipSlot == "INVTYPE_BAG" then return false end
+                if equipSlot == "INVTYPE_SHIELD" then return false end
+                return itemType == "Armor" 
+            end 
+        },
+        { 
+            name = "Path of the Unburdened", 
+            buttonText = "Path of the Unburdened", 
+            id = "HARD", 
+            description = "No items may be equipped whatsoever. You must face the world with nothing.", 
+            IsItemForbidden = function(itemLink) 
+                if not itemLink then return false end 
+                local _, _, _, _, _, _, _, _, equipSlot = GetItemInfo(itemLink) 
+                if not equipSlot or equipSlot == "" or equipSlot == "INVTYPE_NON_EQUIP" or equipSlot == "INVTYPE_BAG" then return false end
+                return true 
+            end 
+        }
     },
 
     EventHandler = function(self, event, ...)
@@ -45,8 +79,10 @@ local AsceticModule = {
                     db.asceticChallengeData.soldItemHistory[itemLink] = true
                     
                     if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
-                    end
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
+					end
                 end
                 
                 -- Clear the attempt variable immediately after processing.
@@ -117,27 +153,39 @@ end
 
 -- All module methods must be defined after the main table.
 function AsceticModule:isWeaponAllowed(itemLink)
-    local difficulty = self.selectedDifficultyId
-    if not difficulty and Purity.tempSelectedSpec and Purity.tempSelectedSpec.id then
-        difficulty = Purity.tempSelectedSpec.id
+    local currentDifficultyId = self.selectedDifficultyId
+    -- Dynamically pull from the UI if the opt-in frame is open
+    if Purity.optInFrame and Purity.optInFrame:IsShown() and Purity.tempSelectedSpec and Purity.tempSelectedSpec.id then
+        currentDifficultyId = Purity.tempSelectedSpec.id
     end
-    if difficulty == "HARD" then return false end
+    
+    if currentDifficultyId == "HARD" then return false end
     return true
 end
 
 function AsceticModule:IsItemForbidden(itemLink)
-    if not self.selectedDifficultyId then
-        if Purity.tempSelectedSpec and Purity.tempSelectedSpec.id then
-            self.selectedDifficultyId = Purity.tempSelectedSpec.id
-        else
-            self.selectedDifficultyId = "EASY"
-        end
+    if not itemLink then return false end
+
+    -- Preemptively ignore non-gear items to prevent bag flagging
+    local _, _, _, _, _, itemType = GetItemInfo(itemLink)
+    if itemType ~= "Armor" and itemType ~= "Weapon" then 
+        return false 
     end
+
+    local currentDifficultyId = self.selectedDifficultyId
+    
+    if Purity.optInFrame and Purity.optInFrame:IsShown() and Purity.tempSelectedSpec and Purity.tempSelectedSpec.id then
+        currentDifficultyId = Purity.tempSelectedSpec.id
+    end
+    
+    if not currentDifficultyId then currentDifficultyId = "EASY" end
+
     for _, spec in ipairs(self.specializations) do
-        if spec.id == self.selectedDifficultyId then
+        if spec.id == currentDifficultyId then
             return spec.IsItemForbidden(itemLink)
         end
     end
+    
     return self.specializations[3].IsItemForbidden(itemLink)
 end
 

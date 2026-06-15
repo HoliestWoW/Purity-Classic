@@ -127,7 +127,9 @@ local GrimoireOfPurity = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.immolateCasts = (db.challengeStats.immolateCasts or 0) + 1
 					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
 					end
                 end
             end
@@ -287,8 +289,10 @@ local SacramentOfPurity = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.lifeTapCasts = (db.challengeStats.lifeTapCasts or 0) + 1
 					if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-                        Purity:UpdateCharacterStatus()
-                    end
+						if _G["UpdateCharacterPurity"] then
+							_G["UpdateCharacterPurity"]()
+						end
+					end
                 end
             end
 

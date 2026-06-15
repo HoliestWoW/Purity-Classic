@@ -103,16 +103,35 @@ local GlassHeart = {
     StartBroadcasting = function(self)
         if self.broadcasterFrame then return end
         self.broadcasterFrame = CreateFrame("Frame")
-        local lastUpdate = 0
+        
+        local lastBroadcastedCurrent = -1
+        local lastBroadcastedMax = -1
+        local lastBroadcastTime = 0
+        
         self.broadcasterFrame:SetScript("OnUpdate", function(frame, elapsed)
-            lastUpdate = lastUpdate + elapsed
-            -- Broadcast every 0.25s if in a group
-            if lastUpdate > 0.25 and GetNumGroupMembers() > 0 then
-                lastUpdate = 0
-                local db = Purity:GetDB()
-                if db and db.activeChallengeID == self.id then
-                    local data = { current = secureGlassHeartState.current, max = UnitHealthMax("player") }
-                    C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "GLASSHEART_UPDATE:" .. Purity:Serialize(data), "PARTY")
+            if GetNumGroupMembers() == 0 then return end
+            
+            local db = Purity:GetDB()
+            if not (db and db.activeChallengeID == self.id) then return end
+            
+            local current = secureGlassHeartState.current
+            local max = UnitHealthMax("player")
+            
+            if not current or not max then return end
+
+            -- Did the value actually change?
+            if current ~= lastBroadcastedCurrent or max ~= lastBroadcastedMax then
+                local now = GetTime()
+                
+                -- Send instantly, with a 0.1s buffer ONLY to prevent multi-hit AoE crashes
+                if (now - lastBroadcastTime) >= 0.1 then
+                    local data = { current = current, max = max }
+                    local channel = IsInRaid() and "RAID" or "PARTY"
+                    C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "GLASSHEART_UPDATE:" .. Purity:Serialize(data), channel)
+                    
+                    lastBroadcastedCurrent = current
+                    lastBroadcastedMax = max
+                    lastBroadcastTime = now
                 end
             end
         end)

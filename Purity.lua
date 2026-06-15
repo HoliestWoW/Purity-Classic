@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.0.4a"
+Purity.Version = "12.0.5d"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -409,8 +409,9 @@ function Purity:GetCurrentChallengeInfo()
         elseif specifier == "HARD" then mainKey = "Path of the Unburdened" end
         
     elseif mainKey == "Tome of Purity" and specifier then
-        -- Converts "Arcane" -> "Tome of Purity (Arcane)"
-        mainKey = string.format("Tome of Purity (%s)", specifier:sub(1,1):upper()..specifier:sub(2):lower())
+        if specifier:upper() == "FIRE" then mainKey = "Burnt Tome of Purity"
+        elseif specifier:upper() == "FROST" then mainKey = "Frozen Tome of Purity"
+        elseif specifier:upper() == "ARCANE" then mainKey = "Crackling Tome of Purity" end
         
     elseif mainKey == "The Glass Heart" and specifier then
         -- Converts "HARD" -> "The Glass Heart (Hard)"
@@ -688,39 +689,54 @@ function Purity:DisplayRules()
 
     if not activeChallenge then
         Purity.rulesPane.title:SetText("No Active Challenge")
-        if Purity.rulesPane.lines then
-            for _, line in ipairs(Purity.rulesPane.lines) do line:Hide() end
+        if Purity.rulesPane.scrollChild and Purity.rulesPane.scrollChild.lines then
+            for _, line in ipairs(Purity.rulesPane.scrollChild.lines) do line:Hide() end
         end
         return
     end
 
     Purity.rulesPane.title:SetText(currentDB.challengeTitle or activeChallenge.challengeName)
     local rules = activeChallenge:GetRulesText()
-    local yOffset = -65
+    
+    local scrollChild = Purity.rulesPane.scrollChild
+    if not scrollChild.lines then scrollChild.lines = {} end
 
-    if Purity.rulesPane.lines then
-        for _, line in ipairs(Purity.rulesPane.lines) do
-            line:Hide()
-        end
+    for _, line in ipairs(scrollChild.lines) do
+        line:Hide()
     end
-    Purity.rulesPane.lines = {}
-    local defaultLineSpacing = 30
+
+    local yOffset = -10
+    local defaultLineSpacing = 15
     local emptyLineSpacing = 10
+    local lineIndex = 1
 
     for _, lineText in ipairs(rules) do
-        local line = Purity.rulesPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        line:SetPoint("TOPLEFT", Purity.rulesPane, "TOPLEFT", 40, yOffset)
-        line:SetPoint("TOPRIGHT", Purity.rulesPane, "TOPRIGHT", -40, yOffset)
+        local line = scrollChild.lines[lineIndex]
+        if not line then
+            line = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+            line:SetJustifyH("LEFT")
+            table.insert(scrollChild.lines, line)
+        end
+        
+        line:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+        line:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
+        
         line:SetText(lineText)
-        line:SetJustifyH("LEFT")
-        table.insert(Purity.rulesPane.lines, line)
+        line:Show()
+        
+        local stringHeight = line:GetStringHeight()
         
         if lineText == " " then
             yOffset = yOffset - emptyLineSpacing
         else
-            yOffset = yOffset - defaultLineSpacing
+            yOffset = yOffset - stringHeight - defaultLineSpacing
         end
+        
+        lineIndex = lineIndex + 1
     end
+    
+    scrollChild:SetHeight(math.abs(yOffset) + 20)
+    Purity.rulesPane.scrollFrame:SetVerticalScroll(0)
 end
 
 function Purity:BuildChallengeTypeMap()
@@ -748,13 +764,19 @@ function Purity:BuildChallengeTypeMap()
             local friendlyClassName = className:sub(1,1) .. className:sub(2):lower()
             if classModule.challenges then
                 for _, challengeData in pairs(classModule.challenges) do
-                    self.ChallengeTypeMap[challengeData.challengeName] = friendlyClassName
+                    if challengeData.challengeName == "Tome of Purity" then
+                        self.ChallengeTypeMap["Crackling Tome of Purity"] = friendlyClassName
+                        self.ChallengeTypeMap["Burnt Tome of Purity"] = friendlyClassName
+                        self.ChallengeTypeMap["Frozen Tome of Purity"] = friendlyClassName
+                    else
+                        self.ChallengeTypeMap[challengeData.challengeName] = friendlyClassName
+                    end
                 end
             elseif classModule.challengeName then
                 if classModule.challengeName == "Tome of Purity" then
-                    self.ChallengeTypeMap["Tome of Purity (Arcane)"] = friendlyClassName
-                    self.ChallengeTypeMap["Tome of Purity (Fire)"] = friendlyClassName
-                    self.ChallengeTypeMap["Tome of Purity (Frost)"] = friendlyClassName
+                    self.ChallengeTypeMap["Crackling Tome of Purity"] = friendlyClassName
+                    self.ChallengeTypeMap["Burnt Tome of Purity"] = friendlyClassName
+                    self.ChallengeTypeMap["Frozen Tome of Purity"] = friendlyClassName
                 else
                     self.ChallengeTypeMap[classModule.challengeName] = friendlyClassName
                 end
@@ -998,7 +1020,7 @@ function Purity:UpdateAndGetStatusStrings()
             if specifier then
                 local specName = "Unknown Path"
                 for _, specData in ipairs(activeChallenge.specializations) do
-                    if specData.id == specifier then specName = specData.name; break; end
+                    if (specData.id or specData.name) == specifier then specName = specData.name; break; end
                 end
                 Purity.mainInterfaceFrame.statusText[lineIndex]:SetText(goldColor .. "Path:|r " .. darkColor .. specName .. " (" .. specifier .. ")|r"); lineIndex = lineIndex + 1
             end
@@ -1285,24 +1307,31 @@ function Purity:Deserialize(str)
 end
 
 function Purity:BroadcastStatus()
-    if not Purity.purityChannelID then return end
+    local id = GetChannelName("PurityUsers")
+    if not id or id == 0 then return end
 
     local db = self:GetDB()
     local _, classToken = UnitClass("player")
-    
     local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
     local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
+
+    -- Calculate the missing data
+    local totalCoeff = self:CalculateTotalCoefficient()
+    local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
+    uptimePercent = math.min(100, uptimePercent)
 
     local myStatus = {
         challenge = db.challengeTitle,
         level = UnitLevel("player"),
         class = classToken,
         status = db.status,
-        ob_rank = rank
+        ob_rank = rank,
+        coefficient = string.format("%.2f", totalCoeff),
+        uptime = string.format("%.1f%%", uptimePercent)
     }
     
-    local message = "STATUS_UPDATE:" .. self:Serialize(myStatus)
-    C_ChatInfo.SendAddonMessage(self.ADDON_PREFIX, message, "CHANNEL", Purity.purityChannelID)
+    local message = "!PURITYCOMMS:STATUS_UPDATE:" .. self:Serialize(myStatus)
+    pcall(SendChatMessage, message, "CHANNEL", nil, tostring(id))
 end
 
 function Purity:SendStatusToPlayer(playerName)
@@ -1339,8 +1368,10 @@ function Purity:SendStatusToPlayer(playerName)
 end
 
 function Purity:SendGoodbye()
-    if Purity.purityChannelID then
-        C_ChatInfo.SendAddonMessage(self.ADDON_PREFIX, "GOODBYE", "CHANNEL", Purity.purityChannelID)
+    local id = GetChannelName("PurityUsers")
+    if id and id > 0 then
+        -- Use pcall to swallow the Lua errors during logout
+        pcall(SendChatMessage, "!PURITYCOMMS:GOODBYE", "CHANNEL", nil, tostring(id))
     end
 end
 
@@ -1515,6 +1546,10 @@ local coefficientText = ""
 				if specData.id == "EASY" then challengeKey = "Path of Humility"
 				elseif specData.id == "MEDIUM" then challengeKey = "Path of Resilience"
 				elseif specData.id == "HARD" then challengeKey = "Path of the Unburdened" end
+			elseif challengeData.challengeName == "Tome of Purity" then
+				if specData.name == "Fire" then challengeKey = "Burnt Tome of Purity"
+				elseif specData.name == "Frost" then challengeKey = "Frozen Tome of Purity"
+				elseif specData.name == "Arcane" then challengeKey = "Crackling Tome of Purity" end
 			else
 				local specifier = specData.name
 				challengeKey = string.format("%s (%s)", challengeData.challengeName, specifier:sub(1,1):upper()..specifier:sub(2):lower())
@@ -1670,45 +1705,39 @@ function Purity:selectTab(tabToShow)
             self:SilentRequestTimePlayed()
             self:UpdateAndGetStatusStrings()
         elseif tabToShow == "roster" then
-            self.rosterPane:Show()
-            
-            local db = Purity:GetDB()
-            local _, classToken = UnitClass("player")
-            local realTimeData = self:GetRawStatusData()
-            local totalCoeff = self:CalculateTotalCoefficient()
-            local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
-            uptimePercent = math.min(100, uptimePercent)
-            local playerName = UnitName("player") .. "-" .. GetRealmName()
+			self.rosterPane:Show()
+			
+			local db = Purity:GetDB()
+			local _, classToken = UnitClass("player")
+			local realTimeData = self:GetRawStatusData()
+			local totalCoeff = self:CalculateTotalCoefficient()
+			local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
+			uptimePercent = math.min(100, uptimePercent)
+			local playerName = UnitName("player") .. "-" .. GetRealmName()
 
-            local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
-            local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
+			local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+			local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
 
-            Purity.roster[playerName] = {
-                challenge = db.challengeTitle or "N/A",
-                level = UnitLevel("player"),
-                class = classToken,
-                status = realTimeData.status,
-                coefficient = string.format("%.2f", totalCoeff),
-                uptime = string.format("%.1f%%", uptimePercent),
-                ob_rank = rank, -- Included rank here
-                lastSeen = GetTime() 
-            }
-            
-            -- *** FIX PART 2: Restore the missing channel check ***
-            local foundID
-            local returned_id_as_string, _ = GetChannelName("PurityUsers")
-            local numericID = tonumber(returned_id_as_string)
-            if numericID and numericID > 0 then
-                foundID = numericID
-            end
-
-            if foundID then
-                Purity.purityChannelID = foundID
-                SendChatMessage("!purity_ping", "CHANNEL", nil, foundID)
-			else
-            end
-            
-            self:UpdateRosterWindow() -- <-- THIS IS THE CORRECTED LINE
+			Purity.roster[playerName] = {
+				challenge = db.challengeTitle or "N/A",
+				level = UnitLevel("player"),
+				class = classToken,
+				status = realTimeData.status,
+				coefficient = string.format("%.2f", totalCoeff),
+				uptime = string.format("%.1f%%", uptimePercent),
+				ob_rank = rank,
+				lastSeen = GetTime() 
+			}
+			
+			local id = GetChannelName("PurityUsers")
+			if id and id > 0 then
+				-- Instantly broadcast your own status so others see you immediately
+				Purity:BroadcastStatus() 
+				-- Ask others to update their status
+				SendChatMessage("!PURITYCOMMS:ROSTER_PING", "CHANNEL", nil, id)
+			end
+			
+			self:UpdateRosterWindow()
         elseif tabToShow == "verify" then
             self.verifyPane:Show()
             local db = Purity:GetDB()
@@ -2544,6 +2573,10 @@ function Purity.CreateCoreUI()
     Purity.mainInterfaceFrame:SetScript("OnDragStart", Purity.mainInterfaceFrame.StartMoving)
     Purity.mainInterfaceFrame:SetScript("OnDragStop", Purity.mainInterfaceFrame.StopMovingOrSizing)
     Purity.mainInterfaceFrame:Hide()
+    
+    -- Play sounds when the Purity window opens and closes
+    Purity.mainInterfaceFrame:SetScript("OnShow", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_OPEN or 839) end)
+    Purity.mainInterfaceFrame:SetScript("OnHide", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_CLOSE or 840) end)
 
 	local tabWidth = 85
 	local tabSpacing = 5
@@ -2612,6 +2645,23 @@ function Purity.CreateCoreUI()
 	rosterHeader:SetText("Purity Addon Roster")
 	rosterHeader:SetTextColor(1, 0.82, 0)
 	
+    local forceRefreshBtn = CreateFrame("Button", "Purity_ForceRefreshRosterBtn", Purity.rosterPane, "UIPanelButtonTemplate")
+    forceRefreshBtn:SetSize(120, 25)
+    forceRefreshBtn:SetPoint("TOPRIGHT", Purity.rosterPane, "TOPRIGHT", -20, -20)
+    forceRefreshBtn:SetText("Force Refresh")
+    forceRefreshBtn:SetScript("OnClick", function(self)
+        local id = GetChannelName("PurityUsers")
+        if id and id > 0 then
+            print("|cffFFFF00Purity:|r Requesting manual roster update...")
+            Purity:BroadcastStatus() 
+            SendChatMessage("!PURITYCOMMS:ROSTER_PING", "CHANNEL", nil, id)
+            self:Disable()
+            C_Timer.After(5, function() self:Enable() end)
+        else
+            print("|cffFFFF00Purity:|r |cffFF0000Not connected to the PurityUsers channel yet.|r")
+        end
+    end)
+	
     local rankingsHeader = Purity.rankingsPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     rankingsHeader:SetPoint("TOP", Purity.rankingsPane, "TOP", 0, -25)
     rankingsHeader:SetText("Challenge Difficulty Rankings")
@@ -2652,10 +2702,15 @@ function Purity.CreateCoreUI()
     eb_bg:SetAllPoints(true)
     eb_bg:SetColorTexture(0,0,0,0.5)
 	
-    Purity.rulesPane.rulesText = Purity.rulesPane:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    Purity.rulesPane.rulesText:SetPoint("TOPLEFT", Purity.rulesPane.title, "BOTTOMLEFT", 20, -20)
-    Purity.rulesPane.rulesText:SetPoint("TOPRIGHT", Purity.rulesPane.title, "BOTTOMRIGHT", -20, -20)
-    Purity.rulesPane.rulesText:SetJustifyH("LEFT")
+    local rulesScrollFrame = CreateFrame("ScrollFrame", "PurityRulesScrollFrame", Purity.rulesPane, "UIPanelScrollFrameTemplate")
+    rulesScrollFrame:SetPoint("TOPLEFT", Purity.rulesPane, "TOPLEFT", 20, -70) 
+    rulesScrollFrame:SetPoint("BOTTOMRIGHT", Purity.rulesPane, "BOTTOMRIGHT", -45, 20)
+    Purity.rulesPane.scrollFrame = rulesScrollFrame
+
+    local rulesScrollChild = CreateFrame("Frame")
+    rulesScrollChild:SetWidth(600) 
+    Purity.rulesPane.scrollChild = rulesScrollChild
+    rulesScrollFrame:SetScrollChild(rulesScrollChild)
 
     local statusTitle = Purity.statusPane:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
     statusTitle:SetPoint("TOP", Purity.statusPane, "TOP", 0, -25)
@@ -2671,12 +2726,12 @@ function Purity.CreateCoreUI()
     end
     Purity.mainInterfaceFrame.statusText = statusText
 
-    rulesTab:SetScript("OnClick", function() Purity:selectTab("rules") end)
-    statusTab:SetScript("OnClick", function() Purity:selectTab("status") end)
-	rosterTab:SetScript("OnClick", function() Purity:selectTab("roster") end)
-	rankingsTab:SetScript("OnClick", function() Purity:selectTab("rankings") end)
-    verifyTab:SetScript("OnClick", function() Purity:selectTab("verify") end)
-	optionsTab:SetScript("OnClick", function() Purity:selectTab("options") end)
+    rulesTab:SetScript("OnClick", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB or 841); Purity:selectTab("rules") end)
+    statusTab:SetScript("OnClick", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB or 841); Purity:selectTab("status") end)
+    rosterTab:SetScript("OnClick", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB or 841); Purity:selectTab("roster") end)
+    rankingsTab:SetScript("OnClick", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB or 841); Purity:selectTab("rankings") end)
+    verifyTab:SetScript("OnClick", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB or 841); Purity:selectTab("verify") end)
+    optionsTab:SetScript("OnClick", function() PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB or 841); Purity:selectTab("options") end)
 
     local closeButton = CreateFrame("Button", "Purity_InterfaceCloseButton", Purity.mainInterfaceFrame, "UIPanelButtonTemplate")
     closeButton:SetSize(100, 25)
@@ -3082,11 +3137,11 @@ function Purity:CheckEquipmentState(slotId)
         local itemLink = GetInventoryItemLink("player", slot)
         if itemLink then
             local itemName = GetItemInfo(itemLink)
-            -- If GetItemInfo returns nil, the server hasn't sent the item data yet
-            if not itemName then
-                dataPending = true
-            else
-                local isForbidden = false
+			-- Treat locked slots the same as missing item data to force a retry
+			if not itemName or IsInventoryItemLocked(slot) then
+				dataPending = true
+			else
+				local isForbidden = false
                 
                 -- 1. Global Item Check (Armor, Trinkets, Rings, etc.)
                 if activeChallenge.IsItemForbidden and activeChallenge:IsItemForbidden(itemLink) then
@@ -3100,8 +3155,30 @@ function Purity:CheckEquipmentState(slotId)
                     end
                 end
 
-                -- THE INSTANT AUTO-UNEQUIP (Bag Bounce)
                 if isForbidden then
+                    -- === COMBAT LOCKDOWN FIX ===
+                    if InCombatLockdown() then
+                        local db = self:GetDB()
+                        local isWeaponSlot = (slot == 16 or slot == 17 or slot == 18)
+                        
+                        if isWeaponSlot and activeChallenge.needsWeaponWarning then
+                            db.weaponInfractions = (db.weaponInfractions or 0) + 1
+                            if secureCoreState then secureCoreState.weaponInfractions = db.weaponInfractions end
+                            
+                            if db.weaponInfractions >= 2 then
+                                self:Violation("Forbidden weapon equipped during combat. Infraction limit reached.")
+                            else
+                                self:ShowWarningBanner("Forbidden weapon equipped in combat! Unequip it manually! (" .. db.weaponInfractions .. "/2 warnings)", 10, 2)
+                                self:UpdateAndGetStatusStrings()
+                            end
+                        else
+                            self:Violation("Equipped a forbidden item during combat. Run invalidated.")
+                        end
+                        return -- Stop here so we don't trigger Blizzard's Action Blocked errors
+                    end
+                    -- === END COMBAT LOCKDOWN FIX ===
+
+                    -- THE INSTANT AUTO-UNEQUIP (Bag Bounce) - Out of Combat
                     local hasEmptySlot = false
                     for bag = 0, 4 do
                         for bslot = 1, C_Container.GetContainerNumSlots(bag) do
@@ -3299,6 +3376,10 @@ function Purity:ActivateMonitoring()
                 if hasItem then
                     Purity:CheckEquipmentState(slotId)
                 end
+            end
+			
+			if event == "PLAYER_REGEN_ENABLED" then
+                Purity:CheckEquipmentState()
             end
 
             local aChallenge = Purity:GetActiveChallengeObject()
@@ -3801,13 +3882,16 @@ mainFrame:RegisterEvent("TIME_PLAYED_MSG")
 mainFrame:RegisterEvent("ADDON_LOADED")
 
 local function OnAddonMessage(prefix, message, channel, sender)
+    if prefix == Purity.ADDON_PREFIX then
+        local shortCmd = string.match(message, "^([^:]+)") or "UNKNOWN"
+    end
+
+    -- The standard ignore logic
     if prefix ~= Purity.ADDON_PREFIX or sender == UnitName("player") .. "-" .. GetRealmName() then
         return
     end
     
-    -- Strip realm name for cleaner chat display
     local shortName = string.match(sender, "([^-]+)") or sender
-    
     local command, data = message:match("([^:]+):?(.*)")
 
 	if command == "STATUS_UPDATE" then
@@ -3851,9 +3935,9 @@ local function OnAddonMessage(prefix, message, channel, sender)
             Purity.roster[sender].glassHeartCurrent = glassData.current
             Purity.roster[sender].glassHeartMax = glassData.max
         end
-    elseif command == "ROSTER_REQUEST" then
-        Purity:SendStatusToPlayer(sender)
-    end
+    elseif command == "ROSTER_REQUEST" or command == "ROSTER_PING" then
+    Purity:QueueRosterReply(sender)
+	end
     -- Refresh frames if either module is active
     if Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
         Purity.GlobalModules.BLOOD_MAGE_BARGAIN:RefreshGroupFrames()
@@ -3920,59 +4004,121 @@ local function OnPlayerLogin()
     CharacterFrameTab1:HookScript("OnClick", function() C_Timer.After(0.01, function() Purity:UpdateCharacterFrameClassName() end) end)
     
     C_Timer.NewTicker(60, function()
-        local currentTime = GetTime()
-        local playersToRemove = {}
-        for playerName, data in pairs(Purity.roster) do
-            if currentTime - (data.lastSeen or 0) > 125 then table.insert(playersToRemove, playerName) end
+		local currentTime = GetTime()
+		local playersToRemove = {}
+		local selfName = UnitName("player") .. "-" .. GetRealmName()
+		
+		for playerName, data in pairs(Purity.roster) do
+			-- Skip deleting ourselves from our own roster
+			if playerName ~= selfName and playerName ~= UnitName("player") then
+				if currentTime - (data.lastSeen or 0) > 125 then 
+					table.insert(playersToRemove, playerName) 
+				end
+			end
+		end
+		
+		if #playersToRemove > 0 then
+			for _, name in ipairs(playersToRemove) do Purity.roster[name] = nil end
+			Purity:UpdateRosterWindow()
+		end
+	end)
+end
+
+function Purity:QueueRosterReply(targetSender)
+    -- Initialize the queue if it doesn't exist
+    if not self.pendingRosterReplies then
+        self.pendingRosterReplies = {}
+        self.isReplyQueueRunning = false
+    end
+
+    -- Prevent duplicates so we don't spam the same person if they click refresh multiple times
+    for _, queuedSender in ipairs(self.pendingRosterReplies) do
+        if queuedSender == targetSender then return end
+    end
+
+    table.insert(self.pendingRosterReplies, targetSender)
+
+    -- Process the queue safely if it isn't already running
+    if not self.isReplyQueueRunning then
+        self.isReplyQueueRunning = true
+        
+        local function ProcessQueue()
+            local target = table.remove(Purity.pendingRosterReplies, 1)
+            if target then
+                Purity:SendStatusToPlayer(target)
+                -- Wait 1 to 3 seconds before sending the next one to avoid server disconnects
+                C_Timer.After(math.random(1, 3), ProcessQueue)
+            else
+                -- Queue empty, shut down the engine
+                Purity.isReplyQueueRunning = false
+            end
         end
-        if #playersToRemove > 0 then
-            for _, name in ipairs(playersToRemove) do Purity.roster[name] = nil end
-            Purity:UpdateRosterWindow()
-        end
-    end)
+        
+        -- Initial stagger so the requester isn't hit by 300 whispers on the exact same frame
+        C_Timer.After(math.random(2, 8), ProcessQueue)
+    end
 end
 
 mainFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "CHAT_MSG_CHANNEL" then
         local msg = select(1, ...)
         local sender = select(2, ...)
-        local channelName, channelID = select(9, ...) -- GRAB THE CHANNEL ID HERE
+        local channelName, channelID = select(9, ...)
 
         if channelName == "PurityUsers" then
-            Purity.purityChannelID = channelID -- SAVE THE CHANNEL ID
+            Purity.purityChannelID = channelID 
             
-            if msg == "!purity_ping" then
-            end
+            -- [NEW] Data Interception block
+            if string.sub(msg, 1, 13) == "!PURITYCOMMS:" then
+                local payload = string.sub(msg, 14)
+                
+                -- Ignore our own echoes
+                if sender ~= UnitName("player") .. "-" .. GetRealmName() and sender ~= UnitName("player") then
+                    local shortName = string.match(sender, "([^-]+)") or sender
+                    local command, data = payload:match("([^:]+):?(.*)")
+                    
+                    if command == "STATUS_UPDATE" then
+                        local statusData = Purity:Deserialize(data)
+                        local displayCoeff = statusData.coefficient
+                        if statusData.status == "Not Participating" or statusData.status == "Failed" then
+                            displayCoeff = "0.00"
+                        end
+                        Purity.roster[sender] = {
+                            challenge = statusData.challenge,
+                            status = statusData.status,
+                            level = statusData.level,
+                            class = statusData.class,
+                            coefficient = displayCoeff,
+                            uptime = statusData.uptime,
+                            ob_rank = tonumber(statusData.ob_rank) or 0,
+                            lastSeen = GetTime() 
+                        }
+                        Purity:UpdateRosterWindow()
 
-            local selfName = UnitName("player")
-            local isSelf = false
-            if sender then
-                if sender == selfName then
-                    isSelf = true
-                elseif sender:find(selfName .. "-", 1, true) == 1 then
-                    isSelf = true
+                    elseif command == "GOODBYE" then
+                        Purity.roster[sender] = nil
+                        Purity:UpdateRosterWindow()
+                        if Purity_GlobalSettings.showMemberAlerts then
+                            print("|cffFFFF00Purity:|r |cff888888" .. shortName .. " has gone offline.|r")
+                        end
+
+                    elseif command == "ROSTER_REQUEST" or command == "ROSTER_PING" then
+						Purity:QueueRosterReply(sender)
+					end
                 end
+                return -- Stop processing so we don't treat data as a login ping
             end
-			
-			if not isSelf and msg == "!purity_ping" and Purity_GlobalSettings.showMemberAlerts then
+            
+            -- Login Alert logic
+            local selfName = UnitName("player")
+            local isSelf = (sender == selfName or (sender and sender:find(selfName .. "-", 1, true) == 1))
+            
+            if not isSelf and msg == "!purity_ping" and Purity_GlobalSettings.showMemberAlerts then
                  local shortName = string.match(sender, "([^-]+)") or sender
-                 -- Check lastSeen to prevent spam if they spam the macro (60 second throttle)
                  local lastSeen = Purity.roster[sender] and Purity.roster[sender].lastSeen or 0
                  if (GetTime() - lastSeen) > 60 then
                       print("|cffFFFF00Purity:|r |cff00FF00" .. shortName .. " has come online.|r")
                  end
-            end
-
-            if (msg == "!purity_ping" or msg == "joins channel") and sender and not isSelf then
-                local randomDelay = math.random(2, 45)
-                
-                C_Timer.After(randomDelay, function()
-                    Purity:SendStatusToPlayer(sender)
-                    C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "ROSTER_REQUEST", "WHISPER", sender)
-                end)
-            else
-                if msg == "!purity_ping" then
-                end
             end
         end
         return
@@ -4014,6 +4160,15 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         Purity:EnforceDefaultClassColors()
+        
+        -- [RESTORED] Reconnect to the custom comms channel after the server loads
+        C_Timer.After(7, function()
+            local id = GetChannelName("PurityUsers")
+            if not id or id == 0 then
+                JoinChannelByName("PurityUsers", "a-unique-password")
+            end
+        end)
+
         local currentDB = Purity:GetDB()
         local currentGUID = UnitGUID("player")
 
@@ -4038,13 +4193,6 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         Purity.CreateCoreUI()
         
         Purity:SyncSecureStateFromDB()
-        
-        C_Timer.After(7, function()
-             JoinChannelByName("PurityUsers", "a-unique-password")
-             
-             Purity.secretPing = "purity_id_ping_" .. tostring(math.random(1000, 9999))
-             SendChatMessage(Purity.secretPing, "CHANNEL", nil, "PurityUsers")
-        end)
         
         local currentDB = Purity:GetDB()
         if currentDB.isMigrating then
@@ -4205,7 +4353,22 @@ end
 
 local function Purity_OnTooltipSetUnit_Handler(self)
     local unit = select(2, self:GetUnit())
-    if not unit or not UnitIsPlayer(unit) then return end
+    if not unit then return end
+
+    -- New Challenge Warning Logic
+    local activeChallenge = Purity:GetActiveChallengeObject()
+    if activeChallenge and activeChallenge.IsUnitForbidden then
+        if activeChallenge:IsUnitForbidden(unit) then
+            local db = Purity:GetDB()
+            local challengeName = db.challengeTitle or "Purity Challenge"
+            self:AddLine(" ")
+            self:AddLine("Forbidden by your " .. challengeName .. ".", 1.0, 0.1, 0.1)
+            self:Show()
+        end
+    end
+
+    -- Original Player/Roster check
+    if not UnitIsPlayer(unit) then return end
 
     local unitName = UnitName(unit)
     local rosterData
@@ -4270,8 +4433,10 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, ...)
     local msg = select(1, ...)
     local channelName = select(9, ...)
 
-    if msg == "!purity_ping" and channelName == "PurityUsers" then
-        return true 
+    if channelName == "PurityUsers" then
+        if msg == "!purity_ping" or string.sub(msg, 1, 13) == "!PURITYCOMMS:" then
+            return true 
+        end
     end
 
     return false 
@@ -4351,6 +4516,7 @@ end
 
 GameTooltip:HookScript("OnTooltipSetItem", Purity_OnTooltipSetItem_Handler)
 GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
+GameTooltip:HookScript("OnTooltipSetUnit", Purity_OnTooltipSetUnit_Handler)
 
 local function Purity_GeneralTooltip_OnShow_Handler(self)
     if Purity.isActionTooltip then return end
