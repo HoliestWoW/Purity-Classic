@@ -620,13 +620,7 @@ ManageBloodRegen = function(self)
             end
         end
 
-        -- Restart the ticker with the new total HPS
-        if self.bloodRegenTicker then self.bloodRegenTicker:Cancel(); self.bloodRegenTicker = nil; end
-
-        if totalHPS > 0 then
-            -- Apply the calculated health-per-second every 1 second
-            self.bloodRegenTicker = C_Timer.NewTicker(1, function() self:ApplyBloodRegen(totalHPS) end)
-        end
+        self.auraHPS = totalHPS
     end,
 	
 	_GetBloodCostInternal = function(self, spellId)
@@ -1166,81 +1160,6 @@ ManageBloodRegen = function(self)
             end)
             self.debuffFrame:Hide()
         end
-
-        if not self.regenFrame then
-            self.regenFrame = CreateFrame("Frame")
-            self.regenFrame.lastTick = 0
-            
-            -- Cache the race so we don't query the API every single tick
-            local _, race = UnitRace("player")
-            self.regenFrame.isTroll = (race == "Troll")
-
-            local module = self
-            self.regenFrame:SetScript("OnUpdate", function(frame, elapsed)
-                local db = Purity:GetDB()
-                if (db and db.isOptedIn and (db.status == "Passing" or db.status == "Temporary Failure - Uptime")) then
-                    local currentMaxHealth = UnitHealthMax("player")
-                    if currentMaxHealth <= 1 then
-                        return 
-                    end
-                    if module.bloodBarFrame then
-                        db.bloodPoolMax = UnitHealthMax("player")
-                        db.bloodPoolCurrent = math.min(db.bloodPoolCurrent, db.bloodPoolMax)
-
-                        if not module.bloodBarFrame:IsShown() then 
-                            module.bloodBarFrame:Show()
-                            if module.textContainer then module.textContainer:Show() end
-                        end
-                        module.bloodBarFrame:SetMinMaxValues(0, db.bloodPoolMax)
-                        module.bloodBarFrame:SetValue(db.bloodPoolCurrent)
-                        module:UpdateBarText()
-                    end
-                    
-                    -- Timer for Spirit Regen ticks (Every 2 seconds)
-                    frame.lastTick = frame.lastTick + elapsed
-                    if frame.lastTick > 2 then
-                        frame.lastTick = 0
-                        
-                        local inCombat = UnitAffectingCombat("player")
-                        
-                        -- Only run if out of combat, OR if they are a Troll
-                        if not inCombat or frame.isTroll then
-                            if db.bloodPoolCurrent < db.bloodPoolMax then
-                                local spirit = select(2, UnitStat("player", 5))
-                                local baseRegenAmount = (spirit * 0.25) + 3
-                                local actualRegenAmount = 0
-                                
-                                -- Apply Troll Math vs Standard Math
-                                if inCombat and frame.isTroll then
-                                    actualRegenAmount = (baseRegenAmount * 1.10) * 0.10 -- 10% of their buffed regen during combat
-                                elseif not inCombat and frame.isTroll then
-                                    actualRegenAmount = baseRegenAmount * 1.10 -- 10% bonus out of combat
-                                elseif not inCombat then
-                                    actualRegenAmount = baseRegenAmount -- Standard out of combat regen
-                                end
-                                
-                                if actualRegenAmount > 0 then
-                                    local oldBlood = db.bloodPoolCurrent
-                                    secureBloodState.current = math.min(secureBloodState.max, secureBloodState.current + actualRegenAmount)
-									db.bloodPoolCurrent = secureBloodState.current
-                                    
-                                    if module.LogHealingReceived then
-                                         local actualHealed = db.bloodPoolCurrent - oldBlood
-                                         if actualHealed > 0 and inCombat then
-                                            module:LogHealingReceived("Passive", "Spirit Regen", actualHealed)
-                                         end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                else
-                    -- FIX: Cleanup if we fail/reset while this loop is running
-                    if module.bloodBarFrame then module.bloodBarFrame:Hide() end
-                    if module.textContainer then module.textContainer:Hide() end
-                end
-            end)
-        end
         
         if not self.screenGlowFrame then
             self.screenGlowFrame = CreateFrame("Frame", "PurityBloodMageGlow", UIParent)
@@ -1288,6 +1207,8 @@ ManageBloodRegen = function(self)
         end
 
         self:StartBroadcasting()
+		self:StartMonitor()
+		self:StartSmartRegen()
         self:InitializeGroupFrames()
 
         if not self.characterFrameHooked then
@@ -1417,6 +1338,104 @@ ManageBloodRegen = function(self)
     IsItemForbidden = function(self, itemLink) return false end,
     isWeaponAllowed = function(self, itemLink) return true end,
     IsUnitForbidden = function(self, unit) return false end,
+	
+	StartMonitor = function(self)
+        if self.monitorFrame then return end
+        self.monitorFrame = CreateFrame("Frame")
+        self.monitorFrame:RegisterEvent("UNIT_HEALTH")
+        self.monitorFrame:RegisterEvent("UNIT_MAXHEALTH")
+        
+        self.monitorFrame:SetScript("OnEvent", function(frame, event, ...)
+            if event == "UNIT_HEALTH" then
+                local unit = ...
+                if unit == "player" then self:OnHealthChange() end
+            elseif event == "UNIT_MAXHEALTH" then
+                local unit = ...
+                if unit == "player" then
+                    local newMax = UnitHealthMax("player")
+                    local db = Purity:GetDB()
+                    if self.maxRealHP and self.maxRealHP > 0 and newMax > 0 and self.maxRealHP ~= newMax then
+                        local ratio = secureBloodState.current / self.maxRealHP
+                        secureBloodState.current = newMax * ratio
+                    end
+                    self.maxRealHP = newMax
+                    self.lastRealHP = UnitHealth("player")
+                    db.bloodPoolMax = newMax
+                    db.bloodPoolCurrent = secureBloodState.current
+                    self:UpdateBar()
+                end
+            end
+        end)
+    end,
+
+    OnHealthChange = function(self)
+        local currentRealHP = UnitHealth("player")
+        local maxRealHP = UnitHealthMax("player")
+        self.maxRealHP = maxRealHP
+        
+        local delta = currentRealHP - (self.lastRealHP or currentRealHP)
+        local db = Purity:GetDB()
+        
+        if delta > 0 then
+            -- Let the SERVER handle all passive/effective healing identically to real health!
+            secureBloodState.current = secureBloodState.current + delta
+        elseif delta < 0 then
+            -- The player took raw damage
+            local damageTaken = math.abs(delta)
+            secureBloodState.current = secureBloodState.current - damageTaken
+        end
+
+        -- Safe Clamp
+        if secureBloodState.current > maxRealHP then secureBloodState.current = maxRealHP end
+        if secureBloodState.current > currentRealHP then secureBloodState.current = currentRealHP end
+        
+        db.bloodPoolCurrent = secureBloodState.current
+        self.lastRealHP = currentRealHP
+        self:UpdateBar()
+        
+        if secureBloodState.current <= 0 and not UnitIsDeadOrGhost("player") then
+            Purity:Violation("Your life force has been depleted by your enemies.")
+        end
+    end,
+
+    StartSmartRegen = function(self)
+        if self.regenTicker then return end
+        self.regenTicker = C_Timer.NewTicker(2.0, function()
+            local db = Purity:GetDB()
+            if not (db and db.isOptedIn and db.activeChallengeID == self.id) then return end
+            if UnitIsDeadOrGhost("player") then return end
+            
+            local maxHP = UnitHealthMax("player")
+            local realHP = UnitHealth("player")
+
+            -- ONLY simulate regen when Real Health is completely full and UNIT_HEALTH stops firing!
+            if realHP >= maxHP and secureBloodState.current < maxHP then
+                local _, spirit = UnitStat("player", 5)
+                local baseRegen = (spirit * 0.25) + 3 
+                
+                local inCombat = UnitAffectingCombat("player")
+                local _, race = UnitRace("player")
+                local isTroll = (race == "Troll")
+
+                if inCombat and isTroll then
+                    baseRegen = (baseRegen * 1.10) * 0.10
+                elseif not inCombat and isTroll then
+                    baseRegen = baseRegen * 1.10
+                elseif inCombat then
+                    baseRegen = 0
+                end
+
+                -- Add our scanned Demon Armor / Aura HPS (x2 because this ticker is 2.0s)
+                baseRegen = baseRegen + ((self.auraHPS or 0) * 2.0)
+                
+                if baseRegen > 0 then
+                    secureBloodState.current = math.min(maxHP, secureBloodState.current + baseRegen)
+                    db.bloodPoolCurrent = secureBloodState.current
+                    self:UpdateBar()
+                end
+            end
+        end)
+    end,
 
 EventHandler = function(self, event, ...)
         local db = Purity:GetDB()
@@ -1457,9 +1476,14 @@ EventHandler = function(self, event, ...)
     end
 
     if event == "PLAYER_LEVEL_UP" then
-        local newMaxBlood = UnitHealthMax("player")
-        db.bloodPoolMax = newMaxBlood
-        db.bloodPoolCurrent = newMaxBlood
+		C_Timer.After(0.1, function()
+			local newMaxBlood = UnitHealthMax("player")
+			db.bloodPoolMax = newMaxBlood
+			db.bloodPoolCurrent = newMaxBlood
+			secureBloodState.max = newMaxBlood
+			secureBloodState.current = newMaxBlood
+			self:UpdateBar()
+		end)
     end
 
 	--[[if self.bloodBarFrame then
@@ -1509,14 +1533,12 @@ EventHandler = function(self, event, ...)
 			elseif string.find(subEvent, "_DAMAGE") then
                 local sourceName = select(5, CombatLogGetCurrentEventInfo())
                 local spellName = select(13, CombatLogGetCurrentEventInfo())
-                local amount = (subEvent == "SWING_DAMAGE" or subEvent == "RANGE_DAMAGE") and select(12, CombatLogGetCurrentEventInfo()) or select(15, CombatLogGetCurrentEventInfo())
+                local amount = (subEvent == "SWING_DAMAGE") and select(12, CombatLogGetCurrentEventInfo()) or select(15, CombatLogGetCurrentEventInfo())
                 
                 if amount and amount > 0 then
                     if destGUID == playerGUID and sourceGUID ~= playerGUID then
                         self:LogDamageTaken(sourceName, spellName, amount)
-						secureBloodState.current = secureBloodState.current - amount
-						db.bloodPoolCurrent = secureBloodState.current
-                        if secureBloodState.current <= 0 then Purity:Violation("Your life force has been depleted by your enemies.") end
+                    
                     elseif sourceGUID == playerGUID then
 						if subEvent == "SWING_DAMAGE" then
                             local targetCPS = 0.005
@@ -1564,26 +1586,22 @@ EventHandler = function(self, event, ...)
                 end
 			elseif string.find(subEvent, "_HEAL") and destGUID == playerGUID then
                 local healAmount = select(15, CombatLogGetCurrentEventInfo())
+                local overhealing = select(16, CombatLogGetCurrentEventInfo())
                 local sourceGUID = select(4, CombatLogGetCurrentEventInfo())
                 local sourceName = select(5, CombatLogGetCurrentEventInfo())
-                local playerGUID = UnitGUID("player")
+                local spellName = select(13, CombatLogGetCurrentEventInfo())
+                
+                local totalHeal = (healAmount or 0) + (overhealing or 0)
 
-                if healAmount and healAmount > 0 then
-                    local oldBlood = secureBloodState.current
-                    secureBloodState.current = math.min(secureBloodState.max, secureBloodState.current + healAmount)
-                    
-                    db.bloodPoolCurrent = secureBloodState.current
-                    
-                    local actualHealed = secureBloodState.current - oldBlood
-                    if actualHealed > 0 then
-                        self:LogHealingReceived(sourceName, spellName, actualHealed)
-                    end
-                    
-                    if sourceGUID == playerGUID then
-                        if not self.allowedPeriodicHeals[spellName] then
+                if totalHeal > 0 then
+                    -- Do not trigger Weakness or log spam for passive/allowed heals!
+                    if not (sourceGUID == playerGUID and self.allowedPeriodicHeals[spellName]) then
+                        self:LogHealingReceived(sourceName, spellName, totalHeal)
+                        
+                        -- Trigger Sanguine Weakness
+                        if sourceGUID == playerGUID then
                             self.sanguineWeaknessActive = true
                             self.sanguineWeaknessExpires = GetTime() + 15
-                            
                             self:LogSanguineWeakness(spellName)
 
                             local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
@@ -1599,6 +1617,17 @@ EventHandler = function(self, event, ...)
                         end
                     end
                 end
+                
+                -- Only ADD the overhealing to the blood pool (Effective healing is caught perfectly by OnHealthChange)
+                if overhealing and overhealing > 0 then
+                    local maxHP = UnitHealthMax("player")
+                    if secureBloodState.current < maxHP then
+                        secureBloodState.current = math.min(maxHP, secureBloodState.current + overhealing)
+                        db.bloodPoolCurrent = secureBloodState.current
+                        self:UpdateBar()
+                    end
+                end
+				
             elseif event == "PLAYER_LOGOUT" then
                 local db = Purity:GetDB()
                 db.bloodPoolCurrent = secureBloodState.current

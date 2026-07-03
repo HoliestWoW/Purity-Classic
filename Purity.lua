@@ -3,12 +3,14 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.0.5d"
+Purity.Version = "12.1.0"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
     ["PALADIN"] = { name = "Oath Breaker", colorHex = "FF0000" }
 }
+
+Purity.hasFinishedInitialRosterSync = false
 
 function Purity:EnforceDefaultClassColors()
     if RAID_CLASS_COLORS and RAID_CLASS_COLORS.PALADIN then
@@ -1306,16 +1308,17 @@ function Purity:Deserialize(str)
     return data
 end
 
-function Purity:BroadcastStatus()
+function Purity:BroadcastStatus(isHello)
     local id = GetChannelName("PurityUsers")
-    if not id or id == 0 then return end
+    if not id or id == 0 then 
+        return 
+    end
 
     local db = self:GetDB()
     local _, classToken = UnitClass("player")
     local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
     local rank = (mod and mod.GetOathbreakerRank) and mod:GetOathbreakerRank() or 0
 
-    -- Calculate the missing data
     local totalCoeff = self:CalculateTotalCoefficient()
     local uptimePercent = (db.totalPlayedTime > 0 and (db.addonRuntime / db.totalPlayedTime) * 100) or 0
     uptimePercent = math.min(100, uptimePercent)
@@ -1330,11 +1333,13 @@ function Purity:BroadcastStatus()
         uptime = string.format("%.1f%%", uptimePercent)
     }
     
-    local message = "!PURITYCOMMS:STATUS_UPDATE:" .. self:Serialize(myStatus)
-    pcall(SendChatMessage, message, "CHANNEL", nil, tostring(id))
+    local prefix = isHello and "HELLO" or "STATUS_UPDATE"
+    local message = "!PURITYCOMMS:" .. prefix .. ":" .. self:Serialize(myStatus)
+    
+    local success, err = pcall(SendChatMessage, message, "CHANNEL", nil, id)
 end
 
-function Purity:SendStatusToPlayer(playerName)
+function Purity:SendStatusToPlayer(playerName, isHello)
     local db = self:GetDB()
     local _, classToken = UnitClass("player")
     
@@ -1361,9 +1366,16 @@ function Purity:SendStatusToPlayer(playerName)
             myStatus.bp_curr = math.floor(db.bloodPoolCurrent)
             myStatus.bp_max = db.bloodPoolMax
         end
+    elseif db.activeChallengeID == "GLASS_HEART" or (db.challengeTitle and string.find(db.challengeTitle, "Glass Heart", 1, true)) then
+        if db.glassHeartHP then
+            myStatus.gh_curr = math.floor(db.glassHeartHP)
+            myStatus.gh_max = UnitHealthMax("player")
+        end
     end
 
-    local message = "STATUS_UPDATE:" .. self:Serialize(myStatus)
+    -- Dynamically set the prefix based on the handshake phase
+    local prefix = isHello and "HELLO:" or "STATUS_UPDATE:"
+    local message = prefix .. self:Serialize(myStatus)
     C_ChatInfo.SendAddonMessage(self.ADDON_PREFIX, message, "WHISPER", playerName)
 end
 
@@ -1371,7 +1383,7 @@ function Purity:SendGoodbye()
     local id = GetChannelName("PurityUsers")
     if id and id > 0 then
         -- Use pcall to swallow the Lua errors during logout
-        pcall(SendChatMessage, "!PURITYCOMMS:GOODBYE", "CHANNEL", nil, tostring(id))
+        pcall(SendChatMessage, "!PURITYCOMMS:GOODBYE", "CHANNEL", nil, id)
     end
 end
 
@@ -3576,6 +3588,11 @@ SlashCmdList["PURITY"] = function(msg)
         end
         Purity:selectTab(command)
 		
+	elseif command == "debug" then
+        Purity_GlobalSettings.debugComms = not Purity_GlobalSettings.debugComms
+        print("|cffFFFF00Purity:|r Comms Debugging is now: " .. tostring(Purity_GlobalSettings.debugComms))
+        return
+		
 	elseif command == "override" then
         local inputSignature = args[2]
         local weaponInfractions = tonumber(args[3]) or 0
@@ -3634,6 +3651,8 @@ SlashCmdList["PURITY"] = function(msg)
 		print("/purity drunk: Toggles the Drunken Master status window.")
         print("/purity bloodbar: Toggles the Blood Mage bar between overlay and a movable frame.")
         print("/purity bloodlog: Toggles the Blood Log. Use '/purity bloodlog reset' to reset position.")
+        -- ADD THIS LINE:
+        print("/purity fishlog: Opens the Fish Log for the Fisherman's Folly challenge.")
 		
 	elseif command == "drunk" then
         if Purity.GlobalModules and Purity.GlobalModules.DRUNK and Purity.GlobalModules.DRUNK.ToggleStatusFrame then
@@ -3654,6 +3673,14 @@ SlashCmdList["PURITY"] = function(msg)
         db.glassLogVisible = true
         print("|cffFFFF00Purity:|r Glass Log enabled and focused.")
         Purity:LogToChatTab("Glass Log", nil, true)
+        return
+		
+	elseif command == "fishlog" then
+        if Purity.GlobalModules and Purity.GlobalModules.FISHING and Purity.GlobalModules.FISHING.ToggleFishLog then
+            Purity.GlobalModules.FISHING:ToggleFishLog()
+        else
+            print("|cffFFFF00Purity:|r The Fisherman's Folly module is not currently loaded.")
+        end
         return
 		
     else
@@ -3877,74 +3904,15 @@ mainFrame:RegisterEvent("PLAYER_LOGIN")
 mainFrame:RegisterEvent("CHAT_MSG_ADDON")
 mainFrame:RegisterEvent("PLAYER_LOGOUT")
 mainFrame:RegisterEvent("CHAT_MSG_CHANNEL")
+mainFrame:RegisterEvent("CHAT_MSG_CHANNEL_JOIN") 
+mainFrame:RegisterEvent("CHAT_MSG_CHANNEL_LEAVE")
 mainFrame:RegisterEvent("PLAYER_ALIVE")
 mainFrame:RegisterEvent("TIME_PLAYED_MSG")
 mainFrame:RegisterEvent("ADDON_LOADED")
 
 local function OnAddonMessage(prefix, message, channel, sender)
-    if prefix == Purity.ADDON_PREFIX then
-        local shortCmd = string.match(message, "^([^:]+)") or "UNKNOWN"
-    end
-
-    -- The standard ignore logic
-    if prefix ~= Purity.ADDON_PREFIX or sender == UnitName("player") .. "-" .. GetRealmName() then
-        return
-    end
-    
-    local shortName = string.match(sender, "([^-]+)") or sender
-    local command, data = message:match("([^:]+):?(.*)")
-
-	if command == "STATUS_UPDATE" then
-		local statusData = Purity:Deserialize(data)
-		local displayCoeff = statusData.coefficient
-		if statusData.status == "Not Participating" or statusData.status == "Failed" then
-			displayCoeff = "0.00"
-		end
-		Purity.roster[sender] = {
-			challenge = statusData.challenge,
-			status = statusData.status,
-			level = statusData.level,
-			class = statusData.class,
-			coefficient = displayCoeff,
-			uptime = statusData.uptime,
-			ob_rank = tonumber(statusData.ob_rank) or 0,
-			lastSeen = GetTime() 
-		}
-		Purity:UpdateRosterWindow()
-
-    elseif command == "GOODBYE" then
-        -- Remove from roster
-        Purity.roster[sender] = nil
-        Purity:UpdateRosterWindow()
-
-        -- ALERT: LOGOUT
-        if Purity_GlobalSettings.showMemberAlerts then
-            local color = "|cff888888" -- Grey for offline
-            print("|cffFFFF00Purity:|r " .. color .. shortName .. " has gone offline.|r")
-        end
-
-    elseif command == "BLOODPOOL_UPDATE" then
-        if Purity.roster[sender] then
-            local bloodData = Purity:Deserialize(data)
-            Purity.roster[sender].bloodPoolCurrent = bloodData.current
-            Purity.roster[sender].bloodPoolMax = bloodData.max
-        end
-    elseif command == "GLASSHEART_UPDATE" then
-        if Purity.roster[sender] then
-            local glassData = Purity:Deserialize(data)
-            Purity.roster[sender].glassHeartCurrent = glassData.current
-            Purity.roster[sender].glassHeartMax = glassData.max
-        end
-    elseif command == "ROSTER_REQUEST" or command == "ROSTER_PING" then
-    Purity:QueueRosterReply(sender)
-	end
-    -- Refresh frames if either module is active
-    if Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
-        Purity.GlobalModules.BLOOD_MAGE_BARGAIN:RefreshGroupFrames()
-    end
-    if Purity.GlobalModules.GLASS_HEART and Purity.GlobalModules.GLASS_HEART.RefreshGroupFrames then
-        Purity.GlobalModules.GLASS_HEART:RefreshGroupFrames()
-    end
+    if prefix ~= Purity.ADDON_PREFIX then return end
+    Purity:ProcessPurityPayload(sender, message)
 end
 
 local function OnPlayerLogin()
@@ -4002,26 +3970,81 @@ local function OnPlayerLogin()
     
     CharacterFrame:HookScript("OnShow", function() Purity:UpdateCharacterFrameClassName() end)
     CharacterFrameTab1:HookScript("OnClick", function() C_Timer.After(0.01, function() Purity:UpdateCharacterFrameClassName() end) end)
-    
-    C_Timer.NewTicker(60, function()
-		local currentTime = GetTime()
-		local playersToRemove = {}
+	C_Timer.NewTicker(60, function()		
 		local selfName = UnitName("player") .. "-" .. GetRealmName()
 		
 		for playerName, data in pairs(Purity.roster) do
-			-- Skip deleting ourselves from our own roster
-			if playerName ~= selfName and playerName ~= UnitName("player") then
-				if currentTime - (data.lastSeen or 0) > 125 then 
-					table.insert(playersToRemove, playerName) 
-				end
+			-- Don't whisper yourself
+			if playerName ~= selfName then
+				-- SendStatusToPlayer already uses C_ChatInfo.SendAddonMessage("WHISPER")
+				Purity:SendStatusToPlayer(playerName) 
 			end
 		end
-		
-		if #playersToRemove > 0 then
-			for _, name in ipairs(playersToRemove) do Purity.roster[name] = nil end
-			Purity:UpdateRosterWindow()
-		end
 	end)
+    
+    -- The Timeout
+    C_Timer.NewTicker(30, function()
+        local currentTime = GetTime()
+        local playersToRemove = {}
+        local selfName = UnitName("player") .. "-" .. GetRealmName()
+        
+        for playerName, data in pairs(Purity.roster) do
+            if playerName ~= selfName and playerName ~= UnitName("player") then
+                local diff = currentTime - (data.lastSeen or 0)
+                if diff > 130 then 
+                    table.insert(playersToRemove, playerName) 
+                end
+            end
+        end
+        
+        if #playersToRemove > 0 then
+            for _, name in ipairs(playersToRemove) do 
+                Purity.roster[name] = nil
+                if Purity_GlobalSettings.showMemberAlerts then
+                    local shortName = string.match(name, "([^-]+)") or name
+                    print("|cffFFFF00Purity:|r |cff888888" .. shortName .. " has gone offline.|r")
+                end
+            end
+            Purity:UpdateRosterWindow()
+        end
+    end)
+	
+    local observerPoller = CreateFrame("Frame")
+    local lastPolledPlayers = {}
+    
+    local function PollUnit(unit)
+        if not UnitExists(unit) or not UnitIsPlayer(unit) or UnitIsUnit(unit, "player") then return end
+        
+        local name = UnitName(unit)
+        local shortName = name and name:match("([^-]+)")
+        local fullSenderName = name .. "-" .. GetRealmName()
+        
+        local data = Purity.roster[fullSenderName] or Purity.roster[name] or Purity.roster[shortName]
+        if data and (data.challenge == "The Blood Mage's Bargain" or (data.challenge and string.find(data.challenge, "Glass Heart", 1, true))) then
+            
+            local now = GetTime()
+            local lastPoll = lastPolledPlayers[fullSenderName] or 0
+            
+            if (now - lastPoll) > 1.0 then
+                C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "FAST_HP_PING", "WHISPER", fullSenderName)
+                lastPolledPlayers[fullSenderName] = now
+            end
+        end
+    end
+
+    observerPoller:RegisterEvent("PLAYER_TARGET_CHANGED")
+    observerPoller:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+    observerPoller:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_TARGET_CHANGED" then
+            PollUnit("target")
+        elseif event == "UPDATE_MOUSEOVER_UNIT" then
+            PollUnit("mouseover")
+        end
+    end)
+    
+    C_Timer.NewTicker(1.0, function()
+        PollUnit("target")
+    end)
 end
 
 function Purity:QueueRosterReply(targetSender)
@@ -4059,73 +4082,157 @@ function Purity:QueueRosterReply(targetSender)
     end
 end
 
-mainFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "CHAT_MSG_CHANNEL" then
-        local msg = select(1, ...)
-        local sender = select(2, ...)
-        local channelName, channelID = select(9, ...)
+function Purity:ProcessPurityPayload(sender, payload)
+    -- Normalize sender
+    local fullSenderName = sender
+    if not string.find(fullSenderName, "-") then
+        fullSenderName = fullSenderName .. "-" .. GetRealmName()
+    end
+    
+    if fullSenderName == UnitName("player") .. "-" .. GetRealmName() then return end
 
-        if channelName == "PurityUsers" then
-            Purity.purityChannelID = channelID 
+    local shortName = string.match(fullSenderName, "([^-]+)") or fullSenderName
+    local command, data = payload:match("([^:]+):?(.*)")
+
+    if Purity.roster[fullSenderName] then Purity.roster[fullSenderName].lastSeen = GetTime() end
+
+    if command == "HELLO" or command == "STATUS_UPDATE" then
+        local statusData = Purity:Deserialize(data)
+        local displayCoeff = statusData.coefficient
+        if statusData.status == "Not Participating" or statusData.status == "Failed" then displayCoeff = "0.00" end
+
+        if not Purity.roster[fullSenderName] and Purity.hasFinishedInitialRosterSync and Purity_GlobalSettings.showMemberAlerts then
+            print("|cffFFFF00Purity:|r |cff00FF00" .. shortName .. " has come online.|r")
+        end
+        
+        Purity.roster[fullSenderName] = {
+            challenge = statusData.challenge,
+            status = statusData.status,
+            level = statusData.level,
+            class = statusData.class,
+            coefficient = displayCoeff,
+            uptime = statusData.uptime,
+            ob_rank = tonumber(statusData.ob_rank) or 0,
+            bloodPoolCurrent = tonumber(statusData.bp_curr),
+            bloodPoolMax = tonumber(statusData.bp_max),
+            glassHeartCurrent = tonumber(statusData.gh_curr),
+            glassHeartMax = tonumber(statusData.gh_max),
+            lastSeen = GetTime() 
+        }
+        Purity:UpdateRosterWindow()
+        if command == "HELLO" then Purity:QueueRosterReply(fullSenderName) end
+
+    elseif command == "GOODBYE" then
+        Purity.roster[fullSenderName] = nil
+        Purity:UpdateRosterWindow()
+        if Purity_GlobalSettings.showMemberAlerts then print("|cffFFFF00Purity:|r |cff888888" .. shortName .. " has gone offline.|r") end
+
+    elseif command == "ROSTER_REQUEST" or command == "ROSTER_PING" then
+        Purity:QueueRosterReply(fullSenderName)
+		
+    elseif command == "FAST_HP_PING" then
+        local db = Purity:GetDB()
+        local current, max
+        
+        if db.activeChallengeID == "BLOOD_MAGE_BARGAIN" then
+            current = db.bloodPoolCurrent
+            max = db.bloodPoolMax
+        elseif db.activeChallengeID == "GLASS_HEART" or (db.challengeTitle and string.find(db.challengeTitle, "Glass Heart", 1, true)) then
+            current = db.glassHeartHP
+            max = UnitHealthMax("player")
+        end
+        
+        if current and max then
+            local msg = "FAST_HP_REPLY:" .. math.floor(current) .. "^" .. math.floor(max)
+            C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, msg, "WHISPER", fullSenderName)
+        end
+        
+    elseif command == "FAST_HP_REPLY" then
+        if Purity.roster[fullSenderName] then
+            local currStr, maxStr = strsplit("^", data)
+            local current = tonumber(currStr)
+            local max = tonumber(maxStr)
             
-            -- [NEW] Data Interception block
-            if string.sub(msg, 1, 13) == "!PURITYCOMMS:" then
-                local payload = string.sub(msg, 14)
-                
-                -- Ignore our own echoes
-                if sender ~= UnitName("player") .. "-" .. GetRealmName() and sender ~= UnitName("player") then
-                    local shortName = string.match(sender, "([^-]+)") or sender
-                    local command, data = payload:match("([^:]+):?(.*)")
-                    
-                    if command == "STATUS_UPDATE" then
-                        local statusData = Purity:Deserialize(data)
-                        local displayCoeff = statusData.coefficient
-                        if statusData.status == "Not Participating" or statusData.status == "Failed" then
-                            displayCoeff = "0.00"
-                        end
-                        Purity.roster[sender] = {
-                            challenge = statusData.challenge,
-                            status = statusData.status,
-                            level = statusData.level,
-                            class = statusData.class,
-                            coefficient = displayCoeff,
-                            uptime = statusData.uptime,
-                            ob_rank = tonumber(statusData.ob_rank) or 0,
-                            lastSeen = GetTime() 
-                        }
-                        Purity:UpdateRosterWindow()
-
-                    elseif command == "GOODBYE" then
-                        Purity.roster[sender] = nil
-                        Purity:UpdateRosterWindow()
-                        if Purity_GlobalSettings.showMemberAlerts then
-                            print("|cffFFFF00Purity:|r |cff888888" .. shortName .. " has gone offline.|r")
-                        end
-
-                    elseif command == "ROSTER_REQUEST" or command == "ROSTER_PING" then
-						Purity:QueueRosterReply(sender)
-					end
+            if current and max then
+                if Purity.roster[fullSenderName].challenge == "The Blood Mage's Bargain" then
+                    Purity.roster[fullSenderName].bloodPoolCurrent = current
+                    Purity.roster[fullSenderName].bloodPoolMax = max
+                else
+                    Purity.roster[fullSenderName].glassHeartCurrent = current
+                    Purity.roster[fullSenderName].glassHeartMax = max
                 end
-                return -- Stop processing so we don't treat data as a login ping
-            end
-            
-            -- Login Alert logic
-            local selfName = UnitName("player")
-            local isSelf = (sender == selfName or (sender and sender:find(selfName .. "-", 1, true) == 1))
-            
-            if not isSelf and msg == "!purity_ping" and Purity_GlobalSettings.showMemberAlerts then
-                 local shortName = string.match(sender, "([^-]+)") or sender
-                 local lastSeen = Purity.roster[sender] and Purity.roster[sender].lastSeen or 0
-                 if (GetTime() - lastSeen) > 60 then
-                      print("|cffFFFF00Purity:|r |cff00FF00" .. shortName .. " has come online.|r")
-                 end
+                Purity.roster[fullSenderName].lastSeen = GetTime()
             end
         end
-        return
 
+    elseif command == "BLOODPOOL_UPDATE" then
+        if Purity.roster[fullSenderName] then
+            local bpData = Purity:Deserialize(data) 
+            Purity.roster[fullSenderName].bloodPoolCurrent = tonumber(bpData.current)
+            Purity.roster[fullSenderName].bloodPoolMax = tonumber(bpData.max)
+            Purity.roster[fullSenderName].lastSeen = GetTime()
+        end
+        
+    elseif command == "GLASSHEART_UPDATE" then
+        if Purity.roster[fullSenderName] then
+            local ghData = Purity:Deserialize(data) 
+            Purity.roster[fullSenderName].glassHeartCurrent = tonumber(ghData.current)
+            Purity.roster[fullSenderName].glassHeartMax = tonumber(ghData.max)
+            Purity.roster[fullSenderName].lastSeen = GetTime()
+        end
+    end
+end
+
+mainFrame:SetScript("OnEvent", function(self, event, ...)
+    if event == "CHAT_MSG_CHANNEL" then
+		local msg = select(1, ...)
+		local sender = select(2, ...)
+		local channelName = select(9, ...) or ""
+
+		if string.find(string.lower(channelName), "purityusers") then
+			if string.sub(msg, 1, 13) == "!PURITYCOMMS:" then
+				local payload = string.sub(msg, 14)
+				Purity:ProcessPurityPayload(sender, payload)
+			else
+			end
+		end
+		
     elseif event == "CHAT_MSG_ADDON" then
         OnAddonMessage(...)
         return
+		
+	elseif event == "CHAT_MSG_CHANNEL_JOIN" or event == "CHAT_MSG_CHANNEL_LEAVE" then
+        local sender = select(2, ...)
+        local channelName = select(9, ...) or ""
+
+        if string.find(string.lower(channelName), "purityusers") then
+            
+            -- Ignore our own joins/leaves
+            if sender == UnitName("player") then return end
+
+            if event == "CHAT_MSG_CHANNEL_JOIN" and sender then
+                -- Someone joined! Send them a staggered HELLO whisper.
+                C_Timer.After(math.random(2, 5), function()
+                    Purity:SendStatusToPlayer(sender, true)
+                end)
+                
+            elseif event == "CHAT_MSG_CHANNEL_LEAVE" and sender then
+                -- Handle clean logouts natively
+                local fullSenderName = sender
+                if not string.find(fullSenderName, "-") then
+                    fullSenderName = fullSenderName .. "-" .. GetRealmName()
+                end
+                
+                if Purity.roster[fullSenderName] then
+                    Purity.roster[fullSenderName] = nil
+                    Purity:UpdateRosterWindow()
+                    if Purity_GlobalSettings.showMemberAlerts then
+                        local shortName = string.match(fullSenderName, "([^-]+)") or fullSenderName
+                        print("|cffFFFF00Purity:|r |cff888888" .. shortName .. " has gone offline.|r")
+                    end
+                end
+            end
+        end
 
     elseif event == "PLAYER_LOGOUT" then
 		Purity:RestoreDefaultIncomingDamageText()
@@ -4161,12 +4268,16 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "PLAYER_ENTERING_WORLD" then
         Purity:EnforceDefaultClassColors()
         
-        -- [RESTORED] Reconnect to the custom comms channel after the server loads
+        -- Reconnect to the custom comms channel
         C_Timer.After(7, function()
             local id = GetChannelName("PurityUsers")
             if not id or id == 0 then
                 JoinChannelByName("PurityUsers", "a-unique-password")
             end
+        end)
+
+        C_Timer.After(15, function()
+            Purity.hasFinishedInitialRosterSync = true
         end)
 
         local currentDB = Purity:GetDB()
@@ -4428,19 +4539,6 @@ function Purity:Deserialize(str)
     end
     return data
 end
-
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, ...)
-    local msg = select(1, ...)
-    local channelName = select(9, ...)
-
-    if channelName == "PurityUsers" then
-        if msg == "!purity_ping" or string.sub(msg, 1, 13) == "!PURITYCOMMS:" then
-            return true 
-        end
-    end
-
-    return false 
-end)
 
 local function Purity_OnTooltipSetSpell_Handler(self)
     if Purity.isActionTooltip then return end

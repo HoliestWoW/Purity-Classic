@@ -609,7 +609,8 @@ local GlassHeart = {
                 end
             end
 
-            if (realHP >= maxHP and secureGlassHeartState.current < maxHP) or (UnitAffectingCombat("player") and isTroll) then
+            -- FIX: Removed the "or" clause so it ONLY simulates when Real HP is strictly capped
+            if realHP >= maxHP and secureGlassHeartState.current < maxHP then
                 local _, spirit = UnitStat("player", 5)
                 local baseRegen = (spirit * 0.50) + 2 
                 
