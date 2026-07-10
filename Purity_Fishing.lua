@@ -23,6 +23,11 @@ local DIRECT_FISHED_EQUIPPABLES = {
     [6292] = true, [6294] = true, [6364] = true, [13882] = true,
     [13915] = true, [13905] = true, [8350] = true, [6360] = true,
 	[19979] = true, [19972] = true, [19969] = true, [19022] = true,
+	[6292] = true, [6294] = true, [6295] = true, [13901] = true,
+	[6309] = true, [13902] = true, [6310] = true, [6311] = true,
+	[13903] = true, [13904] = true, [6363] = true, [13905] = true,
+	[6364] = true, [13885] = true, [13886] = true, [13882] = true,
+	[13883] = true, [13884] = true, [13887] = true,
 }
 local FISHABLE_CONTAINER_IDS = {
     [20708] = true, [21113] = true, [21150] = true, [21228] = true,
