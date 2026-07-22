@@ -348,13 +348,11 @@ end,
             end)
 
 		else
+			-- OVERLAY MODE FIXES
 			bar:SetParent(PlayerFrame)
-			bar:SetFrameStrata("LOW")
-			bar:SetFrameLevel(PlayerFrameHealthBar:GetFrameLevel())
+			bar:SetFrameLevel(PlayerFrameHealthBar:GetFrameLevel()) -- Drop hardcoded strata to inherit like Glass Heart
 			bar:ClearAllPoints()
-			bar:SetPoint("TOPLEFT", PlayerFrameHealthBar, "TOPLEFT", 2, 0)
-			bar:SetPoint("BOTTOMRIGHT", PlayerFrameHealthBar, "BOTTOMRIGHT", 0, 0)
-			bar:SetSize(1, 1)
+			bar:SetAllPoints(PlayerFrameHealthBar) -- Replace the 1x1 SetSize conflict with SetAllPoints
 			bar:SetMovable(false)
 			bar:EnableMouse(false)
 			bar:SetScript("OnDragStart", nil)
@@ -364,6 +362,7 @@ end,
                 bar.background:Hide()
             end
             bar:GetStatusBarTexture():SetAlpha(1)
+            bar:Show() -- Explicitly show the bar so it doesn't stay hidden forever
 		end
 
         db.bloodBarIsSeparate = isSeparate

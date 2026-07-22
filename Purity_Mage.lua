@@ -691,6 +691,21 @@ MageModule.challenges.conduit = {
                         blocker:SetScript("OnMouseDown", function()
                             self:PlayLowChargeSound()
                         end)
+                        blocker:RegisterForDrag("LeftButton", "RightButton")
+                        blocker:SetScript("OnDragStart", function(self)
+                            local parent = self:GetParent()
+                            if parent and parent.action then
+                                if LOCK_ACTIONBAR ~= "1" or IsModifiedClick("PICKUPACTION") then
+                                    PickupAction(parent.action)
+                                end
+                            end
+                        end)
+                        blocker:SetScript("OnReceiveDrag", function(self)
+                            local parent = self:GetParent()
+                            if parent and parent.action then
+                                PlaceAction(parent.action)
+                            end
+                        end)
 
                         button.purityBlocker = blocker
                     end
@@ -1363,14 +1378,16 @@ MageModule.challenges.conduit = {
                     end
                 end
             else
-                -- INSTANT SPELL PATH
-                if castTime and castTime > 0 then
-                    self.activeCast = nil; self.manaSnapshot = nil; return
-                end
-
                 local purityCost = 0
-                if spellName == "Arcane Missiles" or spellName == "Blizzard" then purityCost = 30
-                else purityCost = 15 end 
+                if spellName == "Arcane Missiles" or spellName == "Blizzard" then 
+                    purityCost = 30
+                elseif string.find(spellName, "Teleport:") then 
+                    purityCost = 90
+                elseif castTime and castTime > 0 then 
+                    purityCost = castTime / 100
+                else 
+                    purityCost = 15 
+                end 
                 
                 if self.talentMods and self.talentMods.cost > 0 and learnableFrostSpells[spellId] then 
                     purityCost = purityCost * (1.0 - self.talentMods.cost) 
@@ -1379,15 +1396,11 @@ MageModule.challenges.conduit = {
                 if wasFree then purityCost = 0 end
 
                 if purityCost > 0 then
-                    -- [[ BUFFER LOGIC ]]
                     local effectiveThreshold = math.max(0, purityCost - BUFFER)
 
                     if secureMageCharge < effectiveThreshold then
-                        -- You were significantly below cost (e.g. 0 charge for 15 cost).
                         Purity:Violation("Cast " .. spellName .. " with insufficient Static Charge.")
                     else
-                        -- You were within the buffer (e.g. 14 charge for 15 cost).
-                        -- Allow cast, but clamp charge to 0.
                         secureMageCharge = secureMageCharge - purityCost
                         if secureMageCharge < 0 then secureMageCharge = 0 end
                         self:UpdateBar()
