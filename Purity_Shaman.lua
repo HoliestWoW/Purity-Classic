@@ -478,29 +478,71 @@ ShamanModule.challenges.tether = {
             else
                 db.tetherTotems[totemSlot] = nil
             end
-            
-        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+			
+		elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             local unit, _, spellId = ...
             if unit == "player" then
                 local spellName = GetSpellInfo(spellId)
-                if not spellName or string.find(spellName, "Totem") or self.ignoredSpells[spellName] then return end
+                if not spellName then return end
                 
-                local closestDistSq = 9999
-                for slot, data in pairs(db.tetherTotems) do
-                    local d2 = self:GetDistanceSquaredToTotem(data)
-                    if d2 < closestDistSq then closestDistSq = d2 end
-                end
+                if spellName == "Lightning Shield" then
+                    local db = Purity:GetDB()
+                    if not db.tetherTotems then db.tetherTotems = {} end
+                    
+                    local closestDistSq = 9999
+                    for slot, data in pairs(db.tetherTotems) do
+                        local d2 = self:GetDistanceSquaredToTotem(data)
+                        if d2 < closestDistSq then closestDistSq = d2 end
+                    end
 
-                local rangeCapSq = self.talentMods.range > 0 and 900 or 400
-                local failureLimitSq = rangeCapSq * 1.21 
+                    local rangeCapSq = self.talentMods.range > 0 and 900 or 400
+                    local failureLimitSq = rangeCapSq * 1.21 
+                    
+                    local hasGhostWolf = false
+                    if self.talentMods.wolfGen then
+                        for i=1,40 do if UnitBuff("player", i) == "Ghost Wolf" then hasGhostWolf = true; break end end
+                    end
+
+                    if not hasGhostWolf and closestDistSq > failureLimitSq then
+                        Purity:Violation("Cast '" .. spellName .. "' outside of Tether range.")
+                    end
+                end
+            end
+            
+        elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
+            local timestamp, subEvent, hideCaster, sourceGUID, sourceName, sourceFlags, sourceFlags2, destGUID, destName, destFlags, destFlags2, spellId, spellName = CombatLogGetCurrentEventInfo()
+            
+            if sourceGUID == UnitGUID("player") then
+                if subEvent == "SWING_DAMAGE" or subEvent == "SWING_MISSED" then return end
                 
-                local hasGhostWolf = false
-                if self.talentMods.wolfGen then
-                    for i=1,40 do if UnitBuff("player", i) == "Ghost Wolf" then hasGhostWolf = true; break end end
-                end
+                -- Ignore passive Lightning Shield damage procs from hitting enemies automatically
+                if spellName == "Lightning Shield" then return end
+                
+                local isSpellDamage = subEvent == "SPELL_DAMAGE" or subEvent == "SPELL_PERIODIC_DAMAGE"
+                local isRangedDamage = subEvent == "RANGE_DAMAGE"
+                local isHealing = subEvent == "SPELL_HEAL" or subEvent == "SPELL_PERIODIC_HEAL"
+                
+                if isSpellDamage or isRangedDamage or isHealing then
+                    local db = Purity:GetDB()
+                    if not db.tetherTotems then db.tetherTotems = {} end
+                    
+                    local closestDistSq = 9999
+                    for slot, data in pairs(db.tetherTotems) do
+                        local d2 = self:GetDistanceSquaredToTotem(data)
+                        if d2 < closestDistSq then closestDistSq = d2 end
+                    end
 
-                if not hasGhostWolf and closestDistSq > failureLimitSq then
-                    Purity:Violation("Cast '" .. spellName .. "' outside of Tether range.")
+                    local rangeCapSq = self.talentMods.range > 0 and 900 or 400
+                    local failureLimitSq = rangeCapSq * 1.21 
+                    
+                    local hasGhostWolf = false
+                    if self.talentMods.wolfGen then
+                        for i=1,40 do if UnitBuff("player", i) == "Ghost Wolf" then hasGhostWolf = true; break end end
+                    end
+
+                    if not hasGhostWolf and closestDistSq > failureLimitSq then
+                        Purity:Violation("Performed combat action outside of Tether range.")
+                    end
                 end
             end
         end
