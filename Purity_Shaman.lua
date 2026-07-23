@@ -8,6 +8,25 @@ local ShamanModule = {
 }
 
 local secureConnection = 100
+local function GetTotemSpawnOffset(slot, facing)
+    local dist = 2.5
+    local angle = facing or 0
+    
+    if slot == 1 then -- Fire
+        angle = angle + (math.pi / 4)
+    elseif slot == 2 then -- Earth
+        angle = angle - (math.pi / 4)
+    elseif slot == 3 then -- Water
+        angle = angle + (3 * math.pi / 4)
+    elseif slot == 4 then -- Air
+        angle = angle - (3 * math.pi / 4)
+    end
+    
+    local dx = math.cos(angle) * dist
+    local dy = math.sin(angle) * dist
+    
+    return dx, dy
+end
 
 -- ============================================================================
 -- CHALLENGE 1: COMMUNION OF PURITY (Weaponless)
@@ -221,19 +240,16 @@ ShamanModule.challenges.FLAME = {
 }
 
 -- ============================================================================
--- CHALLENGE 3: TETHER OF PURITY (Explicit Fail Conditions)
+-- CHALLENGE 3: TETHER OF PURITY (Strict Distance Check)
 -- ============================================================================
 ShamanModule.challenges.tether = {
     id = "Tether of Purity",
     challengeName = "Tether of Purity",
-    description = "You are a conduit for the spirits. Planting totems creates a 'Tether' zone. The strength of your connection scales purely with distance. If you stray too far, the signal fades and your power decays.",
+    description = "You are a conduit for the spirits. Planting totems creates a 'Tether' zone. If you stray too far from your totems, your connection snaps. Casting spells without an active connection will break your vow.",
     
-    connection = 100,
-    maxConnection = 100,
-    genRate = 10,       -- Max gain per sec (at 0 distance)
-    decayRate = 5,      -- Loss per sec (when disconnected)
-    maxRange = 30,      -- Maximum tether range
+    maxRange = 30,      
     KEY_TOTEM_SPELL_ID = 8071, -- Earth Totem (Rank 1)
+	currentDisplayPct = 1.0,
     
     activeTotems = {},  
     talentMods = { range = 0, wolfGen = false, cost = 0 },
@@ -243,13 +259,21 @@ ShamanModule.challenges.tether = {
         ["Ghost Wolf"] = true, ["War Stomp"] = true, ["Ancestral Spirit"] = true,
         ["Lightning Shield"] = true, 
         ["Rockbiter Weapon"] = true, ["Windfury Weapon"] = true, ["Flametongue Weapon"] = true, ["Frostbrand Weapon"] = true,
+        ["LOGINEFFECT"] = true,
     },
 
     InitializeOnPlayerEnterWorld = function(self)
         if self.isInitialized then return end
+        
         local db = Purity:GetDB()
-        if not db.shamanConnection then db.shamanConnection = 100 end
-        secureConnection = db.shamanConnection
+        if not db.tetherTotems then db.tetherTotems = {} end
+        
+        for slot = 1, 4 do
+            local haveTotem, _, _, duration = GetTotemInfo(slot)
+            if not haveTotem or duration == 0 then
+                db.tetherTotems[slot] = nil
+            end
+        end
 
         self:CreateConnectionBar()
         self:CreateWarningUI()
@@ -262,20 +286,64 @@ ShamanModule.challenges.tether = {
         self:RegisterEvents()
         self.isInitialized = true
     end,
+	
+	CreateConnectionBar = function(self)
+        if self.barFrame then return end
+        local f = CreateFrame("Frame", "PurityShamanTetherFrame", UIParent)
+        f:SetSize(200, 25)
+        f:SetPoint("CENTER", 0, -180)
+        f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        
+        f.bg = f:CreateTexture(nil, "BACKGROUND")
+        f.bg:SetAllPoints(true)
+        f.bg:SetColorTexture(0, 0, 0, 0.8)
+        
+        f.bar = f:CreateTexture(nil, "ARTWORK")
+        f.bar:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+        f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2)
+        f.bar:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 2, 2)
+        f.bar:SetWidth(196)
+        f.bar:SetVertexColor(0, 0.5, 1)
+        
+        f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        f.text:SetPoint("CENTER")
+        f.text:SetText("Tether: 100%")
+        
+        f.border = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        f.border:SetPoint("TOPLEFT", -2, 2)
+        f.border:SetPoint("BOTTOMRIGHT", 2, -2)
+        f.border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+        
+        self.barFrame = f
+    end,
+
+    UpdateBar = function(self, pct)
+        if not self.barFrame then return end
+        
+        pct = math.max(0, math.min(1, pct))
+        
+        local totalWidth = self.barFrame:GetWidth() - 4
+        self.barFrame.bar:SetWidth(math.max(1, totalWidth * pct))
+        
+        self.barFrame.text:SetText(string.format("Tether: %d%%", math.floor(pct * 100)))
+        
+        if pct <= 0 then self.barFrame.bar:SetVertexColor(0.5, 0.5, 0.5)
+        elseif pct < 0.3 then self.barFrame.bar:SetVertexColor(1, 0.2, 0.2)
+        elseif pct < 0.6 then self.barFrame.bar:SetVertexColor(1, 1, 0)
+        else self.barFrame.bar:SetVertexColor(0, 0.5, 1) end
+    end,
 
     SetupTooltips = function(self)
-        -- 1. Helper function for finding and appending text
         local function AppendToDescription(tooltip, keyword, textToAppend)
             local frameName = tooltip:GetName()
-            for i = 2, tooltip:NumLines() do -- Start at 2 to skip Name
+            for i = 2, tooltip:NumLines() do 
                 local line = _G[frameName .. "TextLeft" .. i]
                 if line then
                     local text = line:GetText()
-                    -- Case-insensitive match for the keyword
                     if text and string.find(string.lower(text), string.lower(keyword)) then
-                        -- Append in GOLD color
                         line:SetText(text .. "|cffffd100" .. textToAppend .. "|r")
-                        tooltip:Show() -- Resize frame
+                        tooltip:Show() 
                         return true
                     end
                 end
@@ -292,21 +360,18 @@ ShamanModule.challenges.tether = {
 
             if name == "Ghost Wolf" then
                 if self.talentMods.wolfGen then
-                    AppendToDescription(tooltip, "Wolf", " Generates Connection while moving.")
+                    AppendToDescription(tooltip, "Wolf", " Sustains Connection while moving.")
                 end
             elseif string.find(name, "Totem") then
                 local range = self.maxRange or 20
-                -- Totem descriptions usually start with "Summons"
                 AppendToDescription(tooltip, "Summons", " Creates a Tether Zone (" .. range .. " yds).")
             end
         end
 
-        -- 2. TALENT TOOLTIP HOOK (Safe Text Scraping Method)
         local function OnSetTalent(tooltip)
             local db = Purity:GetDB()
             if db.activeChallengeID ~= "Tether of Purity" then return end
 
-            -- Safe Name Retrieval
             local frameName = tooltip:GetName()
             if not frameName then return end
 
@@ -317,10 +382,8 @@ ShamanModule.challenges.tether = {
             if not name then return end
 
             if name == "Totemic Mastery" then
-                -- Keyword "radius" usually appears in the description
                 AppendToDescription(tooltip, "radius", " Increases Tether Connection range by 10 yards.")
             elseif name == "Improved Ghost Wolf" then
-                -- Keyword "cast" usually appears in "reduces the cast time"
                 AppendToDescription(tooltip, "cast", " Allows Ghost Wolf to maintain Connection away from totems.")
             end
         end
@@ -338,15 +401,13 @@ ShamanModule.challenges.tether = {
             "|cff261A0D  • Levels 1-4: Your spirit is Unbound. The Tether is not yet forged.|r",
             "|cff261A0D  • Earth Totem Unlock: The Tether activates immediately.|r",
             " ",
-            "|cffffd100Analog Connection:|r",
-            "|cff261A0D  • The strength of your connection scales smoothly with distance.|r",
-            "|cff261A0D  • Standing on a Totem = 100% Signal (Max Regen).|r",
-            "|cff261A0D  • Max Range (30y) = 0% Signal (No Regen).|r",
-            "|cff261A0D  • If you leave the zone entirely, Connection decays rapidly.|r",
+            "|cffffd100Strict Distance Connection:|r",
+            "|cff261A0D  • You must be within range of an active Totem to cast spells.|r",
+            "|cff261A0D  • If you leave the zone entirely, the Tether instantly snaps.|r",
             " ",
             "|cffff0000FAIL CONDITION:|r",
-            "|cff261A0D  • Casting a spell (Bolt, Shock, Heal) while at 0% Connection is a violation.|r",
-            "|cff261A0D  (You may still drop Totems or Auto-Attack at 0% to recover).|r",
+            "|cff261A0D  • Casting a spell (Bolt, Shock, Heal) while outside Totem range is a violation.|r",
+            "|cff261A0D  (You may still drop Totems or Auto-Attack out of range to recover).|r",
         }
     end,
     
@@ -366,15 +427,14 @@ ShamanModule.challenges.tether = {
                 if name == "Totemic Focus" and rank > 0 then self.talentMods.cost = rank * 0.05 end
             end
         end
-        self.maxRange = 30 + self.talentMods.range
+        self.maxRange = 20 + self.talentMods.range
     end,
 
     RegisterEvents = function(self)
         if not self.eventFrame then self.eventFrame = CreateFrame("Frame") end
         
-        -- [[ EVENT HANDLER: Use SUCCEEDED to catch instants & completed casts ]]
         self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-        self.eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        self.eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
         self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
         self.eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
         self.eventFrame:RegisterEvent("SPELLS_CHANGED")
@@ -385,49 +445,57 @@ ShamanModule.challenges.tether = {
     end,
 
     EventHandler = function(self, event, ...)
+        if not self:HasUnlockedTotems() then return end
         local db = Purity:GetDB()
+        if not db.tetherTotems then db.tetherTotems = {} end
         
-        -- [[ 0. CHECK UNLOCK STATUS ]]
-        if not self:HasUnlockedTotems() then 
-            secureConnection = 100
-            if self.barFrame then self.barFrame:Hide() end
-            return 
-        end
-        
-        if self.barFrame and not self.barFrame:IsShown() then self.barFrame:Show() end
-
-        if event == "PLAYER_LEVEL_UP" then
-            secureConnection = 100; db.shamanConnection = secureConnection; self:UpdateBar()
-        
-        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-            local unit, _, spellId = ...
-            if unit == "player" then
-                local spellName = GetSpellInfo(spellId)
-                if not spellName then return end
-
-                if string.find(spellName, "Totem") then return end
-                if self.ignoredSpells[spellName] then return end
-                
-                if secureConnection <= 0 then
-                    Purity:Violation("Cast '" .. spellName .. "' with severed Connection.")
-                end
-            end
-        
-        elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-            local _, subEvent, _, sourceGUID, _, _, _, destGUID, destName = CombatLogGetCurrentEventInfo()
-            if subEvent == "SPELL_SUMMON" and sourceGUID == UnitGUID("player") then
+        if event == "PLAYER_TOTEM_UPDATE" then
+            local totemSlot = ...
+            local haveTotem, totemName, startTime, duration = GetTotemInfo(totemSlot)
+            
+            if haveTotem and duration > 0 then
                 local mapID = C_Map.GetBestMapForUnit("player")
                 if mapID then
                     local pos = C_Map.GetPlayerMapPosition(mapID, "player")
                     if pos then
-                        local x, y = pos:GetXY()
-                        self.activeTotems[destGUID] = { x = x, y = y, map = mapID, name = destName }
-                        secureConnection = math.min(100, secureConnection + 5)
+                        local _, worldPos = C_Map.GetWorldPosFromMapPos(mapID, pos)
+                        if worldPos then
+                            local wX, wY = worldPos:GetXY()
+                            local facing = GetPlayerFacing()
+                            local dx, dy = GetTotemSpawnOffset(totemSlot, facing)
+                            
+                            -- Save the offset coordinates instead of the player's center
+                            db.tetherTotems[totemSlot] = { x = wX + dx, y = wY + dy, map = mapID, name = totemName }
+                        end
                     end
                 end
+            else
+                db.tetherTotems[totemSlot] = nil
             end
-            if subEvent == "UNIT_DIED" or subEvent == "UNIT_DESTROYED" then
-                if self.activeTotems[destGUID] then self.activeTotems[destGUID] = nil end
+            
+        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+            local unit, _, spellId = ...
+            if unit == "player" then
+                local spellName = GetSpellInfo(spellId)
+                if not spellName or string.find(spellName, "Totem") or self.ignoredSpells[spellName] then return end
+                
+                local closestDistSq = 9999
+                for slot, data in pairs(db.tetherTotems) do
+                    local d2 = self:GetDistanceSquaredToTotem(data)
+                    if d2 < closestDistSq then closestDistSq = d2 end
+                end
+
+                local rangeCapSq = self.talentMods.range > 0 and 900 or 400
+                local failureLimitSq = rangeCapSq * 1.21 
+                
+                local hasGhostWolf = false
+                if self.talentMods.wolfGen then
+                    for i=1,40 do if UnitBuff("player", i) == "Ghost Wolf" then hasGhostWolf = true; break end end
+                end
+
+                if not hasGhostWolf and closestDistSq > failureLimitSq then
+                    Purity:Violation("Cast '" .. spellName .. "' outside of Tether range.")
+                end
             end
         end
     end,
@@ -437,25 +505,30 @@ ShamanModule.challenges.tether = {
         if not mapID or mapID ~= totemData.map then return 9999 end 
         local pos = C_Map.GetPlayerMapPosition(mapID, "player")
         if not pos then return 9999 end
-        local pX, pY = pos:GetXY()
+        
+        local _, worldPos = C_Map.GetWorldPosFromMapPos(mapID, pos)
+        if not worldPos then return 9999 end
+        
+        local pX, pY = worldPos:GetXY()
         local dx, dy = (pX - totemData.x), (pY - totemData.y)
+        
         return (dx * dx) + (dy * dy)
     end,
 
     StartMonitor = function(self)
         if self.monitorTicker then return end
         
-        self.monitorTicker = C_Timer.NewTicker(0.1, function()
-            local db = Purity:GetDB()
-            if UnitIsDeadOrGhost("player") then return end
-
-            -- [[ PRE-AWAKENING CHECK ]]
-            if not self:HasUnlockedTotems() then 
-                secureConnection = 100
+        self.monitorTicker = C_Timer.NewTicker(0.05, function() -- Pushed to 0.05s for higher framerate polling
+            if UnitIsDeadOrGhost("player") or not self:HasUnlockedTotems() then 
                 if self.barFrame then self.barFrame:Hide() end
+                self:HideWarning()
                 return 
             end
+
             if self.barFrame and not self.barFrame:IsShown() then self.barFrame:Show() end
+
+            local db = Purity:GetDB()
+            if not db.tetherTotems then db.tetherTotems = {} end
 
             local closestDistSq = 9999
             local hasGhostWolf = false
@@ -464,92 +537,36 @@ ShamanModule.challenges.tether = {
                 for i=1,40 do if UnitBuff("player", i) == "Ghost Wolf" then hasGhostWolf = true; break end end
             end
 
-            for guid, data in pairs(self.activeTotems) do
+            for slot, data in pairs(db.tetherTotems) do
                 local d2 = self:GetDistanceSquaredToTotem(data)
                 if d2 < closestDistSq then closestDistSq = d2 end
             end
             
-            local rawDist = math.sqrt(closestDistSq)
-            local rangeCap = 0.0015 -- ~30y baseline
-            if self.talentMods.range > 0 then rangeCap = 0.002 end -- Increased with Talent
-
-            local signalStrength = 0
-            if hasGhostWolf then
-                signalStrength = 0.5 -- Steady medium signal
-            elseif rawDist < rangeCap then
-                -- ANALOG GRADIENT: 
-                -- 1.0 (Close) -> 0.0 (MaxRange)
-                signalStrength = 1.0 - (rawDist / rangeCap)
-                if signalStrength < 0 then signalStrength = 0 end
-            else
-                signalStrength = 0 -- Disconnected
-            end
+            local rangeCapSq = self.talentMods.range > 0 and 900 or 400
+            local failureLimitSq = rangeCapSq * 1.21 
+            local warningLimitSq = rangeCapSq * 0.64 
             
-            local elapsed = 0.1
-            if signalStrength > 0 then
-                -- Gain is proportional to signal
-                local gain = self.genRate * signalStrength
-                local actualGain = gain * elapsed
-                secureConnection = secureConnection + actualGain
-                
-                if not db.challengeStats then db.challengeStats = {} end
-                db.challengeStats.connectionGenerated = (db.challengeStats.connectionGenerated or 0) + actualGain
+            local rawPct = 0
+            if hasGhostWolf then
+                rawPct = 1.0
             else
-                secureConnection = secureConnection - (self.decayRate * elapsed)
+                local rawDist = math.sqrt(closestDistSq)
+                local maxDist = math.sqrt(rangeCapSq)
+                rawPct = 1.0 - (rawDist / maxDist)
             end
 
-            if secureConnection < 0 then secureConnection = 0 end
-            if secureConnection > self.maxConnection then secureConnection = self.maxConnection end
+            -- Smooth Interpolation (LERP): Glides the bar toward the target value
+            if not self.currentDisplayPct then self.currentDisplayPct = rawPct end
+            self.currentDisplayPct = self.currentDisplayPct + (rawPct - self.currentDisplayPct) * 0.3
 
-            if secureConnection <= 20 and secureConnection > 0 then
+            self:UpdateBar(self.currentDisplayPct)
+            
+            if not hasGhostWolf and closestDistSq > warningLimitSq and closestDistSq <= failureLimitSq then
                 self:ShowWarning()
             else
                 self:HideWarning()
             end
-
-            db.shamanConnection = secureConnection
-            self:UpdateBar(signalStrength)
         end)
-    end,
-
-    CreateConnectionBar = function(self)
-        if self.barFrame then return end
-        local f = CreateFrame("Frame", "PurityShamanTetherFrame", UIParent)
-        f:SetSize(200, 25)
-        f:SetPoint("CENTER", 0, -180)
-        f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
-        f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
-        f.bg = f:CreateTexture(nil, "BACKGROUND"); f.bg:SetAllPoints(true); f.bg:SetColorTexture(0, 0, 0, 0.8)
-        f.bar = f:CreateTexture(nil, "ARTWORK"); f.bar:SetTexture("Interface\\TargetingFrame\\UI-StatusBar"); f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2); f.bar:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 2, 2); f.bar:SetWidth(196); f.bar:SetVertexColor(0, 0.5, 1)
-        f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); f.text:SetPoint("CENTER"); f.text:SetText("Connection: 0%")
-        f.border = CreateFrame("Frame", nil, f, "BackdropTemplate"); f.border:SetPoint("TOPLEFT", -2, 2); f.border:SetPoint("BOTTOMRIGHT", 2, -2); f.border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
-        self.barFrame = f
-    end,
-
-    UpdateBar = function(self, signal)
-        if not self.barFrame then return end
-        local pct = secureConnection / self.maxConnection
-        local totalWidth = self.barFrame:GetWidth() - 4
-        self.barFrame.bar:SetWidth(math.max(1, totalWidth * pct))
-        
-        -- Analog Signal Text
-        local signalText = ""
-        if signal and signal > 0 then
-            local sigPct = math.floor(signal * 100)
-            -- Color scale from Red -> Yellow -> Green
-            if sigPct > 66 then signalText = string.format("|cff00ff00(Signal: %d%%)|r", sigPct)
-            elseif sigPct > 33 then signalText = string.format("|cffffff00(Signal: %d%%)|r", sigPct)
-            else signalText = string.format("|cffff0000(Signal: %d%%)|r", sigPct)
-            end
-        else
-            signalText = "|cff808080(No Signal)|r"
-        end
-
-        self.barFrame.text:SetText(string.format("Connection: %.0f%% %s", secureConnection, signalText))
-        
-        if pct <= 0 then self.barFrame.bar:SetVertexColor(0.5, 0.5, 0.5)
-        elseif pct < 0.3 then self.barFrame.bar:SetVertexColor(1, 0.2, 0.2)
-        else self.barFrame.bar:SetVertexColor(0, 0.5, 1) end
     end,
 
     CreateWarningUI = function(self)
@@ -560,23 +577,15 @@ ShamanModule.challenges.tether = {
         f:Hide()
         f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
         f.text:SetPoint("CENTER")
-        f.text:SetText("CONNECTION FADING")
+        f.text:SetText("APPROACHING TETHER LIMIT")
         f.text:SetTextColor(1, 0.5, 0)
         self.warningFrame = f
     end,
 
     ShowWarning = function(self) if self.warningFrame and not self.warningFrame:IsShown() then self.warningFrame:Show() end end,
     HideWarning = function(self) if self.warningFrame then self.warningFrame:Hide() end end,
-	SyncTruth = function(self, db)
-        if db.shamanConnection ~= secureConnection then
-            db.shamanConnection = secureConnection
-            if self.UpdateBar then self:UpdateBar() end
-        end
-    end,
-	SaveData = function(self)
-        local db = Purity:GetDB()
-        db.shamanConnection = secureConnection
-    end,
+    SyncTruth = function(self, db) end,
+    SaveData = function(self) end,
 }
 
 function ShamanModule:GetActiveChallengeObject()

@@ -2888,10 +2888,23 @@ function Purity:Violation(message, isFromAudit)
         return
     end
 	
-	-- [[ RESTORE FCT MEMORY & 3D DAMAGE ]]
-    SHOW_COMBAT_TEXT = "1"
-    SetCVar("floatingCombatTextCombatDamage", "1")
-    SetCVar("CombatDamage", "1")
+    local function RestoreCVars()
+        SHOW_COMBAT_TEXT = "1"
+        SetCVar("floatingCombatTextCombatDamage", "1")
+        SetCVar("CombatDamage", "1")
+    end
+
+    if InCombatLockdown() then
+        -- Wait until combat ends to modify CVars
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("PLAYER_REGEN_ENABLED")
+        f:SetScript("OnEvent", function(self)
+            RestoreCVars()
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        end)
+    else
+        RestoreCVars()
+    end
     
     self.notificationBanner.title:SetText("Vow of Purity Broken")
     self.notificationBanner.title:SetTextColor(1, 1, 1) 
@@ -2902,15 +2915,15 @@ function Purity:Violation(message, isFromAudit)
     self.notificationBanner:Show()
 
     print("|cffFFFF00Purity:|r |cffFF0000Your vow of purity has been broken. The challenge has Failed.|r")
-	print("|cffFFFF00Purity:|r |cffFFD700Reason:|r " .. message)
+    print("|cffFFFF00Purity:|r |cffFFD700Reason:|r " .. message)
 
     currentDB.status = "Failed"
-	secureCoreState.status = "Failed"
-	currentDB.failureReason = message
+    secureCoreState.status = "Failed"
+    currentDB.failureReason = message
     currentDB.dataSignature = self:CreateDataSignature(currentDB)
     
     Purity:UpdateAndGetStatusStrings()
-	Purity:BroadcastStatus()
+    Purity:BroadcastStatus()
 end
 
 function Purity:ShowWarningBanner(message, duration, warningLevel)
