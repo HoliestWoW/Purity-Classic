@@ -260,6 +260,12 @@ ShamanModule.challenges.tether = {
         ["Lightning Shield"] = true, 
         ["Rockbiter Weapon"] = true, ["Windfury Weapon"] = true, ["Flametongue Weapon"] = true, ["Frostbrand Weapon"] = true,
         ["LOGINEFFECT"] = true,
+        ["Find Minerals"] = true, ["Find Herbs"] = true, ["Find Fish"] = true,
+        ["Smelting"] = true, ["Mining"] = true, ["Skinning"] = true, 
+        ["Herbalism"] = true, ["Alchemy"] = true, ["Blacksmithing"] = true,
+        ["Cooking"] = true, ["Basic Campfire"] = true, ["First Aid"] = true,
+        ["Fishing"] = true, ["Enchanting"] = true, ["Disenchant"] = true,
+        ["Tailoring"] = true, ["Leatherworking"] = true, ["Engineering"] = true,
     },
 
     InitializeOnPlayerEnterWorld = function(self)
