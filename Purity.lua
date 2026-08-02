@@ -694,6 +694,7 @@ function Purity:InternalResetChallenge()
     local db = Purity:GetDB()
     Purity:RestoreDefaultIncomingDamageText()
     Purity.ExecutionInProgress = false
+	db.hasAcknowledgedDefeat = false
     db.isOptedIn = false
     db.status = "Not Participating"
 	if secureCoreState then
@@ -2956,6 +2957,32 @@ function Purity:CreateDeathCinematic()
     f:EnableKeyboard(true)
     f:SetPropagateKeyboardInput(false)
 
+    f:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            CancelLogout()
+
+            if Purity.LogoutTicker then
+                Purity.LogoutTicker:Cancel()
+                Purity.LogoutTicker = nil
+            end
+
+            if self.subtitle then
+                self.subtitle:SetText("Logout cancelled.")
+            end
+            
+            if self.releaseBtn and self.exitBtn then
+                self.releaseBtn:Show()
+                self.exitBtn:Show()
+                UIFrameFadeIn(self.releaseBtn, 1, 0, 1)
+                UIFrameFadeIn(self.exitBtn, 1, 0, 1)
+            end
+
+            self:SetPropagateKeyboardInput(false)
+        else
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
     f.bg:SetColorTexture(0, 0, 0, 1)
@@ -3046,16 +3073,24 @@ function Purity:CreateDeathCinematic()
     f.releaseBtn:SetText("Release Spirit")
     f.releaseBtn:Hide() 
     
+    -- Release / Accept Fate Button
     f.releaseBtn:SetScript("OnClick", function()
         if Purity.OriginalAmbienceVolume then SetCVar("Sound_AmbienceVolume", Purity.OriginalAmbienceVolume) end
         if Purity.OriginalSFXVolume then SetCVar("Sound_SFXVolume", Purity.OriginalSFXVolume) end
 
         PlaySound(6974, "Master")
         f:Hide()
-        f.exitBtn:Hide()
+        f.exitBtn:Hide() 
         
-        RepopMe()
-        print("|cffFFFF00Purity:|r You have released your spirit into the spirit world. You cannot revive.")
+        local db = Purity:GetDB()
+        db.hasAcknowledgedDefeat = true
+        
+        if UnitIsDeadOrGhost("player") then
+            RepopMe()
+            print("|cffFFFF00Purity:|r You have released your spirit into the spirit world. You cannot revive.")
+        else
+            print("|cffFFFF00Purity:|r You survived the encounter, but your vow is broken. You may continue your journey in exile.")
+        end
     end)
 
     f.exitBtn = CreateFrame("Button", "PurityExitButton", UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
@@ -3087,6 +3122,10 @@ function Purity:CreateDeathCinematic()
         else
             f.subtitle:SetText("Logging out in " .. timeLeft .. "...")
             
+            -- Hide the buttons while the countdown is active
+            f.releaseBtn:Hide()
+            f.exitBtn:Hide()
+            
             if Purity.LogoutTicker then Purity.LogoutTicker:Cancel() end
             Purity.LogoutTicker = C_Timer.NewTicker(1, function()
                 timeLeft = timeLeft - 1
@@ -3097,6 +3136,31 @@ function Purity:CreateDeathCinematic()
                     if Purity.LogoutTicker then Purity.LogoutTicker:Cancel() end
                 end
             end, 20)
+            
+            -- NEW: Listen for logout cancellation via combat only (ESC is handled by OnKeyDown)
+            if not f.cancelListener then
+                f.cancelListener = CreateFrame("Frame")
+            end
+            
+            f.cancelListener:RegisterEvent("PLAYER_REGEN_DISABLED")
+            f.cancelListener:SetScript("OnEvent", function(_, event)
+                if event == "PLAYER_REGEN_DISABLED" then
+                    if Purity.LogoutTicker then 
+                        Purity.LogoutTicker:Cancel() 
+                        Purity.LogoutTicker = nil
+                    end
+                    
+                    f.subtitle:SetText("Logout cancelled due to combat.")
+                    
+                    -- Bring the buttons back
+                    f.releaseBtn:Show()
+                    f.exitBtn:Show()
+                    UIFrameFadeIn(f.releaseBtn, 1, 0, 1)
+                    UIFrameFadeIn(f.exitBtn, 1, 0, 1)
+                    
+                    f.cancelListener:UnregisterAllEvents()
+                end
+            end)
         end
     end)
 
@@ -3161,10 +3225,15 @@ function Purity:ExecutePlayer(killerName, message, isAlreadyDead)
             C_Timer.After(2.5, function()
                 UIFrameFadeIn(f.title, 6, 0, 1)
                 UIFrameFadeIn(f.subtitle, 6, 0, 1)
-                if f.statsText then UIFrameFadeIn(f.statsText, 6, 0, 1) end -- Fade in the new stats!
+                if f.statsText then UIFrameFadeIn(f.statsText, 6, 0, 1) end 
                 UIFrameFadeIn(f.hint, 6, 0, 1)
                 
                 if not InCombatLockdown() then
+                    if UnitIsDeadOrGhost("player") then
+                        f.releaseBtn:SetText("Release Spirit")
+                    else
+                        f.releaseBtn:SetText("Accept Fate")
+                    end
                     f.releaseBtn:Show()
                     f.exitBtn:Show()
                     UIFrameFadeIn(f.releaseBtn, 6, 0, 1)
@@ -3180,6 +3249,7 @@ function Purity:ExecutePlayer(killerName, message, isAlreadyDead)
                     self:UnregisterAllEvents()
                     f.subtitle:SetText("Level " .. UnitLevel("player") .. " - Slain by " .. (killerName or "Previous Wounds"))
                     
+                    f.releaseBtn:SetText("Release Spirit") -- Force the text
                     f.releaseBtn:Show()
                     f.exitBtn:Show()
                     UIFrameFadeIn(f.releaseBtn, 6, 0, 1)
@@ -3187,18 +3257,21 @@ function Purity:ExecutePlayer(killerName, message, isAlreadyDead)
                 end)
             end
             
-            local retries = 0
-            local modelTicker = C_Timer.NewTicker(0.1, function()
-                retries = retries + 1
-                f.model:SetUnit("player")
-                f.model:SetPosition(f.model.posX, f.model.posY, f.model.posZ)
-                
-                if retries >= 5 then 
-                    f.model:SetAnimation(1) 
-                    if f.model.modelTicker then f.model.modelTicker:Cancel() end
-                end
-            end)
-            f.model.modelTicker = modelTicker
+        f:SetAlpha(1)
+        f.bg:SetColorTexture(0, 0, 0, 1)
+
+        local retries = 0
+        local modelTicker = C_Timer.NewTicker(0.1, function()
+            retries = retries + 1
+            f.model:SetUnit("player")
+            f.model:SetPosition(f.model.posX, f.model.posY, f.model.posZ)
+            
+            if retries >= 3 then 
+                f.model:SetAnimation(1) 
+                if f.model.modelTicker then f.model.modelTicker:Cancel() end
+            end
+        end)
+        f.model.modelTicker = modelTicker
             
             local aVol = Purity.OriginalAmbienceVolume or GetCVar("Sound_AmbienceVolume")
             local sVol = Purity.OriginalSFXVolume or GetCVar("Sound_SFXVolume")
@@ -3221,10 +3294,24 @@ function Purity:ExecutePlayer(killerName, message, isAlreadyDead)
             if tonumber(Purity.OriginalSFXVolume) == 0 then Purity.OriginalSFXVolume = "0.8" end
         end
 
-        UIFrameFadeIn(f, 0.2, 0, 1)
-        
-        f.model:SetUnit("player")
-        f.model:SetPosition(f.model.posX, f.model.posY, f.model.posZ)
+        -- Force the parent frame to be opaque so the 3D model engine doesn't cull it
+        f:SetAlpha(1)
+        f.bg:SetColorTexture(0, 0, 0, 1)
+
+        -- Use a robust retry ticker to ensure the 3D model catches the render cycle
+        local retries = 0
+        local modelTicker = C_Timer.NewTicker(0.1, function()
+            retries = retries + 1
+            f.model:SetUnit("player")
+            f.model:SetPosition(f.model.posX, f.model.posY, f.model.posZ)
+            
+            -- Animate the model dying once it is safely rendered
+            if retries >= 3 then 
+                f.model:SetAnimation(1) 
+                if f.model.modelTicker then f.model.modelTicker:Cancel() end
+            end
+        end)
+        f.model.modelTicker = modelTicker
         
         -- 1. Show the screen immediately saying "Awaiting your demise..." while still alive
         local playerLevel = UnitLevel("player")
@@ -3287,36 +3374,64 @@ function Purity:ExecutePlayer(killerName, message, isAlreadyDead)
         
         PlaySound(17, "Master")
 
-        C_Timer.After(0.1, function()
-            if f.model then f.model:SetAnimation(1) end
-        end)
-
         if not Purity.DeathListener then
             Purity.DeathListener = CreateFrame("Frame")
         end
+        
+        Purity.DeathListener:UnregisterAllEvents() 
         Purity.DeathListener:RegisterEvent("PLAYER_DEAD")
-        Purity.DeathListener:SetScript("OnEvent", function(self)
-            self:UnregisterAllEvents()
-            
-            f.subtitle:SetText("Level " .. playerLevel .. " - Slain by " .. (killerName or "Hubris"))
-            
-            if InCombatLockdown() then
-                local combatWait = CreateFrame("Frame")
-                combatWait:RegisterEvent("PLAYER_REGEN_ENABLED")
-                combatWait:SetScript("OnEvent", function(wSelf, evt)
-                    wSelf:UnregisterAllEvents()
-                    f.releaseBtn:Show()
-                    f.exitBtn:Show()
-                    UIFrameFadeIn(f.releaseBtn, 1, 0, 1)
-                    UIFrameFadeIn(f.exitBtn, 1, 0, 1)
-                end)
+        Purity.DeathListener:RegisterEvent("PLAYER_REGEN_ENABLED")
+        
+        local function ShowButtonsSafely()
+            if UnitIsDeadOrGhost("player") then
+                f.releaseBtn:SetText("Release Spirit")
             else
-                f.releaseBtn:Show()
-                f.exitBtn:Show()
-                UIFrameFadeIn(f.releaseBtn, 1, 0, 1)
-                UIFrameFadeIn(f.exitBtn, 1, 0, 1)
+                f.releaseBtn:SetText("Accept Fate")
+            end
+            
+            f.releaseBtn:Show()
+            f.exitBtn:Show()
+            UIFrameFadeIn(f.releaseBtn, 1, 0, 1)
+            UIFrameFadeIn(f.exitBtn, 1, 0, 1)
+        end
+
+        Purity.DeathListener:SetScript("OnEvent", function(self, event)
+            if event == "PLAYER_DEAD" then
+                self:UnregisterAllEvents()
+                f.subtitle:SetText("Level " .. playerLevel .. " - Slain by " .. (killerName or "Hubris"))
+                
+                if InCombatLockdown() then
+                    local combatWait = CreateFrame("Frame")
+                    combatWait:RegisterEvent("PLAYER_REGEN_ENABLED")
+                    combatWait:SetScript("OnEvent", function(wSelf)
+                        wSelf:UnregisterAllEvents()
+                        ShowButtonsSafely()
+                    end)
+                else
+                    ShowButtonsSafely()
+                end
+                
+            elseif event == "PLAYER_REGEN_ENABLED" then
+                -- The player dropped combat but survived the encounter
+                if not UnitIsDeadOrGhost("player") then
+                    self:UnregisterAllEvents()
+                    f.subtitle:SetText("Level " .. playerLevel .. " - Defeated by " .. (killerName or "Hubris") .. "\n(The Vow is broken.)")
+                    ShowButtonsSafely()
+                end
             end
         end)
+        
+        -- Failsafe: If they fail the challenge while ALREADY out of combat and survive
+        if not InCombatLockdown() and not UnitIsDeadOrGhost("player") then
+            C_Timer.After(4, function()
+                -- If the listener is still active, they never entered combat and didn't die
+                if Purity.DeathListener:IsEventRegistered("PLAYER_DEAD") and not UnitIsDeadOrGhost("player") and not InCombatLockdown() then
+                    Purity.DeathListener:UnregisterAllEvents()
+                    f.subtitle:SetText("Level " .. playerLevel .. " - Defeated by " .. (killerName or "Hubris") .. "\n(The Vow is broken.)")
+                    ShowButtonsSafely()
+                end
+            end)
+        end
     end)
 end
 
@@ -4119,7 +4234,8 @@ SlashCmdList["PURITY"] = function(msg)
             db.dataSignature = Purity:CreateDataSignature(db)            
             Purity:SyncSecureStateFromDB()
             Purity:ActivateMonitoring()            
-            Purity.ExecutionInProgress = false            
+            Purity.ExecutionInProgress = false  
+			db.hasAcknowledgedDefeat = false			
             print("|cffFFFF00Purity:|r |cff00FF00Appeal code accepted. Challenge status restored to Passing.|r")            
             if Purity.mainInterfaceFrame and Purity.mainInterfaceFrame:IsShown() then
                 Purity:UpdateAndGetStatusStrings()
@@ -4823,7 +4939,7 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
 
         Purity:PerformIntegrityCheck()
         
-        if currentDB.status == "Failed" and (currentDB.activeChallengeID == "BLOOD_MAGE_BARGAIN" or currentDB.activeChallengeID == "GLASS_HEART") then
+        if currentDB.status == "Failed" and not currentDB.hasAcknowledgedDefeat and (currentDB.activeChallengeID == "BLOOD_MAGE_BARGAIN" or currentDB.activeChallengeID == "GLASS_HEART") then
             C_Timer.After(1.5, function()
                 Purity:ExecutePlayer("Previous Wounds", currentDB.failureReason or "Run Failed.", true)
             end)
