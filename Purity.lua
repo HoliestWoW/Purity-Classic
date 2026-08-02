@@ -212,6 +212,22 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(frame, event, messag
         end
     end
     
+    -- NEW: Intercept /who responses and rename Oath Breakers
+    if message then
+        -- WoW /who formats contain hidden clickable links: "|Hplayer:Name|h[Name]|h: Level 10..."
+        -- This extracts the name perfectly whether it is a clickable link or plain text!
+        local whoName = string.match(message, "|Hplayer:([^|:]+)") or string.match(message, "^%[(.-)%]: Level ")
+        
+        if whoName and string.find(message, "Paladin") then
+            local cleanName = string.match(whoName, "([^-]+)") or whoName
+            if Purity:IsOathBreaker(cleanName) then
+                local override = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
+                -- Replace the FIRST instance of " Paladin" with the raw name
+                message = string.gsub(message, " Paladin", " " .. override.name, 1)
+            end
+        end
+    end
+    
     return false, message, ...
 end)
 
@@ -676,9 +692,8 @@ end
 
 function Purity:InternalResetChallenge()
     local db = Purity:GetDB()
-	
-	Purity:RestoreDefaultIncomingDamageText()
-    
+    Purity:RestoreDefaultIncomingDamageText()
+    Purity.ExecutionInProgress = false
     db.isOptedIn = false
     db.status = "Not Participating"
 	if secureCoreState then
@@ -3023,7 +3038,6 @@ function Purity:CreateDeathCinematic()
     f.hint:SetText("(Left-click to rotate. Right-click to pan. Scroll to zoom.)")
     f.hint:SetAlpha(0)
 
-    -- Release Spirit Button
     f.releaseBtn = CreateFrame("Button", "PurityReleaseButton", f, "UIPanelButtonTemplate")
     f.releaseBtn:SetSize(140, 40)
     f.releaseBtn:SetPoint("CENTER", f, "CENTER", -80, 85) 
@@ -3038,8 +3052,7 @@ function Purity:CreateDeathCinematic()
 
         PlaySound(6974, "Master")
         f:Hide()
-        f.exitBtn:Hide() -- Explicitly hide the untethered secure button
-        Purity.ExecutionInProgress = false
+        f.exitBtn:Hide()
         
         RepopMe()
         print("|cffFFFF00Purity:|r You have released your spirit into the spirit world. You cannot revive.")
@@ -4103,12 +4116,11 @@ SlashCmdList["PURITY"] = function(msg)
             db.weaponInfractions = weaponInfractions
             db.physicalStrikes = physicalStrikes
             db.failureReason = nil
-            db.dataSignature = Purity:CreateDataSignature(db)
-            
-			Purity:SyncSecureStateFromDB()
-            Purity:ActivateMonitoring()
-            print("|cffFFFF00Purity:|r |cff00FF00Appeal code accepted. Challenge status restored to Passing.|r")
-            
+            db.dataSignature = Purity:CreateDataSignature(db)            
+            Purity:SyncSecureStateFromDB()
+            Purity:ActivateMonitoring()            
+            Purity.ExecutionInProgress = false            
+            print("|cffFFFF00Purity:|r |cff00FF00Appeal code accepted. Challenge status restored to Passing.|r")            
             if Purity.mainInterfaceFrame and Purity.mainInterfaceFrame:IsShown() then
                 Purity:UpdateAndGetStatusStrings()
             end
@@ -4448,17 +4460,65 @@ local function OnPlayerLogin()
     
     CharacterFrame:HookScript("OnShow", function() Purity:UpdateCharacterFrameClassName() end)
     CharacterFrameTab1:HookScript("OnClick", function() C_Timer.After(0.01, function() Purity:UpdateCharacterFrameClassName() end) end)
-	C_Timer.NewTicker(60, function()		
-		local selfName = UnitName("player") .. "-" .. GetRealmName()
-		
-		for playerName, data in pairs(Purity.roster) do
-			-- Don't whisper yourself
-			if playerName ~= selfName then
-				-- SendStatusToPlayer already uses C_ChatInfo.SendAddonMessage("WHISPER")
-				Purity:SendStatusToPlayer(playerName) 
-			end
-		end
-	end)
+    
+    -- NEW: Hook the /who list window to rename Oath Breakers
+    if not Purity.whoListHooked then
+        hooksecurefunc("WhoList_Update", function()
+            -- Protect against UI teardown during logout/loading screens
+            if not WhoFrame or not WhoFrame:IsShown() then return end
+            
+            -- Safely handle Blizzard's API changes for the /who list
+            local numWhos = 0
+            if C_FriendList and C_FriendList.GetNumWhoResults then
+                numWhos = select(1, C_FriendList.GetNumWhoResults())
+            elseif GetNumWhoResults then
+                numWhos = select(1, GetNumWhoResults())
+            end
+
+            -- Safely fallback if WHOS_TO_DISPLAY was also removed
+            local maxRows = WHOS_TO_DISPLAY or 17
+            local whoOffset = FauxScrollFrame_GetOffset(WhoListScrollFrame)
+            
+            for i = 1, maxRows do
+                local index = whoOffset + i
+                local button = _G["WhoFrameButton"..i]
+                
+                -- Check if the row is actually rendering a player
+                if button and button:IsShown() and index <= numWhos then
+                    local nameText = _G["WhoFrameButton"..i.."Name"]
+                    local classText = _G["WhoFrameButton"..i.."Class"]
+                    
+                    if nameText and classText then
+                        local name = nameText:GetText()
+                        local class = classText:GetText()
+                        
+                        -- If it's a Paladin, check the Purity roster
+                        if name and class and string.find(class, "Paladin") then
+                            local cleanName = string.match(name, "([^-]+)") or name
+                            if Purity:IsOathBreaker(cleanName) then
+                                local override = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
+                                -- Wrap the text in the red color hex code
+                                classText:SetText("|cff" .. override.colorHex .. override.name .. "|r")
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        Purity.whoListHooked = true
+    end
+
+    C_Timer.NewTicker(60, function()		
+        local selfName = UnitName("player") .. "-" .. GetRealmName()
+        
+        for playerName, data in pairs(Purity.roster) do
+            -- Don't whisper yourself
+            if playerName ~= selfName then
+                -- SendStatusToPlayer already uses C_ChatInfo.SendAddonMessage("WHISPER")
+                Purity:SendStatusToPlayer(playerName) 
+            end
+        end
+    end)
     
     -- The Timeout
     C_Timer.NewTicker(30, function()
