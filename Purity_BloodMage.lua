@@ -274,9 +274,8 @@ end,
     isDragging = false,
     partyBloodBars = {},
     groupFrameManager = nil,
-
     description = function()
-        return "You have made a pact for power, allowing you to fuel your abilities with your own life force. Your vitality is your true power, but this pact is a double-edged sword: the more you heal and protect your life force, the weaker your bargain becomes."
+        return "You have made a pact for power, allowing you to fuel your abilities with your own life force. Your vitality is your true power, but this pact is a double-edged sword: the more you heal and protect your life force, the weaker your bargain becomes.\n\n|cffff0000NOTE: This is a Hardcore challenge. Resurrection is not permitted after death.|r"
     end,
 
     GetRulesText = function()
@@ -467,6 +466,7 @@ end,
     end,
 
     LogDamageTaken = function(self, sourceName, spellName, amount)
+		self.lastSource = sourceName
         local sourceText = "|cffff8080" .. (sourceName or "Unknown") .. "'s|r"
         local abilityText = " |cffffffff" .. ((spellName and spellName ~= -1) and spellName or "Melee") .. "|r"
         local damageText = " hits you for |cffFF4D4D" .. math.floor(amount) .. "|r Blood."
@@ -1392,8 +1392,9 @@ ManageBloodRegen = function(self)
         self.lastRealHP = currentRealHP
         self:UpdateBar()
         
-        if secureBloodState.current <= 0 and not UnitIsDeadOrGhost("player") then
-            Purity:Violation("Your life force has been depleted by your enemies.")
+        if secureBloodState.current <= 0 then
+            local isDead = UnitIsDeadOrGhost("player")
+            Purity:ExecutePlayer(self.lastSource or "Blood Loss", "Your life force has been depleted by your enemies.", isDead)
         end
     end,
 
@@ -1458,10 +1459,9 @@ EventHandler = function(self, event, ...)
         db.bloodPoolCurrent = secureBloodState.current
 
         -- [[ 1. FCT INJECTION ]]
-        local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
-        if isLoaded and CombatText_AddMessage and GetCVar("enableFloatingCombatText") == "1" then
+        if GetCVar("enableFloatingCombatText") == "1" and Purity.ShowCustomCombatText then
             local displayCost = math.floor(finalAmount)
-            CombatText_AddMessage("-" .. displayCost, CombatText_StandardScroll, 1, 0, 0)
+            Purity:ShowCustomCombatText("-" .. displayCost, 1, 0, 0)
         end
 
         -- [[ 2. PORTRAIT TEXT INJECTION ]]
@@ -1470,7 +1470,7 @@ EventHandler = function(self, event, ...)
         end
 
         if secureBloodState.current <= 0 then
-            Purity:Violation("Your life force has been expended by the bargain.")
+            Purity:ExecutePlayer(sourceName or "The Bargain", "Your life force has been expended by the bargain.")
         end
     end
 
@@ -1604,8 +1604,8 @@ EventHandler = function(self, event, ...)
                             self:LogSanguineWeakness(spellName)
 
                             local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
-                            if isLoaded and CombatText_AddMessage and GetCVar("enableFloatingCombatText") == "1" then
-                                CombatText_AddMessage("-Sanguine Weakness", CombatText_StandardScroll, 0.8, 0.2, 0.8)
+                            if GetCVar("enableFloatingCombatText") == "1" and Purity.ShowCustomCombatText then
+                                Purity:ShowCustomCombatText("-Sanguine Weakness", 0.8, 0.2, 0.8)
                             end
                             
                             if self.debuffFrame then

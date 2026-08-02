@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.1.1b"
+Purity.Version = "12.2.0"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -594,35 +594,83 @@ local FCT_INCOMING_DAMAGE_EVENTS = {
 }
 
 function Purity:DisableDefaultIncomingDamageText()
-    local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
-
-    -- Ensure the Blizzard addon is awake so we can edit its table
-    if not isLoaded then
-        if C_AddOns and C_AddOns.LoadAddOn then
-            C_AddOns.LoadAddOn("Blizzard_CombatText")
-        else
-            LoadAddOn("Blizzard_CombatText")
-        end
+    -- Cache the user's original FCT setting so we can restore it accurately
+    if not Purity.OriginalFCTCVar then
+        Purity.OriginalFCTCVar = GetCVar("enableFloatingCombatText")
     end
-
-    if COMBAT_TEXT_TYPE_INFO then
-        for _, event in ipairs(FCT_INCOMING_DAMAGE_EVENTS) do
-            if COMBAT_TEXT_TYPE_INFO[event] then
-                COMBAT_TEXT_TYPE_INFO[event].show = false
-            end
-        end
-    end
+    
+    -- Turn off Blizzard's 2D scrolling text entirely so it doesn't overlap our custom engine
+    SetCVar("enableFloatingCombatText", "0")
 end
 
 function Purity:RestoreDefaultIncomingDamageText()
-    local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
+    -- Restore the user's preferred setting when the challenge ends
+    if Purity.OriginalFCTCVar then
+        SetCVar("enableFloatingCombatText", Purity.OriginalFCTCVar)
+    else
+        SetCVar("enableFloatingCombatText", "1")
+    end
+end
 
-    if isLoaded and COMBAT_TEXT_TYPE_INFO then
-        for _, event in ipairs(FCT_INCOMING_DAMAGE_EVENTS) do
-            if COMBAT_TEXT_TYPE_INFO[event] then
-                COMBAT_TEXT_TYPE_INFO[event].show = true
-            end
+-- THE CUSTOM PURITY FCT ENGINE
+function Purity:ShowCustomCombatText(message, r, g, b)
+    if not self.FCTFrame then
+        self.FCTFrame = CreateFrame("Frame", "PurityFCTFrame", UIParent)
+        self.FCTFrame:SetSize(200, 200)
+        self.FCTFrame:SetPoint("CENTER", 0, 50)
+        self.FCTStrings = {}
+    end
+
+    local fs = nil
+    for _, textObj in ipairs(self.FCTStrings) do
+        if not textObj.inUse then
+            fs = textObj
+            break
         end
+    end
+
+    if not fs then
+        fs = self.FCTFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightHuge")
+        fs:SetFont("Fonts\\FRIZQT__.TTF", 24, "OUTLINE") 
+        table.insert(self.FCTStrings, fs)
+    end
+
+    fs:SetText(message)
+    fs:SetTextColor(r or 1, g or 1, b or 1)
+    fs:SetAlpha(1)
+    
+    local xOffset = math.random(-40, 40)
+    fs.startX = xOffset
+    fs.startY = -50
+    fs:SetPoint("CENTER", self.FCTFrame, "CENTER", fs.startX, fs.startY)
+    
+    fs.inUse = true
+    fs.timer = 0
+    fs:Show()
+
+    if not self.FCTFrame:GetScript("OnUpdate") then
+        self.FCTFrame:SetScript("OnUpdate", function(frame, elapsed)
+            local allFree = true
+            for _, textObj in ipairs(Purity.FCTStrings) do
+                if textObj.inUse then
+                    allFree = false
+                    textObj.timer = textObj.timer + elapsed
+                    
+                    textObj:SetPoint("CENTER", frame, "CENTER", textObj.startX, textObj.startY + (textObj.timer * 75))
+                    
+                    if textObj.timer > 1.5 then
+                        local alpha = 1 - ((textObj.timer - 1.5) / 0.5)
+                        textObj:SetAlpha(math.max(0, alpha))
+                    end
+                    
+                    if textObj.timer >= 2.0 then
+                        textObj.inUse = false
+                        textObj:Hide()
+                    end
+                end
+            end
+            if allFree then frame:SetScript("OnUpdate", nil) end
+        end)
     end
 end
 
@@ -2880,6 +2928,423 @@ function Purity:PerformSecurityAudit(db)
     return true
 end
 
+function Purity:CreateDeathCinematic()
+    if Purity.DeathCinematic then return end
+    
+    local f = CreateFrame("Frame", "PurityDeathScreen", UIParent)
+    f:SetAllPoints()
+    f:SetFrameStrata("FULLSCREEN_DIALOG") 
+    f:SetFrameLevel(9000)
+    f:EnableMouse(true)
+    f:Hide()
+
+    f:EnableKeyboard(true)
+    f:SetPropagateKeyboardInput(false)
+
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    f.bg:SetColorTexture(0, 0, 0, 1)
+
+    f.model = CreateFrame("PlayerModel", nil, f)
+    f.model:SetSize(3840, 2160) 
+    f.model:SetPoint("CENTER", 0, -50)
+    
+    f.model.posX = 0
+    f.model.posY = 0
+    f.model.posZ = 0.2
+    f.model.currentScale = 5
+    
+    f.model:SetCamDistanceScale(f.model.currentScale) 
+    f.model:SetPosition(f.model.posX, f.model.posY, f.model.posZ)
+    f.model:SetFacing(3.14)
+    f.model:SetFrameLevel(9001)
+
+    f.model:EnableMouse(true)
+    f.model:EnableMouseWheel(true)
+    
+    f.model:SetScript("OnMouseDown", function(self, button)
+        local cx, cy = GetCursorPosition()
+        if button == "LeftButton" then
+            self.isRotating = true
+            self.startX = cx
+            self.startFacing = self:GetFacing()
+        elseif button == "RightButton" then
+            self.isPanning = true
+            self.startX = cx
+            self.startY = cy
+            self.startPosY = self.posY
+            self.startPosZ = self.posZ
+        end
+    end)
+    f.model:SetScript("OnMouseUp", function(self, button)
+        self.isRotating = false
+        self.isPanning = false
+    end)
+    f.model:SetScript("OnUpdate", function(self, elapsed)
+        local cx, cy = GetCursorPosition()
+        if self.isRotating then
+            local deltaX = (cx - self.startX) / 50 
+            self:SetFacing(self.startFacing + deltaX)
+        elseif self.isPanning then
+            local deltaY = (cx - self.startX) / 80
+            local deltaZ = (cy - self.startY) / 80
+            -- Restored original addition logic for natural panning
+            self.posY = self.startPosY + deltaY
+            self.posZ = self.startPosZ + deltaZ
+            self:SetPosition(self.posX, self.posY, self.posZ)
+        end
+    end)
+    f.model:SetScript("OnMouseWheel", function(self, delta)
+        self.currentScale = self.currentScale - (delta * 0.25)
+        self.currentScale = math.max(0.5, math.min(10.0, self.currentScale))
+        self:SetCamDistanceScale(self.currentScale)
+    end)
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "QuestFont_Enormous")
+    f.title:SetText("CHALLENGE OVER")
+    f.title:SetTextColor(0.6, 0.05, 0.05)
+    f.title:SetPoint("CENTER", 0, 300)
+    f.title:SetAlpha(0)
+
+    f.subtitle = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    f.subtitle:SetTextColor(0.8, 0.8, 0.8)
+    f.subtitle:SetPoint("TOP", f.title, "BOTTOM", 0, -20)
+    f.subtitle:SetAlpha(0)
+	
+	f.statsText = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.statsText:SetTextColor(0.8, 0.6, 0.1)
+    f.statsText:SetPoint("TOP", f.subtitle, "BOTTOM", 0, -30)
+    f.statsText:SetJustifyH("CENTER")
+    f.statsText:SetAlpha(0)
+
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.hint:SetTextColor(0.5, 0.5, 0.5)
+    f.hint:SetPoint("BOTTOM", 0, 50)
+    f.hint:SetText("(Left-click to rotate. Right-click to pan. Scroll to zoom.)")
+    f.hint:SetAlpha(0)
+
+    -- Release Spirit Button
+    f.releaseBtn = CreateFrame("Button", "PurityReleaseButton", f, "UIPanelButtonTemplate")
+    f.releaseBtn:SetSize(140, 40)
+    f.releaseBtn:SetPoint("CENTER", f, "CENTER", -80, 85) 
+    f.releaseBtn:SetFrameStrata("TOOLTIP") 
+    f.releaseBtn:SetFrameLevel(9001) 
+    f.releaseBtn:SetText("Release Spirit")
+    f.releaseBtn:Hide() 
+    
+    f.releaseBtn:SetScript("OnClick", function()
+        if Purity.OriginalAmbienceVolume then SetCVar("Sound_AmbienceVolume", Purity.OriginalAmbienceVolume) end
+        if Purity.OriginalSFXVolume then SetCVar("Sound_SFXVolume", Purity.OriginalSFXVolume) end
+
+        PlaySound(6974, "Master")
+        f:Hide()
+        f.exitBtn:Hide() -- Explicitly hide the untethered secure button
+        Purity.ExecutionInProgress = false
+        
+        RepopMe()
+        print("|cffFFFF00Purity:|r You have released your spirit into the spirit world. You cannot revive.")
+    end)
+
+    f.exitBtn = CreateFrame("Button", "PurityExitButton", UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
+    f.exitBtn:SetSize(140, 40)
+    f.exitBtn:SetPoint("CENTER", UIParent, "CENTER", 80, 85) 
+    f.exitBtn:SetFrameStrata("FULLSCREEN_DIALOG") 
+    f.exitBtn:SetFrameLevel(9010) 
+    f.exitBtn:SetText("Try Again")
+    f.exitBtn:Hide()
+    
+    f.exitBtn:RegisterForClicks("AnyUp", "AnyDown")
+    f.exitBtn:SetAttribute("type", "macro")
+    f.exitBtn:SetAttribute("macrotext", "/camp") 
+    
+    f.exitBtn:HookScript("PostClick", function(self, button, down)
+        if down then return end 
+
+        Purity:BroadcastStatus()
+
+        if Purity.OriginalAmbienceVolume then SetCVar("Sound_AmbienceVolume", Purity.OriginalAmbienceVolume) end
+        if Purity.OriginalSFXVolume then SetCVar("Sound_SFXVolume", Purity.OriginalSFXVolume) end
+
+        PlaySound(6974, "Master")
+
+        local timeLeft = IsResting() and 0 or 20
+        
+        if timeLeft == 0 then
+            f.subtitle:SetText("Goodbye.")
+        else
+            f.subtitle:SetText("Logging out in " .. timeLeft .. "...")
+            
+            if Purity.LogoutTicker then Purity.LogoutTicker:Cancel() end
+            Purity.LogoutTicker = C_Timer.NewTicker(1, function()
+                timeLeft = timeLeft - 1
+                if timeLeft > 0 then
+                    f.subtitle:SetText("Logging out in " .. timeLeft .. "...")
+                else
+                    f.subtitle:SetText("Goodbye.")
+                    if Purity.LogoutTicker then Purity.LogoutTicker:Cancel() end
+                end
+            end, 20)
+        end
+    end)
+
+    Purity.DeathCinematic = f
+end
+
+function Purity:ExecutePlayer(killerName, message, isAlreadyDead)
+    if Purity.ExecutionInProgress then return end
+    Purity.ExecutionInProgress = true
+
+    if Purity:GetDB().status ~= "Failed" then
+        Purity:Violation(message)
+    end
+
+    if not Purity.DeathCinematic then Purity:CreateDeathCinematic() end
+    local f = Purity.DeathCinematic
+    
+    -- Build Memorial Stats (Moved up so both cinematic branches can use it)
+    local db = Purity:GetDB()
+    local runtime = db.addonRuntime or 0
+    local days = math.floor(runtime / 86400)
+    local hours = math.floor((runtime % 86400) / 3600)
+    local minutes = math.floor((runtime % 3600) / 60)
+    
+    local timeString = ""
+    if days > 0 then timeString = days .. " Days, " .. hours .. " Hours"
+    elseif hours > 0 then timeString = hours .. " Hours, " .. minutes .. " Minutes"
+    else timeString = minutes .. " Minutes" end
+    
+    local memorialText = "Vow: " .. (db.challengeTitle or "Unknown") .. "\n"
+    memorialText = memorialText .. "Time Pledged: " .. timeString
+    
+    if (db.weaponInfractions or 0) > 0 then
+        memorialText = memorialText .. "\nWeapon Infractions: " .. db.weaponInfractions .. "/2"
+    end
+    if (db.physicalStrikes or 0) > 0 then
+        memorialText = memorialText .. "\nPhysical Strikes: " .. db.physicalStrikes .. "/2"
+    end
+    
+    if f.statsText then
+        f.statsText:SetText(memorialText)
+    end
+
+    C_Timer.After(0.05, function()
+        f:Show()
+
+        -- THE "ALREADY DEAD" FATAL BLOW BRANCH
+        if isAlreadyDead then
+            f.bg:SetColorTexture(0, 0, 0, 1) 
+            
+            f.title:SetAlpha(0)
+            f.subtitle:SetAlpha(0)
+            if f.statsText then f.statsText:SetAlpha(0) end
+            f.hint:SetAlpha(0)
+            f.releaseBtn:SetAlpha(0)
+            f.releaseBtn:Hide()
+            f.exitBtn:SetAlpha(0)
+            f.exitBtn:Hide()
+            
+            f.subtitle:SetText("Level " .. UnitLevel("player") .. " - Slain by " .. (killerName or "Previous Wounds"))
+            
+            C_Timer.After(2.5, function()
+                UIFrameFadeIn(f.title, 6, 0, 1)
+                UIFrameFadeIn(f.subtitle, 6, 0, 1)
+                if f.statsText then UIFrameFadeIn(f.statsText, 6, 0, 1) end -- Fade in the new stats!
+                UIFrameFadeIn(f.hint, 6, 0, 1)
+                
+                if not InCombatLockdown() then
+                    f.releaseBtn:Show()
+                    f.exitBtn:Show()
+                    UIFrameFadeIn(f.releaseBtn, 6, 0, 1)
+                    UIFrameFadeIn(f.exitBtn, 6, 0, 1)
+                end
+            end)
+            
+            if InCombatLockdown() then
+                f.subtitle:SetText("Level " .. UnitLevel("player") .. " - Slain by " .. (killerName or "Previous Wounds") .. "\n(Awaiting combat drop...)")
+                local combatWait = CreateFrame("Frame")
+                combatWait:RegisterEvent("PLAYER_REGEN_ENABLED")
+                combatWait:SetScript("OnEvent", function(self, evt)
+                    self:UnregisterAllEvents()
+                    f.subtitle:SetText("Level " .. UnitLevel("player") .. " - Slain by " .. (killerName or "Previous Wounds"))
+                    
+                    f.releaseBtn:Show()
+                    f.exitBtn:Show()
+                    UIFrameFadeIn(f.releaseBtn, 6, 0, 1)
+                    UIFrameFadeIn(f.exitBtn, 6, 0, 1)
+                end)
+            end
+            
+            local retries = 0
+            local modelTicker = C_Timer.NewTicker(0.1, function()
+                retries = retries + 1
+                f.model:SetUnit("player")
+                f.model:SetPosition(f.model.posX, f.model.posY, f.model.posZ)
+                
+                if retries >= 5 then 
+                    f.model:SetAnimation(1) 
+                    if f.model.modelTicker then f.model.modelTicker:Cancel() end
+                end
+            end)
+            f.model.modelTicker = modelTicker
+            
+            local aVol = Purity.OriginalAmbienceVolume or GetCVar("Sound_AmbienceVolume")
+            local sVol = Purity.OriginalSFXVolume or GetCVar("Sound_SFXVolume")
+            
+            if tonumber(aVol) == 0 then aVol = "0.8" end
+            if tonumber(sVol) == 0 then sVol = "0.8" end
+            
+            SetCVar("Sound_AmbienceVolume", aVol)
+            SetCVar("Sound_SFXVolume", sVol)
+
+            PlaySound(17, "Master") 
+            return 
+        end
+
+        if not Purity.OriginalAmbienceVolume then
+            Purity.OriginalAmbienceVolume = GetCVar("Sound_AmbienceVolume")
+            Purity.OriginalSFXVolume = GetCVar("Sound_SFXVolume")
+            
+            if tonumber(Purity.OriginalAmbienceVolume) == 0 then Purity.OriginalAmbienceVolume = "0.8" end
+            if tonumber(Purity.OriginalSFXVolume) == 0 then Purity.OriginalSFXVolume = "0.8" end
+        end
+
+        UIFrameFadeIn(f, 0.2, 0, 1)
+        
+        f.model:SetUnit("player")
+        f.model:SetPosition(f.model.posX, f.model.posY, f.model.posZ)
+        
+        -- 1. Show the screen immediately saying "Awaiting your demise..." while still alive
+        local playerLevel = UnitLevel("player")
+        f.subtitle:SetText("Level " .. playerLevel .. " - Slain by " .. (killerName or "Hubris") .. "\n(Awaiting your demise...)")
+        
+        -- Build the Memorial Stats
+        local db = Purity:GetDB()
+        local runtime = db.addonRuntime or 0
+        local days = math.floor(runtime / 86400)
+        local hours = math.floor((runtime % 86400) / 3600)
+        local minutes = math.floor((runtime % 3600) / 60)
+        
+        local timeString = ""
+        if days > 0 then timeString = days .. " Days, " .. hours .. " Hours"
+        elseif hours > 0 then timeString = hours .. " Hours, " .. minutes .. " Minutes"
+        else timeString = minutes .. " Minutes" end
+        
+        local memorialText = "Vow: " .. (db.challengeTitle or "Unknown") .. "\n"
+        memorialText = memorialText .. "Time Pledged: " .. timeString
+		memorialText = memorialText .. "\nYour Heroism Will Be Remembered"
+        
+        -- Add specific tragic flair if applicable
+        if (db.weaponInfractions or 0) > 0 then
+            memorialText = memorialText .. "\nWeapon Infractions: " .. db.weaponInfractions .. "/2"
+        end
+        if (db.physicalStrikes or 0) > 0 then
+            memorialText = memorialText .. "\nPhysical Strikes: " .. db.physicalStrikes .. "/2"
+        end
+        
+        f.statsText:SetText(memorialText)
+
+        UIFrameFadeIn(f.title, 2, 0, 1)
+        UIFrameFadeIn(f.subtitle, 2, 0, 1)
+        UIFrameFadeIn(f.statsText, 3.5, 0, 1)
+        UIFrameFadeIn(f.hint, 2, 0, 1)
+
+        SetCVar("Sound_AmbienceVolume", 0)
+        SetCVar("Sound_SFXVolume", 0)
+        
+        local race = select(2, UnitRace("player"))
+        local sex = UnitSex("player")
+        local deathSounds = {
+            ["Human"] = { [2] = 2944, [3] = 2940 },
+            ["Orc"] = { [2] = 1322, [3] = 213 },
+            ["Dwarf"] = { [2] = 2932, [3] = 2928 },
+            ["NightElf"] = { [2] = 2959, [3] = 2936 },
+            ["Scourge"] = { [2] = 1318, [3] = 1364 },
+            ["Tauren"] = { [2] = 1356, [3] = 229 },
+            ["Gnome"] = { [2] = 3278, [3] = 3272 },
+            ["Troll"] = { [2] = 3310, [3] = 3304 },
+            ["Draenei"] = { [2] = 8987, [3] = 8991 },
+            ["BloodElf"] = { [2] = 8999, [3] = 8995 },
+        }
+        
+        if deathSounds[race] and deathSounds[race][sex] then
+            PlaySound(deathSounds[race][sex], "Master")
+        else
+            PlaySound(846, "Master")
+        end
+        
+        PlaySound(17, "Master")
+
+        C_Timer.After(0.1, function()
+            if f.model then f.model:SetAnimation(1) end
+        end)
+
+        if not Purity.DeathListener then
+            Purity.DeathListener = CreateFrame("Frame")
+        end
+        Purity.DeathListener:RegisterEvent("PLAYER_DEAD")
+        Purity.DeathListener:SetScript("OnEvent", function(self)
+            self:UnregisterAllEvents()
+            
+            f.subtitle:SetText("Level " .. playerLevel .. " - Slain by " .. (killerName or "Hubris"))
+            
+            if InCombatLockdown() then
+                local combatWait = CreateFrame("Frame")
+                combatWait:RegisterEvent("PLAYER_REGEN_ENABLED")
+                combatWait:SetScript("OnEvent", function(wSelf, evt)
+                    wSelf:UnregisterAllEvents()
+                    f.releaseBtn:Show()
+                    f.exitBtn:Show()
+                    UIFrameFadeIn(f.releaseBtn, 1, 0, 1)
+                    UIFrameFadeIn(f.exitBtn, 1, 0, 1)
+                end)
+            else
+                f.releaseBtn:Show()
+                f.exitBtn:Show()
+                UIFrameFadeIn(f.releaseBtn, 1, 0, 1)
+                UIFrameFadeIn(f.exitBtn, 1, 0, 1)
+            end
+        end)
+    end)
+end
+
+local function ShouldSuppressPopup(which)
+    if not which then return false end
+    local upper = tostring(which):upper()
+    return upper:find("RESURRECT") or upper:find("REVIVE") or upper:find("CORPSE") or upper:find("XP_LOSS") or upper:find("RELEASE") or upper == "CONFIRM_SUMMON"
+end
+
+hooksecurefunc("StaticPopup_Show", function(which)
+    local db = Purity:GetDB()
+    if db and db.isOptedIn then
+        -- Define which challenges are hardcore
+        local isHardcore = (db.activeChallengeID == "BLOOD_MAGE_BARGAIN" or 
+                            db.activeChallengeID == "GLASS_HEART" or 
+                            (db.challengeTitle and string.find(db.challengeTitle, "Glass Heart", 1, true)))
+                            
+        if isHardcore and ShouldSuppressPopup(which) then
+            -- Let the popup generate normally, then immediately hide it securely
+            StaticPopup_Hide(which)
+            UIErrorsFrame:AddMessage("Your hardcore Purity challenge prohibits resurrection.", 1.0, 0.1, 0.1, 1.0)
+        end
+    end
+end)
+
+local purityReviveBlocker = CreateFrame("Frame")
+purityReviveBlocker:RegisterEvent("RESURRECT_REQUEST")
+purityReviveBlocker:SetScript("OnEvent", function(self, event, ...)
+    local db = Purity:GetDB()
+    if db and db.isOptedIn then
+        local isHardcore = (db.activeChallengeID == "BLOOD_MAGE_BARGAIN" or 
+                            db.activeChallengeID == "GLASS_HEART" or 
+                            (db.challengeTitle and string.find(db.challengeTitle, "Glass Heart", 1, true)))
+                            
+        if isHardcore then
+            DeclineResurrect()
+            UIErrorsFrame:AddMessage("Your hardcore Purity challenge prohibits accepting resurrections.", 1.0, 0.1, 0.1, 1.0)
+        end
+    end
+end)
+
 function Purity:Violation(message, isFromAudit)
     if not self.notificationBanner then self:CreateCoreUI() end
     local currentDB = Purity:GetDB()
@@ -2887,7 +3352,7 @@ function Purity:Violation(message, isFromAudit)
     if currentDB.status ~= "Passing" and currentDB.status ~= "Temporary Failure - Uptime" then
         return
     end
-	
+    
     local function RestoreCVars()
         SHOW_COMBAT_TEXT = "1"
         SetCVar("floatingCombatTextCombatDamage", "1")
@@ -2895,7 +3360,6 @@ function Purity:Violation(message, isFromAudit)
     end
 
     if InCombatLockdown() then
-        -- Wait until combat ends to modify CVars
         local f = CreateFrame("Frame")
         f:RegisterEvent("PLAYER_REGEN_ENABLED")
         f:SetScript("OnEvent", function(self)
@@ -2923,7 +3387,7 @@ function Purity:Violation(message, isFromAudit)
     currentDB.dataSignature = self:CreateDataSignature(currentDB)
     
     Purity:UpdateAndGetStatusStrings()
-    Purity:BroadcastStatus()
+    -- FIX: BroadcastStatus() is removed from here. It will only fire securely on the Accept Fate click.
 end
 
 function Purity:ShowWarningBanner(message, duration, warningLevel)
@@ -3929,6 +4393,7 @@ local function OnAddonMessage(prefix, message, channel, sender)
 end
 
 local function OnPlayerLogin()
+	Purity:CreateDeathCinematic()
     Purity:EnforceDefaultClassColors()
     Purity:BuildChallengeTypeMap()
     Purity:StartModifierMonitor()
@@ -4297,6 +4762,12 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         local currentGUID = UnitGUID("player")
 
         Purity:PerformIntegrityCheck()
+        
+        if currentDB.status == "Failed" and (currentDB.activeChallengeID == "BLOOD_MAGE_BARGAIN" or currentDB.activeChallengeID == "GLASS_HEART") then
+            C_Timer.After(1.5, function()
+                Purity:ExecutePlayer("Previous Wounds", currentDB.failureReason or "Run Failed.", true)
+            end)
+        end
 		
 		if Purity.GlobalModules["GLASS_HEART"] then
              local gh = Purity.GlobalModules["GLASS_HEART"]

@@ -7,7 +7,7 @@ local secureGlassHeartState = { current = 0, max = 0 }
 local GlassHeart = {
     id = "GLASS_HEART",
     challengeName = "The Glass Heart",
-    description = "Your resilience is shattered. While your body appears intact, your tolerance for trauma is significantly reduced. This penalty is permanent for the duration of the challenge.",
+    description = "Your resilience is shattered. While your body appears intact, your tolerance for trauma is significantly reduced. This penalty is permanent for the duration of the challenge.\n\n|cffff0000NOTE: This is a Hardcore challenge. Resurrection is not permitted after death.|r",
     needsWeaponWarning = false,
 
     specializations = {
@@ -656,22 +656,9 @@ local GlassHeart = {
 
             -- [[ CUSTOM FCT INJECTION ]]
             if db.glassHeartFCTEnabled ~= false then
-                local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
-
-                -- Force load the Blizzard Combat Text engine if it's asleep
-                if not isLoaded then
-                    -- Support for both modern and older Classic client APIs
-                    if C_AddOns and C_AddOns.LoadAddOn then
-                        C_AddOns.LoadAddOn("Blizzard_CombatText")
-                    else
-                        LoadAddOn("Blizzard_CombatText")
-                    end
-                end
-
-                -- Now safely inject our custom message
-                if CombatText_AddMessage then
-                    local displayDamage = math.floor(glassDamage)
-                    CombatText_AddMessage("-" .. displayDamage, CombatText_StandardScroll, 1, 0, 0)
+                local displayDamage = math.floor(glassDamage)
+                if Purity.ShowCustomCombatText then
+                    Purity:ShowCustomCombatText("-" .. displayDamage, 1, 0, 0)
                 end
             end
 
@@ -695,8 +682,9 @@ local GlassHeart = {
         self.lastRealHP = currentRealHP
         self:UpdateBar(maxRealHP)
 
-        if secureGlassHeartState.current <= 0 and not UnitIsDeadOrGhost("player") then
-            Purity:Violation("Succumbed to wounds (Effective HP hit 0).")
+        if secureGlassHeartState.current <= 0 then
+            local isDead = UnitIsDeadOrGhost("player")
+            Purity:ExecutePlayer(self.lastSource or "Shattered Integrity", "Succumbed to wounds (Effective HP hit 0).", isDead)
         end
     end,
 
