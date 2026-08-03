@@ -293,9 +293,7 @@ end,
 	
 	ApplyBarMode = function(self, isSeparate, isToggle)
 		local bar = self.bloodBarFrame
-		if not bar then
-            return
-        end
+		if not bar then return end
 
 		local db = Purity:GetDB()
         local wasSeparate = db.bloodBarIsSeparate
@@ -338,20 +336,11 @@ end,
 
             bar:SetAlpha(1)
             bar:Show()
-
-            C_Timer.After(0.1, function()
-                if bar:IsShown() then
-                     local p1, _, p2, x, y = bar:GetPoint()
-                else
-                end
-            end)
-
 		else
-			-- OVERLAY MODE FIXES
 			bar:SetParent(PlayerFrame)
-			bar:SetFrameLevel(PlayerFrameHealthBar:GetFrameLevel()) -- Drop hardcoded strata to inherit like Glass Heart
+			bar:SetFrameLevel(PlayerFrameHealthBar:GetFrameLevel())
 			bar:ClearAllPoints()
-			bar:SetAllPoints(PlayerFrameHealthBar) -- Replace the 1x1 SetSize conflict with SetAllPoints
+			bar:SetAllPoints(PlayerFrameHealthBar)
 			bar:SetMovable(false)
 			bar:EnableMouse(false)
 			bar:SetScript("OnDragStart", nil)
@@ -361,8 +350,30 @@ end,
                 bar.background:Hide()
             end
             bar:GetStatusBarTexture():SetAlpha(1)
-            bar:Show() -- Explicitly show the bar so it doesn't stay hidden forever
+            bar:Show()
 		end
+
+        -- NEW ANCHORING LOGIC FOR FONTSTRINGS
+        local textCenter = self.textCenter
+        local textLeft = self.textLeft
+        local textRight = self.textRight
+
+        if textCenter and textLeft and textRight then
+            textCenter:ClearAllPoints()
+            textLeft:ClearAllPoints()
+            textRight:ClearAllPoints()
+
+            if not isSeparate and PlayerFrameHealthBarText then
+                textCenter:SetPoint("CENTER", PlayerFrameHealthBarText, "CENTER", 0, 0)
+                if PlayerFrameHealthBarTextLeft then textLeft:SetPoint("LEFT", PlayerFrameHealthBarTextLeft, "LEFT", 0, 0) else textLeft:SetPoint("LEFT", bar, "LEFT", 4, 0) end
+                if PlayerFrameHealthBarTextRight then textRight:SetPoint("RIGHT", PlayerFrameHealthBarTextRight, "RIGHT", 0, 0) else textRight:SetPoint("RIGHT", bar, "RIGHT", -2, 0) end
+            else
+                -- Perfect default offsets for the separated frame
+                textCenter:SetPoint("CENTER", bar, "CENTER", 0, 0)
+                textLeft:SetPoint("LEFT", bar, "LEFT", 4, 0)
+                textRight:SetPoint("RIGHT", bar, "RIGHT", -2, 0)
+            end
+        end
 
         db.bloodBarIsSeparate = isSeparate
 
@@ -386,51 +397,43 @@ end,
 
 		if container then container:Show() end
 
+		local textCenter = self.textCenter
 		local textLeft = self.textLeft
 		local textRight = self.textRight
-		if not textLeft or not textRight then return end
+		if not textLeft or not textRight or not textCenter then return end
 
         local displayMode
         if self.forceNumericDisplay then
             displayMode = "NUMERIC"
         else
-            displayMode = GetCVar("statusTextDisplay")
+            displayMode = GetCVar("statusTextDisplay") or "NUMERIC"
         end
 
 		local currentVal = math.floor(db.bloodPoolCurrent)
 		local maxVal = db.bloodPoolMax
 		
-		textLeft:Hide()
-		textRight:Hide()
-		
+        local centerString = ""
+        local leftString = ""
+        local rightString = ""
+
 		if displayMode == "NUMERIC" then
-			local numericText = currentVal .. " / " .. maxVal
-			textLeft:ClearAllPoints()
-			textLeft:SetPoint("CENTER", bar, "CENTER", 0, 0)
-			textLeft:SetText(numericText)
-			textLeft:Show()
+            centerString = currentVal .. " / " .. maxVal
 		elseif displayMode == "PERCENT" then
 			local percent = (maxVal > 0) and math.floor((currentVal / maxVal) * 100) or 0
-			local percentText = percent .. "%"
-			textLeft:ClearAllPoints()
-			textLeft:SetPoint("CENTER", bar, "CENTER", 0, 0)
-			textLeft:SetText(percentText)
-			textLeft:Show()
+			centerString = percent .. "%"
 		elseif displayMode == "BOTH" then
 			local percent = (maxVal > 0) and math.floor((currentVal / maxVal) * 100) or 0
-			local percentText = percent .. "%"
-			local numericText = currentVal 
-			
-			textLeft:ClearAllPoints()
-			textRight:ClearAllPoints()
-			textLeft:SetPoint("LEFT", bar, "LEFT", 1.25, 0)
-			textRight:SetPoint("RIGHT", bar, "RIGHT", -0.5, 0)
-
-			textLeft:SetText(percentText)
-			textRight:SetText(numericText)
-			textLeft:Show()
-			textRight:Show()
+			leftString = percent .. "%"
+			rightString = currentVal 
 		end
+
+        textCenter:SetText(centerString)
+        textLeft:SetText(leftString)
+        textRight:SetText(rightString)
+
+        if centerString ~= "" then textCenter:Show() else textCenter:Hide() end
+        if leftString ~= "" then textLeft:Show() else textLeft:Hide() end
+        if rightString ~= "" then textRight:Show() else textRight:Hide() end
 	end,
 	
 	UpdateBar = function(self)
@@ -1014,15 +1017,14 @@ ManageBloodRegen = function(self)
             self.textContainer:SetFrameStrata("MEDIUM")
             self.textContainer:SetAllPoints(self.bloodBarFrame)
             
-            self.textLeft = self.textContainer:CreateFontString("PurityBloodMageBarTextLeft", "OVERLAY", "GameFontNormal")
-            self.textLeft:SetFont("Fonts\\ARIALN.TTF", 14, "OUTLINE")
-            self.textLeft:SetTextColor(1, 1, 1)
-            self.textLeft:SetPoint("LEFT", self.bloodBarFrame, "LEFT", 5, 0)
+            self.textCenter = self.textContainer:CreateFontString("PurityBloodMageBarTextCenter", "OVERLAY", "TextStatusBarText")
+            self.textCenter:SetTextColor(1, 1, 1)
 
-            self.textRight = self.textContainer:CreateFontString("PurityBloodMageBarTextRight", "OVERLAY", "GameFontNormal")
-            self.textRight:SetFont("Fonts\\ARIALN.TTF", 14, "OUTLINE")
+            self.textLeft = self.textContainer:CreateFontString("PurityBloodMageBarTextLeft", "OVERLAY", "TextStatusBarText")
+            self.textLeft:SetTextColor(1, 1, 1)
+
+            self.textRight = self.textContainer:CreateFontString("PurityBloodMageBarTextRight", "OVERLAY", "TextStatusBarText")
             self.textRight:SetTextColor(1, 1, 1)
-            self.textRight:SetPoint("RIGHT", self.bloodBarFrame, "RIGHT", -5, 0)
         end
         
         self:ApplyBarMode(db.bloodBarIsSeparate)

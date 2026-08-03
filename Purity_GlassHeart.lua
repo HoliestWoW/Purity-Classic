@@ -802,15 +802,15 @@ local GlassHeart = {
         self.textContainer = textFrame
         
         textFrame.Text = textFrame:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
-        textFrame.Text:SetPoint("CENTER", textFrame, "CENTER", 0, 0)
+        if PlayerFrameHealthBarText then textFrame.Text:SetPoint("CENTER", PlayerFrameHealthBarText, "CENTER", 0, 0) else textFrame.Text:SetPoint("CENTER", textFrame, "CENTER", 0, 0) end
         textFrame.Text:SetTextColor(1, 1, 1)
         
         textFrame.TextLeft = textFrame:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
-        textFrame.TextLeft:SetPoint("LEFT", textFrame, "LEFT", 4, 0)
+        if PlayerFrameHealthBarTextLeft then textFrame.TextLeft:SetPoint("LEFT", PlayerFrameHealthBarTextLeft, "LEFT", 0, 0) else textFrame.TextLeft:SetPoint("LEFT", textFrame, "LEFT", 4, 0) end
         textFrame.TextLeft:SetTextColor(1, 1, 1)
         
         textFrame.TextRight = textFrame:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
-        textFrame.TextRight:SetPoint("RIGHT", textFrame, "RIGHT", -2, 0)
+        if PlayerFrameHealthBarTextRight then textFrame.TextRight:SetPoint("RIGHT", PlayerFrameHealthBarTextRight, "RIGHT", 0, 0) else textFrame.TextRight:SetPoint("RIGHT", textFrame, "RIGHT", -2, 0) end
         textFrame.TextRight:SetTextColor(1, 1, 1)
 
         self:_HideDefaultHealthBar()
