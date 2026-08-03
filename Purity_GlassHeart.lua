@@ -95,6 +95,9 @@ local GlassHeart = {
             "|cffffd100Selected Difficulty: " .. diffName .. "|r",
             "|cff261A0D  • Damage Taken: " .. mult .. "x|r",
             " ",
+            "|cffffd100Shield Mechanics:|r",
+            "|cff261A0D  • Your shield absorbs the normal hit, but the extra challenge damage shatters right through to your health.|r",
+            " ",
             "|cffff0000FAIL CONDITION:|r",
             "|cff261A0D  • If your Health reaches 0, you die.|r",
         }
@@ -509,42 +512,99 @@ local GlassHeart = {
         self.monitorFrame:SetScript("OnEvent", function(frame, event, ...)
             if event == "COMBAT_LOG_EVENT_UNFILTERED" then
                 -- Get standard event info
-                local timestamp, subEvent, _, _, sourceName, _, _, destGUID, _, _, _, arg12, arg13, arg14, arg15, arg16 = CombatLogGetCurrentEventInfo()
+                local timestamp, subEvent, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags = CombatLogGetCurrentEventInfo()
                 
                 if destGUID == UnitGUID("player") then
                     
-                    -- 1. DAMAGE TRACKING (For Log & Display)
+                    -- INJECTED HELPER: Calculates and applies structural bleed-through
+                    local function ApplyShieldBleedThrough(absorbedAmount)
+                        if not absorbedAmount or absorbedAmount <= 0 then return end
+                        local db = Purity:GetDB()
+                        local multiplier = db.glassHeartMultiplier or 1.5
+                        local bleedThrough = absorbedAmount * (multiplier - 1)
+                        
+                        if bleedThrough > 0 then
+                            secureGlassHeartState.current = secureGlassHeartState.current - bleedThrough
+                            if secureGlassHeartState.current < 0 then secureGlassHeartState.current = 0 end
+                            
+                            if not db.challengeStats then db.challengeStats = {} end
+                            db.challengeStats.glassDamageTaken = (db.challengeStats.glassDamageTaken or 0) + bleedThrough
+                            db.glassHeartHP = secureGlassHeartState.current
+                            
+                            self:UpdateBar(UnitHealthMax("player"))
+                            
+                            if db.glassHeartFCTEnabled ~= false and Purity.ShowCustomCombatText then
+                                Purity:ShowCustomCombatText(string.format("[Shield Bleed: -%.0f]", bleedThrough), 0, 1, 1)
+                            end
+
+                            local sourceText = "|cffff8080" .. (self.lastSource or "Unknown") .. "'s|r"
+                            local abilityText = "|cffffffff" .. (self.lastAbility or "Hit") .. "|r"
+                            local logMsg = string.format("%s %s bleeds through your shield for |cff00ffff%.0f|r.", sourceText, abilityText, bleedThrough)
+                            self:AddLogLine(logMsg)
+                            
+                            if secureGlassHeartState.current <= 0 then
+                                Purity:ExecutePlayer(self.lastSource or "Shattered Integrity", "Succumbed to structural shield bleed-through.", UnitIsDeadOrGhost("player"))
+                            end
+                        end
+                    end
+
+                    -- 1. PARTIAL ABSORBS & DAMAGE TRACKING
                     if string.find(subEvent, "_DAMAGE") then
                         self.lastSource = sourceName or "Unknown"
                         
+                        local absorbed = 0
                         if subEvent == "SWING_DAMAGE" then
                             self.lastAbility = "Melee"
+                            absorbed = select(17, CombatLogGetCurrentEventInfo())
                         elseif subEvent == "RANGE_DAMAGE" then
                             self.lastAbility = "Auto Shot"
+                            absorbed = select(20, CombatLogGetCurrentEventInfo())
                         elseif subEvent == "ENVIRONMENTAL_DAMAGE" then
-                            self.lastAbility = arg12 -- e.g. "Falling", "Lava"
+                            self.lastAbility = select(12, CombatLogGetCurrentEventInfo())
+                            absorbed = select(18, CombatLogGetCurrentEventInfo())
                         else
-                            self.lastAbility = arg13 or "Ability" 
+                            -- SPELL_DAMAGE and SPELL_PERIODIC_DAMAGE
+                            self.lastAbility = select(13, CombatLogGetCurrentEventInfo()) or "Ability" 
+                            absorbed = select(20, CombatLogGetCurrentEventInfo())
                         end
                         self.lastDamageTime = GetTime()
 
+                        ApplyShieldBleedThrough(absorbed)
+
+                    -- 1.5 FULL ABSORBS (MISSED EVENT) TRACKING
+                    elseif string.find(subEvent, "_MISSED") then
+                        self.lastSource = sourceName or "Unknown"
+                        local missType, amountMissed
+                        
+                        if subEvent == "SWING_MISSED" then
+                            self.lastAbility = "Melee"
+                            missType = select(12, CombatLogGetCurrentEventInfo())
+                            amountMissed = select(14, CombatLogGetCurrentEventInfo())
+                        elseif subEvent == "RANGE_MISSED" then
+                            self.lastAbility = "Auto Shot"
+                            missType = select(15, CombatLogGetCurrentEventInfo())
+                            amountMissed = select(17, CombatLogGetCurrentEventInfo())
+                        else
+                            -- SPELL_MISSED and SPELL_PERIODIC_MISSED
+                            self.lastAbility = select(13, CombatLogGetCurrentEventInfo()) or "Ability"
+                            missType = select(15, CombatLogGetCurrentEventInfo())
+                            amountMissed = select(17, CombatLogGetCurrentEventInfo())
+                        end
+                        
+                        if missType == "ABSORB" then
+                            ApplyShieldBleedThrough(amountMissed)
+                        end
+
                     -- 2. HEALING TRACKING (Overhealing Support)
-                    -- If we are at 100% HP, UNIT_HEALTH won't trigger. We need to catch the Overhealing here.
                     elseif subEvent == "SPELL_HEAL" or subEvent == "SPELL_PERIODIC_HEAL" then
-                        -- arg15 is amount (Effective), arg16 is Overhealing
-                        local overhealing = arg16
+                        local overhealing = select(16, CombatLogGetCurrentEventInfo())
                         
                         if overhealing and overhealing > 0 then
                             local maxHP = UnitHealthMax("player")
-                            
-                            -- Only apply if we actually have room to heal in the Glass Bar
                             if secureGlassHeartState.current < maxHP then
                                 secureGlassHeartState.current = secureGlassHeartState.current + overhealing
-                                
-                                -- Clamp to Max
                                 if secureGlassHeartState.current > maxHP then secureGlassHeartState.current = maxHP end
                                 
-                                -- Save & Update
                                 local db = Purity:GetDB()
                                 if db then db.glassHeartHP = secureGlassHeartState.current end
                                 self:UpdateBar(maxHP)

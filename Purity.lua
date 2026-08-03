@@ -781,11 +781,13 @@ function Purity:DisplayRules()
         if not line then
             line = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
             line:SetJustifyH("LEFT")
+            line:SetWordWrap(true)
             table.insert(scrollChild.lines, line)
         end
         
+        line:ClearAllPoints()
         line:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
-        line:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
+        line:SetWidth(scrollChild:GetWidth() - 20)
         
         line:SetText(lineText)
         line:Show()
@@ -1643,6 +1645,8 @@ local coefficientText = ""
 
 	Purity.optInFrame.challengeDescription:SetWordWrap(true)
     Purity.optInFrame.challengeDescription:SetWidth(Purity.optInFrame.scrollChild:GetWidth() - 20) 
+    Purity.optInFrame.challengeDescription:ClearAllPoints()
+    Purity.optInFrame.challengeDescription:SetPoint("TOPLEFT", Purity.optInFrame.challengeTitle, "BOTTOMLEFT", 0, -15)
     Purity.optInFrame.challengeDescription:SetText(descriptionText .. coefficientText)
 
     local rules = challengeData.GetRulesText and challengeData:GetRulesText() or {""}
@@ -1650,6 +1654,8 @@ local coefficientText = ""
     
     Purity.optInFrame.challengeRules:SetWordWrap(true)
     Purity.optInFrame.challengeRules:SetWidth(Purity.optInFrame.scrollChild:GetWidth() - 20)
+    Purity.optInFrame.challengeRules:ClearAllPoints()
+    Purity.optInFrame.challengeRules:SetPoint("TOPLEFT", Purity.optInFrame.challengeDescription, "BOTTOMLEFT", 0, -20)
     Purity.optInFrame.challengeRules:SetText(rulesString)
 
     if challengeData.optInWarningText then
@@ -5235,18 +5241,25 @@ local function Purity_OnTooltipSetSpell_Handler(self)
 
     -- [[ 3. CONDUIT: BLINK ]]
     if activeChallenge.challengeName == "Conduit of Purity" and spellName == "Blink" then
-        -- Loop through lines to find the description and append to it
         for i = 1, self:NumLines() do
             local line = _G[self:GetName() .. "TextLeft" .. i]
             if line then
                 local text = line:GetText()
-                -- Blink's description always starts with "Teleports"
                 if text and string.find(text, "Teleports") then
                     line:SetText(text .. " Instantly generates 20 Static Charge.")
-                    self:Show() -- Force the tooltip to resize for the wider text
+                    self:Show()
                     break
                 end
             end
+        end
+    end
+	
+	-- [[ 4. GLASS HEART SHIELDS ]]
+    if activeChallenge.id == "GLASS_HEART" then
+        if spellName == "Power Word: Shield" or spellName == "Ice Barrier" or spellName == "Sacrifice" or spellName == "Mana Shield" then
+            self:AddLine(" ")
+            self:AddLine("Your shield absorbs the normal hit, but the extra challenge damage shatters right through to your health.", 1.0, 0.82, 0.0, true)
+            self:Show()
         end
     end
 end
@@ -5391,6 +5404,15 @@ GameTooltip.SetAction = function(self, actionSlot)
                         break
                     end
                 end
+            end
+        end
+		
+		-- [[ 4. GLASS HEART SHIELDS (Macro Support) ]]
+        if activeChallenge.id == "GLASS_HEART" then
+            if spellName == "Power Word: Shield" or spellName == "Ice Barrier" or spellName == "Sacrifice" or spellName == "Mana Shield" then
+                self:AddLine(" ")
+                self:AddLine("Your shield absorbs the normal hit, but the extra challenge damage shatters right through to your health.", 1.0, 0.82, 0.0, true)
+                self:Show()
             end
         end
     end
