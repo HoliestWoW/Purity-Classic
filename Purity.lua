@@ -3,7 +3,6 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-_G.Purity = Purity
 Purity.Version = "12.2.2b"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
@@ -31,6 +30,15 @@ function Purity:GetThematicClassName(className)
     end
     return className:sub(1,1) .. className:sub(2):lower()
 end
+
+function Purity_GetActiveChallengeID()
+    local db = Purity:GetDB()
+    if db and db.isOptedIn then
+        return db.activeChallengeID
+    end
+    return nil
+end
+_G.Purity_GetActiveChallengeID = Purity_GetActiveChallengeID
 
 function Purity:UpdateCharacterFrameClassName()
     local db = self:GetDB()
