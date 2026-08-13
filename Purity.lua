@@ -3,6 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
+_G.Purity = Purity
 Purity.Version = "12.2.2b"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
