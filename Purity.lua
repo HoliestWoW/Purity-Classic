@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.2.2"
+Purity.Version = "12.2.2b"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -3444,7 +3444,12 @@ end
 local function ShouldSuppressPopup(which)
     if not which then return false end
     local upper = tostring(which):upper()
-    return upper:find("RESURRECT") or upper:find("REVIVE") or upper:find("CORPSE") or upper:find("XP_LOSS") or upper:find("RELEASE") or upper == "CONFIRM_SUMMON"
+    
+    if upper == "CONFIRM_SUMMON" then
+        return false
+    end
+    
+    return upper:find("RESURRECT") or upper:find("REVIVE") or upper:find("CORPSE") or upper:find("XP_LOSS") or upper:find("RELEASE")
 end
 
 hooksecurefunc("StaticPopup_Show", function(which)
@@ -5207,6 +5212,8 @@ function Purity:Deserialize(str)
 end
 
 local function Purity_OnTooltipSetSpell_Handler(self)
+    if Purity.isActionTooltip then return end
+
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge then return end
 
@@ -5263,6 +5270,8 @@ local function Purity_OnTooltipSetSpell_Handler(self)
 end
 
 local function Purity_OnTooltipSetItem_Handler(self)
+    if Purity.isActionTooltip then return end
+
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge or not activeChallenge.IsItemForbidden then return end
     
@@ -5286,6 +5295,8 @@ GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
 GameTooltip:HookScript("OnTooltipSetUnit", Purity_OnTooltipSetUnit_Handler)
 
 local function Purity_GeneralTooltip_OnShow_Handler(self)
+    if Purity.isActionTooltip then return end
+
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge or activeChallenge.id ~= "BLOOD_MAGE_BARGAIN" then return end
 
@@ -5328,8 +5339,13 @@ hooksecurefunc(GameTooltip, "SetTalent", function(self, tabIndex, talentIndex)
 end)
 
 hooksecurefunc(GameTooltip, "SetAction", function(self, actionSlot)
+    Purity.isActionTooltip = true
+
     local activeChallenge = Purity:GetActiveChallengeObject()
-    if not activeChallenge then return end
+    if not activeChallenge then
+        Purity.isActionTooltip = false
+        return
+    end
 
     local actionType, id, subType = GetActionInfo(actionSlot)
     local spellId = nil
@@ -5338,6 +5354,8 @@ hooksecurefunc(GameTooltip, "SetAction", function(self, actionSlot)
     if actionType == "spell" then
         spellId = id
     elseif actionType == "macro" then
+        -- WoW's API changed in 8.0.1. Modern/Classic clients return the ID first.
+        -- Older clients returned: name, rank, ID. This covers all versions.
         local v1, v2, v3 = GetMacroSpell(id)
         if type(v1) == "number" then
             spellId = v1
@@ -5348,21 +5366,6 @@ hooksecurefunc(GameTooltip, "SetAction", function(self, actionSlot)
 
     if spellId then
         local spellName = GetSpellInfo(spellId)
-
-        -- Prevent double-printing since OnTooltipSetSpell natively handles most of these now
-        local alreadyInjected = false
-        for i = 1, self:NumLines() do
-            local line = _G[self:GetName() .. "TextLeft" .. i]
-            if line and line:GetText() then
-                local text = line:GetText()
-                if string.find(text, "Forbidden by your") or string.match(text, "^%d+ Blood$") or string.find(text, "Blood Cost:") or string.find(text, "challenge damage shatters") or string.find(text, "Static Charge") then
-                    alreadyInjected = true
-                    break
-                end
-            end
-        end
-
-        if alreadyInjected then return end
 
         -- [[ 1. FORBIDDEN SPELLS ]]
         if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(spellId) then
@@ -5412,6 +5415,8 @@ hooksecurefunc(GameTooltip, "SetAction", function(self, actionSlot)
             end
         end
     end
+    
+    Purity.isActionTooltip = false
 end)
 
 GameTooltip:HookScript("OnUpdate", Purity_TooltipOnUpdateHandler)
