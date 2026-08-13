@@ -5212,13 +5212,14 @@ function Purity:Deserialize(str)
 end
 
 local function Purity_OnTooltipSetSpell_Handler(self)
-    if Purity.isActionTooltip then return end
 
     local activeChallenge = Purity:GetActiveChallengeObject()
     if not activeChallenge then return end
 
     local spellName, spellId = self:GetSpell()
     if not spellId then return end
+	
+	self.purityProcessedSpell = spellId
 
     -- [[ 1. FORBIDDEN SPELLS ]]
     if activeChallenge.IsSpellForbidden and activeChallenge:IsSpellForbidden(spellId) then
@@ -5293,6 +5294,7 @@ end
 GameTooltip:HookScript("OnTooltipSetItem", Purity_OnTooltipSetItem_Handler)
 GameTooltip:HookScript("OnTooltipSetSpell", Purity_OnTooltipSetSpell_Handler)
 GameTooltip:HookScript("OnTooltipSetUnit", Purity_OnTooltipSetUnit_Handler)
+GameTooltip:HookScript("OnTooltipCleared", function(self) self.purityProcessedSpell = nil end)
 
 local function Purity_GeneralTooltip_OnShow_Handler(self)
     if Purity.isActionTooltip then return end
@@ -5339,29 +5341,22 @@ hooksecurefunc(GameTooltip, "SetTalent", function(self, tabIndex, talentIndex)
 end)
 
 hooksecurefunc(GameTooltip, "SetAction", function(self, actionSlot)
-    Purity.isActionTooltip = true
-
     local activeChallenge = Purity:GetActiveChallengeObject()
-    if not activeChallenge then
-        Purity.isActionTooltip = false
-        return
-    end
+    if not activeChallenge then return end
 
     local actionType, id, subType = GetActionInfo(actionSlot)
     local spellId = nil
 
-    -- Resolve the actual Spell ID from the Action Slot
     if actionType == "spell" then
         spellId = id
     elseif actionType == "macro" then
-        -- WoW's API changed in 8.0.1. Modern/Classic clients return the ID first.
-        -- Older clients returned: name, rank, ID. This covers all versions.
         local v1, v2, v3 = GetMacroSpell(id)
-        if type(v1) == "number" then
-            spellId = v1
-        elseif type(v3) == "number" then
-            spellId = v3
-        end
+        if type(v1) == "number" then spellId = v1
+        elseif type(v3) == "number" then spellId = v3 end
+    end
+
+    if spellId and self.purityProcessedSpell == spellId then
+        return 
     end
 
     if spellId then
@@ -5415,7 +5410,7 @@ hooksecurefunc(GameTooltip, "SetAction", function(self, actionSlot)
             end
         end
     end
-    
+    self.purityProcessedSpell = spellId
     Purity.isActionTooltip = false
 end)
 
