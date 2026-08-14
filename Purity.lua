@@ -40,6 +40,26 @@ function Purity_GetActiveChallengeID()
 end
 _G.Purity_GetActiveChallengeID = Purity_GetActiveChallengeID
 
+_G.Purity_IsSanguineWeaknessActive = function()
+    local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    return mod and mod.sanguineWeaknessActive or false
+end
+
+_G.Purity_GetSpellBloodCost = function(spellId)
+    local mod = Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN
+    return (mod and mod.GetBloodCostForSpell) and mod:GetBloodCostForSpell(spellId) or 0
+end
+
+_G.Purity_IsCompletelySmashed = function()
+    local mod = Purity.GlobalModules and Purity.GlobalModules.DRUNK
+    return (mod and mod.GetCurrentState) and mod:GetCurrentState() == "Smashed" or false
+end
+
+_G.Purity_IsStaticChargeMax = function()
+    local mod = Purity.ClassModules and Purity.ClassModules.MAGE and Purity.ClassModules.MAGE.challenges.conduit
+    return mod and (mod.charge and mod.charge >= 99) or false
+end
+
 function Purity:UpdateCharacterFrameClassName()
     local db = self:GetDB()
     local _, playerClass = UnitClass("player")
