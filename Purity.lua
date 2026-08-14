@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.2.2c"
+Purity.Version = "12.2.2d"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -639,21 +639,28 @@ local FCT_INCOMING_DAMAGE_EVENTS = {
 }
 
 function Purity:DisableDefaultIncomingDamageText()
-    -- Cache the user's original FCT setting so we can restore it accurately
     if not Purity.OriginalFCTCVar then
         Purity.OriginalFCTCVar = GetCVar("enableFloatingCombatText")
+        Purity.OriginalFCTDamageCVar = GetCVar("floatingCombatTextCombatDamage")
+        Purity.OriginalCombatDamageCVar = GetCVar("CombatDamage")
     end
     
-    -- Turn off Blizzard's 2D scrolling text entirely so it doesn't overlap our custom engine
     SetCVar("enableFloatingCombatText", "0")
+    SetCVar("floatingCombatTextCombatDamage", "0")
+    SetCVar("CombatDamage", "0")
+    SHOW_COMBAT_TEXT = "0"
 end
 
 function Purity:RestoreDefaultIncomingDamageText()
-    -- Restore the user's preferred setting when the challenge ends
     if Purity.OriginalFCTCVar then
         SetCVar("enableFloatingCombatText", Purity.OriginalFCTCVar)
-    else
-        SetCVar("enableFloatingCombatText", "1")
+        SetCVar("floatingCombatTextCombatDamage", Purity.OriginalFCTDamageCVar or "1")
+        SetCVar("CombatDamage", Purity.OriginalCombatDamageCVar or "1")
+        SHOW_COMBAT_TEXT = Purity.OriginalFCTCVar
+
+        Purity.OriginalFCTCVar = nil
+        Purity.OriginalFCTDamageCVar = nil
+        Purity.OriginalCombatDamageCVar = nil
     end
 end
 
@@ -3521,21 +3528,15 @@ function Purity:Violation(message, isFromAudit)
         return
     end
     
-    local function RestoreCVars()
-        SHOW_COMBAT_TEXT = "1"
-        SetCVar("floatingCombatTextCombatDamage", "1")
-        SetCVar("CombatDamage", "1")
-    end
-
     if InCombatLockdown() then
         local f = CreateFrame("Frame")
         f:RegisterEvent("PLAYER_REGEN_ENABLED")
         f:SetScript("OnEvent", function(self)
-            RestoreCVars()
+            Purity:RestoreDefaultIncomingDamageText()
             self:UnregisterEvent("PLAYER_REGEN_ENABLED")
         end)
     else
-        RestoreCVars()
+        Purity:RestoreDefaultIncomingDamageText()
     end
     
     self.notificationBanner.title:SetText("Vow of Purity Broken")
@@ -3711,9 +3712,7 @@ function Purity:CompleteChallenge()
         local db = Purity:GetDB()
 		
 		-- [[ RESTORE FCT MEMORY & 3D DAMAGE ]]
-		SHOW_COMBAT_TEXT = "1"
-		SetCVar("floatingCombatTextCombatDamage", "1")
-		SetCVar("CombatDamage", "1")
+		Purity:RestoreDefaultIncomingDamageText()
 
         local effectiveRuntime = (db.addonRuntime or 0) + (db.uptimeGrace or 0)
         local finalUptime = (db.totalPlayedTime > 0 and (effectiveRuntime / db.totalPlayedTime) * 100) or 0
