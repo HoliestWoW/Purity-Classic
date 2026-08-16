@@ -2,7 +2,7 @@
 ## Title: Purity
 ## Notes: An addon for WoW Classic leveling challenges.
 ## Author: HoliestWoW
-## Version: 12.2.2d
+## Version: 12.2.2e
 ## IconTexture: Interface\AddOns\Purity\Media\PurityLogo.tga
 ## SavedVariables: Purity_MinimapIconDB, Purity_GlobalSettings
 ## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
