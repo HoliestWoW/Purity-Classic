@@ -2,7 +2,7 @@
 ## Title: Purity
 ## Notes: An addon for WoW WotLK leveling challenges.
 ## Author: HoliestWoW
-## Version: 12.2.2c
+## Version: 12.2.2d
 ## IconTexture: Interface\AddOns\Purity\Media\PurityLogo.tga
 ## SavedVariables: Purity_MinimapIconDB, Purity_GlobalSettings
 ## SavedVariablesPerCharacter: Purity_Warning, Purity_PerCharacterDB
