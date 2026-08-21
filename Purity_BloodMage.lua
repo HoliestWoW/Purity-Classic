@@ -1401,42 +1401,43 @@ ManageBloodRegen = function(self)
     end,
 
     StartSmartRegen = function(self)
-        if self.regenTicker then return end
-        self.regenTicker = C_Timer.NewTicker(2.0, function()
-            local db = Purity:GetDB()
-            if not (db and db.isOptedIn and db.activeChallengeID == self.id) then return end
-            if UnitIsDeadOrGhost("player") then return end
+        -- Deprecated: Handled globally by Purity_Core ServerTickFrame
+    end,
+
+    ExecuteSmartRegen = function(self)
+        local db = Purity:GetDB()
+        if not (db and db.isOptedIn and db.activeChallengeID == self.id) then return end
+        if UnitIsDeadOrGhost("player") then return end
+        
+        local maxHP = UnitHealthMax("player")
+        local realHP = UnitHealth("player")
+
+        -- ONLY simulate regen when Real Health is completely full and UNIT_HEALTH stops firing!
+        if realHP >= maxHP and secureBloodState.current < maxHP then
+            local _, spirit = UnitStat("player", 5)
+            local baseRegen = (spirit * 0.25) + 3 
             
-            local maxHP = UnitHealthMax("player")
-            local realHP = UnitHealth("player")
+            local inCombat = UnitAffectingCombat("player")
+            local _, race = UnitRace("player")
+            local isTroll = (race == "Troll")
 
-            -- ONLY simulate regen when Real Health is completely full and UNIT_HEALTH stops firing!
-            if realHP >= maxHP and secureBloodState.current < maxHP then
-                local _, spirit = UnitStat("player", 5)
-                local baseRegen = (spirit * 0.25) + 3 
-                
-                local inCombat = UnitAffectingCombat("player")
-                local _, race = UnitRace("player")
-                local isTroll = (race == "Troll")
-
-                if inCombat and isTroll then
-                    baseRegen = (baseRegen * 1.10) * 0.10
-                elseif not inCombat and isTroll then
-                    baseRegen = baseRegen * 1.10
-                elseif inCombat then
-                    baseRegen = 0
-                end
-
-                -- Add our scanned Demon Armor / Aura HPS (x2 because this ticker is 2.0s)
-                baseRegen = baseRegen + ((self.auraHPS or 0) * 2.0)
-                
-                if baseRegen > 0 then
-                    secureBloodState.current = math.min(maxHP, secureBloodState.current + baseRegen)
-                    db.bloodPoolCurrent = secureBloodState.current
-                    self:UpdateBar()
-                end
+            if inCombat and isTroll then
+                baseRegen = (baseRegen * 1.10) * 0.10
+            elseif not inCombat and isTroll then
+                baseRegen = baseRegen * 1.10
+            elseif inCombat then
+                baseRegen = 0
             end
-        end)
+
+            -- Add our scanned Demon Armor / Aura HPS (x2 because this ticker is 2.0s)
+            baseRegen = baseRegen + ((self.auraHPS or 0) * 2.0)
+            
+            if baseRegen > 0 then
+                secureBloodState.current = math.min(maxHP, secureBloodState.current + baseRegen)
+                db.bloodPoolCurrent = secureBloodState.current
+                self:UpdateBar()
+            end
+        end
     end,
 
 EventHandler = function(self, event, ...)

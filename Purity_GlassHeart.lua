@@ -643,55 +643,53 @@ local GlassHeart = {
     end,
 
     StartSmartRegen = function(self)
-        if self.regenTicker then return end
+        -- Deprecated: Handled globally by Purity_Core ServerTickFrame
+    end,
+
+    ExecuteSmartRegen = function(self)
+        local db = Purity:GetDB()
+        if not (db and db.isOptedIn and db.activeChallengeID == self.id) then return end
+        if UnitIsDeadOrGhost("player") then return end
         
-        -- [[ REGEN LOGIC ]]
-        self.regenTicker = C_Timer.NewTicker(2.0, function()
-            local db = Purity:GetDB()
-            if not (db and db.isOptedIn and db.activeChallengeID == self.id) then return end
-            if UnitIsDeadOrGhost("player") then return end
-            
-            local _, race = UnitRace("player")
-            local isTroll = (race == "Troll")
-            
-            if UnitAffectingCombat("player") and not isTroll then return end
+        local _, race = UnitRace("player")
+        local isTroll = (race == "Troll")
+        
+        if UnitAffectingCombat("player") and not isTroll then return end
 
-            local maxHP = UnitHealthMax("player")
-            local realHP = UnitHealth("player")
+        local maxHP = UnitHealthMax("player")
+        local realHP = UnitHealth("player")
 
-            local isEating = false
-            for i = 1, 40 do
-                local name = UnitAura("player", i, "HELPFUL")
-                if not name then break end
-                if name == "Food" or name == "Eating" then 
-                    isEating = true 
-                    break 
-                end
+        local isEating = false
+        for i = 1, 40 do
+            local name = UnitAura("player", i, "HELPFUL")
+            if not name then break end
+            if name == "Food" or name == "Eating" then 
+                isEating = true 
+                break 
+            end
+        end
+
+        if realHP >= maxHP and secureGlassHeartState.current < maxHP then
+            local _, spirit = UnitStat("player", 5)
+            local baseRegen = (spirit * 0.50) + 2 
+            
+            if isEating then
+                local foodBonus = maxHP * 0.06
+                baseRegen = baseRegen + foodBonus
             end
 
-            -- FIX: Removed the "or" clause so it ONLY simulates when Real HP is strictly capped
-            if realHP >= maxHP and secureGlassHeartState.current < maxHP then
-                local _, spirit = UnitStat("player", 5)
-                local baseRegen = (spirit * 0.50) + 2 
-                
-                if isEating then
-                    local foodBonus = maxHP * 0.06
-                    baseRegen = baseRegen + foodBonus
+            if isTroll then
+                if UnitAffectingCombat("player") then
+                    baseRegen = baseRegen * 0.10
+                else
+                    baseRegen = baseRegen * 1.10
                 end
-
-                if isTroll then
-                    if UnitAffectingCombat("player") then
-                        baseRegen = baseRegen * 0.10
-                    else
-                        baseRegen = baseRegen * 1.10
-                    end
-                end
-                
-                secureGlassHeartState.current = math.min(maxHP, secureGlassHeartState.current + baseRegen)
-                db.glassHeartHP = secureGlassHeartState.current
-                self:UpdateBar(maxHP)
             end
-        end)
+            
+            secureGlassHeartState.current = math.min(maxHP, secureGlassHeartState.current + baseRegen)
+            db.glassHeartHP = secureGlassHeartState.current
+            self:UpdateBar(maxHP)
+        end
     end,
 
     OnHealthChange = function(self)

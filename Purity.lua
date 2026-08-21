@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.2.2d"
+Purity.Version = "12.2.3"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -5488,3 +5488,60 @@ function Purity:LogToChatTab(tabName, message, focusTab)
         FCF_SelectDockFrame(targetFrame)
     end
 end
+
+-- =====================================================================
+-- NATIVE SERVER TICK SYNCHRONIZER (GLOBAL HEARTBEAT)
+-- =====================================================================
+Purity.lastServerTick = GetTime()
+local ServerTickFrame = CreateFrame("Frame")
+local lastHP = 0
+local lastMana = 0
+
+ServerTickFrame:RegisterEvent("UNIT_HEALTH")
+ServerTickFrame:RegisterEvent("UNIT_POWER_UPDATE")
+ServerTickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+
+ServerTickFrame:SetScript("OnEvent", function(self, event, unit)
+    if event == "PLAYER_ENTERING_WORLD" then
+        lastHP = UnitHealth("player")
+        lastMana = UnitPower("player")
+        return
+    end
+    if unit ~= "player" then return end
+    
+    local currentHP = UnitHealth("player")
+    local currentMana = UnitPower("player")
+    
+    local hpDiff = currentHP - lastHP
+    local manaDiff = currentMana - lastMana
+    local maxHP = UnitHealthMax("player")
+    
+    -- Filter for natural regen: Ignore massive spikes from direct healing spells
+    -- If health or mana ticks upward naturally, we caught the exact server heartbeat!
+    if (hpDiff > 0 and hpDiff < (maxHP * 0.10)) or (manaDiff > 0 and manaDiff < 200) then
+        Purity.lastServerTick = GetTime() -- Sync the exact phase
+    end
+    
+    lastHP = currentHP
+    lastMana = currentMana
+end)
+
+-- The phantom rhythm pusher
+ServerTickFrame:SetScript("OnUpdate", function(self, elapsed)
+    local now = GetTime()
+    
+    -- If exactly 2.0 seconds have passed since the synced server tick
+    if now - Purity.lastServerTick >= 2.0 then
+        Purity.lastServerTick = now -- Roll it forward
+        
+        -- Push the synchronized tick to the active modules
+        if Purity.GlobalModules then
+            if Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.ExecuteSmartRegen then
+                Purity.GlobalModules.BLOOD_MAGE_BARGAIN:ExecuteSmartRegen()
+            end
+            if Purity.GlobalModules.GLASS_HEART and Purity.GlobalModules.GLASS_HEART.ExecuteSmartRegen then
+                Purity.GlobalModules.GLASS_HEART:ExecuteSmartRegen()
+            end
+        end
+    end
+end)
