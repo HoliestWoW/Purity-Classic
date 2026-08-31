@@ -905,14 +905,16 @@ ManageBloodRegen = function(self)
         -- INVISIBLE MONITOR TO HANDLE VISIBILITY & DYNAMIC POSITIONING FOR ALL FRAMES
         local debuffMonitor = CreateFrame("Frame")
         debuffMonitor:SetScript("OnUpdate", function()
+            local isFakeDebuffActive = false
+            local hasNoRealDebuffs = false
+
             -- 1. Target Frame Logic (Now supports targeting yourself!)
             if UnitExists("target") and (UnitIsPlayer("target") or UnitIsUnit("target", "player")) then
                 local targetName = UnitName("target")
-                local shortName = targetName:match("([^-]+)")
+                local shortName = targetName and targetName:match("([^-]+)") or ""
                 local rosterData
                 
                 if UnitIsUnit("target", "player") then
-                    -- If targeting yourself, read your local module state directly
                     rosterData = {
                         challenge = "The Blood Mage's Bargain",
                         sanguineWeaknessExpires = module.sanguineWeaknessExpires
@@ -922,6 +924,7 @@ ManageBloodRegen = function(self)
                 end
 
                 if rosterData and rosterData.challenge == "The Blood Mage's Bargain" and rosterData.sanguineWeaknessExpires and rosterData.sanguineWeaknessExpires > GetTime() then
+                    isFakeDebuffActive = true
                     local expires = rosterData.sanguineWeaknessExpires
                     if fakeTargetDebuff.lastExpires ~= expires then
                         CooldownFrame_Set(fakeTargetDebuff.cooldown, expires - 15, 15, 1)
@@ -932,6 +935,8 @@ ManageBloodRegen = function(self)
                     for i = 1, 40 do if select(1, UnitBuff("target", i)) then numBuffs = i else break end end
                     local numDebuffs = 0
                     for i = 1, 40 do if select(1, UnitDebuff("target", i)) then numDebuffs = i else break end end
+
+                    hasNoRealDebuffs = (numDebuffs == 0)
 
                     fakeTargetDebuff:ClearAllPoints()
                     local refFrame = _G["TargetFrameDebuff1"] or _G["TargetFrameBuff1"]
@@ -957,20 +962,8 @@ ManageBloodRegen = function(self)
                         local firstBuffInLastRow = _G["TargetFrameBuff" .. firstInLastRowIndex]
                         if firstBuffInLastRow then fakeTargetDebuff:SetPoint("TOPLEFT", firstBuffInLastRow, "BOTTOMLEFT", 0, -spacingY) end
                     else
-                        -- Nothing exists. Read the native starting coordinates directly from Blizzard UI.
-                        local defaultStartFrame = _G["TargetFrameBuff1"] or _G["TargetFrameDebuff1"]
-                        if defaultStartFrame then
-                            local point, relTo, relPoint, xOfs, yOfs = defaultStartFrame:GetPoint()
-                            if point and relTo then 
-                                fakeTargetDebuff:SetPoint(point, relTo, relPoint, xOfs, yOfs)
-                            else 
-                                fakeTargetDebuff:SetPoint("TOPLEFT", TargetFrame, "BOTTOMLEFT", 5, 32) 
-                            end
-                        else
-                            -- Check if the target cast bar is shown, and push down accordingly
-                            local castBarY = (TargetFrameSpellBar and TargetFrameSpellBar:IsShown()) and 45 or 32
-                            fakeTargetDebuff:SetPoint("TOPLEFT", TargetFrame, "BOTTOMLEFT", 5, castBarY)
-                        end
+                        -- Target is completely clean
+                        fakeTargetDebuff:SetPoint("TOPLEFT", TargetFrame, "BOTTOMLEFT", 5, 32)
                     end
                     fakeTargetDebuff:Show()
                 else
@@ -980,7 +973,38 @@ ManageBloodRegen = function(self)
                 fakeTargetDebuff:Hide()
             end
 
-            -- 2. Party Frames Logic (Unchanged)
+            -- Cast Bar Push Logic (Target Frame)
+            if TargetFrameSpellBar and TargetFrameSpellBar:IsShown() then
+                if isFakeDebuffActive and hasNoRealDebuffs then
+                    local p, rt, rp, x, y = TargetFrameSpellBar:GetPoint()
+                    if p and y then
+                        -- Check if Blizzard (or something else) reset the Y position
+                        if not module.expectedY or math.abs(y - module.expectedY) > 0.5 then
+                            local newY = y - 24
+                            TargetFrameSpellBar:ClearAllPoints()
+                            TargetFrameSpellBar:SetPoint(p, rt, rp, x, newY)
+                            module.expectedY = newY
+                            module.castBarPushed = true
+                        end
+                    end
+                else
+                    if module.castBarPushed then
+                        module.castBarPushed = false
+                        module.expectedY = nil
+                        -- Let Blizzard reset it safely
+                        if Target_Spellbar_AdjustPosition then
+                            Target_Spellbar_AdjustPosition(TargetFrameSpellBar)
+                        elseif TargetFrame_UpdateAuras then
+                            TargetFrame_UpdateAuras(TargetFrame)
+                        end
+                    end
+                end
+            elseif module.castBarPushed then
+                module.castBarPushed = false
+                module.expectedY = nil
+            end
+
+            -- 2. Party Frames Logic
             for i = 1, 4 do
                 local pFrame = _G["PartyMemberFrame" .. i]
                 local fakeDebuff = fakePartyDebuffs[i]
@@ -988,7 +1012,7 @@ ManageBloodRegen = function(self)
 
                 if fakeDebuff and pFrame and UnitExists(unit) and UnitIsPlayer(unit) then
                     local pName = UnitName(unit)
-                    local pShort = pName:match("([^-]+)")
+                    local pShort = pName and pName:match("([^-]+)") or ""
                     local pData = Purity.roster and (Purity.roster[pName] or Purity.roster[pShort] or Purity.roster[pName .. "-" .. GetRealmName()])
 
                     if pData and pData.challenge == "The Blood Mage's Bargain" and pData.sanguineWeaknessExpires and pData.sanguineWeaknessExpires > GetTime() then
@@ -1516,7 +1540,10 @@ ManageBloodRegen = function(self)
                         secureBloodState.current = newMax * ratio
                     end
                     self.maxRealHP = newMax
-                    self.lastRealHP = UnitHealth("player")
+                    
+                    -- FIX: self.lastRealHP has been removed from here. 
+                    -- Resetting it here causes incoming damage to be masked if the event fires mid-combat.
+                    
                     db.bloodPoolMax = newMax
                     db.bloodPoolCurrent = secureBloodState.current
                     self:UpdateBar()
