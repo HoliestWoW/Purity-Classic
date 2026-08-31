@@ -838,10 +838,11 @@ ManageBloodRegen = function(self)
         self.groupFrameManager = CreateFrame("Frame")
         self.groupFrameManager:RegisterEvent("GROUP_ROSTER_UPDATE")
         self.groupFrameManager:RegisterEvent("PLAYER_TARGET_CHANGED")
-        self.groupFrameManager:RegisterEvent("UNIT_TARGET") -- NEW: Detects ToT changes
+        self.groupFrameManager:RegisterEvent("UNIT_TARGET") 
         self.groupFrameManager:RegisterEvent("PLAYER_ENTERING_WORLD")
         self.groupFrameManager:SetScript("OnEvent", function() module:RefreshGroupFrames() end)
         self.groupFrameManager:SetScript("OnUpdate", function() module:UpdateGroupFrameValues() end)
+        
         local groupFrameRestorer = CreateFrame("Frame")
         groupFrameRestorer:RegisterEvent("GROUP_LEFT")
         groupFrameRestorer:SetScript("OnEvent", function()
@@ -853,6 +854,161 @@ ManageBloodRegen = function(self)
             module:RefreshGroupFrames()
         end)
         self.groupFrameManager.restorer = groupFrameRestorer
+
+        -- Helper function to create the debuff icon for any unit frame container
+        local function CreateSanguineDebuffIcon(parentName, parentFrame)
+            local debuffBtn = CreateFrame("Button", parentName, parentFrame)
+            debuffBtn:SetSize(21, 21) 
+            debuffBtn:SetFrameLevel(parentFrame:GetFrameLevel() + 10) 
+            
+            local icon = debuffBtn:CreateTexture(nil, "BACKGROUND")
+            icon:SetAllPoints(true)
+            icon:SetTexture("Interface\\AddOns\\Purity\\Media\\SanguineWeakness.tga")
+            
+            local border = debuffBtn:CreateTexture(nil, "OVERLAY")
+            border:SetAllPoints(true)
+            border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+            border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+            border:SetVertexColor(0.75, 0, 0)
+            
+            local cooldown = CreateFrame("Cooldown", "$parentCooldown", debuffBtn, "CooldownFrameTemplate")
+            cooldown:SetAllPoints(true)
+            cooldown:SetReverse(true)
+            cooldown:SetDrawEdge(false)
+            cooldown:SetHideCountdownNumbers(true)
+            debuffBtn.cooldown = cooldown
+            debuffBtn.lastExpires = 0
+            
+            debuffBtn:Hide()
+
+            debuffBtn:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+                GameTooltip:SetText("|cffffd700Sanguine Weakness|r")
+                GameTooltip:AddLine("Your pact is weakened after healing.\nAll Blood Pool costs are doubled.", 1.0, 1.0, 1.0, true)
+                GameTooltip:Show()
+            end)
+            debuffBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            return debuffBtn
+        end
+
+        local fakeTargetDebuff = CreateSanguineDebuffIcon("PurityTargetSanguineDebuff", TargetFrame)
+        
+        -- Create fake debuffs for all 4 party frames
+        local fakePartyDebuffs = {}
+        for i = 1, 4 do
+            local partyFrame = _G["PartyMemberFrame" .. i]
+            if partyFrame then
+                fakePartyDebuffs[i] = CreateSanguineDebuffIcon("PurityParty" .. i .. "SanguineDebuff", partyFrame)
+            end
+        end
+
+        -- INVISIBLE MONITOR TO HANDLE VISIBILITY & DYNAMIC POSITIONING FOR ALL FRAMES
+        local debuffMonitor = CreateFrame("Frame")
+        debuffMonitor:SetScript("OnUpdate", function()
+            -- 1. Target Frame Logic (Now supports targeting yourself!)
+            if UnitExists("target") and (UnitIsPlayer("target") or UnitIsUnit("target", "player")) then
+                local targetName = UnitName("target")
+                local shortName = targetName:match("([^-]+)")
+                local rosterData
+                
+                if UnitIsUnit("target", "player") then
+                    -- If targeting yourself, read your local module state directly
+                    rosterData = {
+                        challenge = "The Blood Mage's Bargain",
+                        sanguineWeaknessExpires = module.sanguineWeaknessExpires
+                    }
+                else
+                    rosterData = Purity.roster and (Purity.roster[targetName] or Purity.roster[shortName] or Purity.roster[targetName .. "-" .. GetRealmName()])
+                end
+
+                if rosterData and rosterData.challenge == "The Blood Mage's Bargain" and rosterData.sanguineWeaknessExpires and rosterData.sanguineWeaknessExpires > GetTime() then
+                    local expires = rosterData.sanguineWeaknessExpires
+                    if fakeTargetDebuff.lastExpires ~= expires then
+                        CooldownFrame_Set(fakeTargetDebuff.cooldown, expires - 15, 15, 1)
+                        fakeTargetDebuff.lastExpires = expires
+                    end
+
+                    local numBuffs = 0
+                    for i = 1, 40 do if select(1, UnitBuff("target", i)) then numBuffs = i else break end end
+                    local numDebuffs = 0
+                    for i = 1, 40 do if select(1, UnitDebuff("target", i)) then numDebuffs = i else break end end
+
+                    fakeTargetDebuff:ClearAllPoints()
+                    local refFrame = _G["TargetFrameDebuff1"] or _G["TargetFrameBuff1"]
+                    if refFrame and refFrame:GetWidth() > 0 then
+                        fakeTargetDebuff:SetSize(refFrame:GetWidth(), refFrame:GetHeight())
+                    else
+                        fakeTargetDebuff:SetSize(21, 21)
+                    end
+
+                    local maxPerRow = 5
+                    local spacingX, spacingY = 3, 3
+
+                    if numDebuffs > 0 then
+                        if numDebuffs % maxPerRow == 0 then
+                            local firstInLastRow = _G["TargetFrameDebuff" .. (numDebuffs - maxPerRow + 1)]
+                            if firstInLastRow then fakeTargetDebuff:SetPoint("TOPLEFT", firstInLastRow, "BOTTOMLEFT", 0, -spacingY) end
+                        else
+                            local lastDebuff = _G["TargetFrameDebuff" .. numDebuffs]
+                            if lastDebuff then fakeTargetDebuff:SetPoint("LEFT", lastDebuff, "RIGHT", spacingX, 0) end
+                        end
+                    elseif numBuffs > 0 then
+                        local firstInLastRowIndex = numBuffs - ((numBuffs - 1) % maxPerRow)
+                        local firstBuffInLastRow = _G["TargetFrameBuff" .. firstInLastRowIndex]
+                        if firstBuffInLastRow then fakeTargetDebuff:SetPoint("TOPLEFT", firstBuffInLastRow, "BOTTOMLEFT", 0, -spacingY) end
+                    else
+                        -- Nothing exists. Read the native starting coordinates directly from Blizzard UI.
+                        local defaultStartFrame = _G["TargetFrameBuff1"] or _G["TargetFrameDebuff1"]
+                        if defaultStartFrame then
+                            local point, relTo, relPoint, xOfs, yOfs = defaultStartFrame:GetPoint()
+                            if point and relTo then 
+                                fakeTargetDebuff:SetPoint(point, relTo, relPoint, xOfs, yOfs)
+                            else 
+                                fakeTargetDebuff:SetPoint("TOPLEFT", TargetFrame, "BOTTOMLEFT", 5, 32) 
+                            end
+                        else
+                            -- Check if the target cast bar is shown, and push down accordingly
+                            local castBarY = (TargetFrameSpellBar and TargetFrameSpellBar:IsShown()) and 45 or 32
+                            fakeTargetDebuff:SetPoint("TOPLEFT", TargetFrame, "BOTTOMLEFT", 5, castBarY)
+                        end
+                    end
+                    fakeTargetDebuff:Show()
+                else
+                    fakeTargetDebuff:Hide()
+                end
+            else
+                fakeTargetDebuff:Hide()
+            end
+
+            -- 2. Party Frames Logic (Unchanged)
+            for i = 1, 4 do
+                local pFrame = _G["PartyMemberFrame" .. i]
+                local fakeDebuff = fakePartyDebuffs[i]
+                local unit = "party" .. i
+
+                if fakeDebuff and pFrame and UnitExists(unit) and UnitIsPlayer(unit) then
+                    local pName = UnitName(unit)
+                    local pShort = pName:match("([^-]+)")
+                    local pData = Purity.roster and (Purity.roster[pName] or Purity.roster[pShort] or Purity.roster[pName .. "-" .. GetRealmName()])
+
+                    if pData and pData.challenge == "The Blood Mage's Bargain" and pData.sanguineWeaknessExpires and pData.sanguineWeaknessExpires > GetTime() then
+                        local expires = pData.sanguineWeaknessExpires
+                        if fakeDebuff.lastExpires ~= expires then
+                            CooldownFrame_Set(fakeDebuff.cooldown, expires - 15, 15, 1)
+                            fakeDebuff.lastExpires = expires
+                        end
+
+                        fakeDebuff:ClearAllPoints()
+                        fakeDebuff:SetPoint("TOPLEFT", pFrame, "BOTTOMLEFT", 45, 12)
+                        fakeDebuff:Show()
+                    else
+                        fakeDebuff:Hide()
+                    end
+                elseif fakeDebuff then
+                    fakeDebuff:Hide()
+                end
+            end
+        end)
     end,
 
     InitializeNameplates = function(self)
@@ -1605,6 +1761,11 @@ EventHandler = function(self, event, ...)
                             self.sanguineWeaknessActive = true
                             self.sanguineWeaknessExpires = GetTime() + 15
                             self:LogSanguineWeakness(spellName)
+
+                            if IsInGroup() then
+                                local channel = IsInRaid() and "RAID" or "PARTY"
+                                C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "SANGUINE_WEAKNESS:", channel)
+                            end
 
                             local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) and C_AddOns.IsAddOnLoaded("Blizzard_CombatText") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("Blizzard_CombatText"))
                             if GetCVar("enableFloatingCombatText") == "1" and Purity.ShowCustomCombatText then
