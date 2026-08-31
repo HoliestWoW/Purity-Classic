@@ -4462,7 +4462,7 @@ local function Purity_TooltipOnUpdateHandler(self)
         
         if data and (data.status == "Passing" or data.status == "Temporary Failure - Uptime") then
             if data.challenge == "The Blood Mage's Bargain" then
-                if data.class == "PALADIN" then
+                if data.class == "PALADIN" and data.ob_rank and data.ob_rank > 0 then
                     isOathBreaker = true
                 else
                     isBloodMage = true
@@ -4503,25 +4503,28 @@ local function Purity_TooltipOnUpdateHandler(self)
 
     -- 3. Apply Oath Breaker Specific Text Overrides (ONLY for Paladins)
     if isOathBreaker then
-        -- Name Color -> Red
-        local line1 = _G[self:GetName() .. "TextLeft1"]
-        if line1 then
-            local text = line1:GetText()
-            if text and not text:find("ffFF0000") then
-                 local cleanText = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-                 line1:SetText("|cffFF0000" .. cleanText .. "|r")
-            end
-        end
-
         -- Class Name -> Oath Breaker
         for i = 2, self:NumLines() do
             local line = _G[self:GetName() .. "TextLeft" .. i]
             if line then
                 local text = line:GetText()
                 if text and text:find("Paladin") then
-                     local override = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
-                     local newText = text:gsub("Paladin", "|cff" .. override.colorHex .. override.name .. "|r")
-                     line:SetText(newText)
+                    local newText
+                    -- Match common Paladin pink hex codes (e.g. F58CBA or f58cba)
+                    if text:match("ff[Ff][45]8[Cc][Bb][Aa]") then
+                        -- Replace the pink color wrapper with red, and Paladin with Oath Breaker
+                        newText = text:gsub("(|cff[Ff][45]8[Cc][Bb][Aa])(.-Paladin.-)|r", function(prefix, inner)
+                            return "|cffFF0000" .. inner:gsub("Paladin", "Oath Breaker") .. "|r"
+                        end)
+                        -- Fallback just in case the regex wrapper didn't match perfectly
+                        if newText == text then
+                            newText = text:gsub("Paladin", "|cffFF0000Oath Breaker|r")
+                        end
+                    else
+                        -- Keep original color (e.g. white), just change the word
+                        newText = text:gsub("Paladin", "Oath Breaker")
+                    end
+                    line:SetText(newText)
                 end
             end
         end
@@ -4813,6 +4816,12 @@ function Purity:ProcessPurityPayload(sender, payload)
             lastSeen = GetTime() 
         }
         Purity:UpdateRosterWindow()
+
+        -- FIX: Force the group frames to refresh immediately now that we know their Blood Mage status
+        if Purity.GlobalModules and Purity.GlobalModules.BLOOD_MAGE_BARGAIN and Purity.GlobalModules.BLOOD_MAGE_BARGAIN.RefreshGroupFrames then
+            Purity.GlobalModules.BLOOD_MAGE_BARGAIN:RefreshGroupFrames()
+        end
+
         if command == "HELLO" then Purity:QueueRosterReply(fullSenderName) end
 
     elseif command == "GOODBYE" then
@@ -4872,6 +4881,12 @@ function Purity:ProcessPurityPayload(sender, payload)
             Purity.roster[fullSenderName].glassHeartCurrent = tonumber(ghData.current)
             Purity.roster[fullSenderName].glassHeartMax = tonumber(ghData.max)
             Purity.roster[fullSenderName].lastSeen = GetTime()
+        end
+        
+    elseif command == "SANGUINE_WEAKNESS" then
+        -- FIX: Catch the Sanguine Weakness broadcast so it actually appears in party and target frames
+        if Purity.roster[fullSenderName] then
+            Purity.roster[fullSenderName].sanguineWeaknessExpires = GetTime() + 15
         end
     end
 end
@@ -5174,37 +5189,6 @@ local function Purity_OnTooltipSetUnit_Handler(self)
             self:AddLine(" ")
             self:AddLine("Forbidden by your " .. challengeName .. ".", 1.0, 0.1, 0.1)
             self:Show()
-        end
-    end
-
-    -- Original Player/Roster check
-    if not UnitIsPlayer(unit) then return end
-
-    local unitName = UnitName(unit)
-    local rosterData
-    for key, data in pairs(Purity.roster) do
-        if key:match("([^-]+)") == unitName then
-            rosterData = data
-            break
-        end
-    end
-
-    if not (rosterData and rosterData.challenge == "The Blood Mage's Bargain" 
-            and (rosterData.status == "Passing" or rosterData.status == "Temporary Failure - Uptime")
-            and (rosterData.ob_rank and rosterData.ob_rank > 0)) then
-        return
-    end
-
-    local _, unitClass = UnitClass(unit)
-    if string.upper(unitClass or "") == "PALADIN" then
-        local line = _G[self:GetName() .. "TextLeft2"]
-        if line then
-            local originalText = line:GetText()
-            if originalText and originalText:find(unitClass) then
-                local overrideData = Purity.BLOODMAGE_CLASS_OVERRIDES["PALADIN"]
-                local replacementString = "|cff" .. overrideData.colorHex .. overrideData.name .. "|r"
-                line:SetText(string.gsub(originalText, unitClass, replacementString))
-            end
         end
     end
 end

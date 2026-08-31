@@ -29,11 +29,13 @@ local BloodMageModule = {
 		local _, class = UnitClass("player")
 		if class ~= "PALADIN" then return 0 end
 		
-		local tab, index = 3, 5
-		local name, _, _, _, rank = GetTalentInfo(tab, index, nil, nil, GetActiveTalentGroup())
-		
-		if name == "Benediction" then
-			return rank or 0
+        -- Safely iterate through talents to find the exact name, avoiding API index mismatches
+		for i = 1, 30 do
+			local name, _, _, _, rank = GetTalentInfo(3, i)
+			if not name then break end
+			if name == "Benediction" then
+				return rank or 0
+			end
 		end
 		return 0
 	end,
@@ -663,35 +665,63 @@ ManageBloodRegen = function(self)
 	end,
 	
     RefreshGroupFrames = function(self)
-        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
+        local units = {"target", "targettarget", "focus", "focustarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local healthBar
             local textRegions = {} 
             
             if unit == "target" then
                 healthBar = TargetFrameHealthBar
-                -- Use the exact TargetFrame text hierarchy from Glass Heart
                 if TargetFrameTextureFrame then
                     if TargetFrameTextureFrame.HealthBarText then table.insert(textRegions, TargetFrameTextureFrame.HealthBarText) end
                     if TargetFrameTextureFrame.HealthBarTextLeft then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextLeft) end
                     if TargetFrameTextureFrame.HealthBarTextRight then table.insert(textRegions, TargetFrameTextureFrame.HealthBarTextRight) end
                 end
-                -- Fallback for older naming/Private Servers
                 if #textRegions == 0 then
                     if _G["TargetFrameTextureFrameHealthBarText"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarText"]) end
                     if _G["TargetFrameTextureFrameHealthBarTextLeft"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextLeft"]) end
                     if _G["TargetFrameTextureFrameHealthBarTextRight"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextRight"]) end
                 end
-            elseif unit == "targettarget" then
-                healthBar = _G["TargetFrameToTHealthBar"]
-                if _G["TargetFrameToTHealthBarText"] then table.insert(textRegions, _G["TargetFrameToTHealthBarText"]) end
+            elseif unit == "focus" then
+                healthBar = FocusFrameHealthBar
+                if not healthBar and FocusFrame and FocusFrame.HealthBar then
+                    healthBar = FocusFrame.HealthBar
+                    if healthBar.CenterText then table.insert(textRegions, healthBar.CenterText) end
+                    if healthBar.LeftText then table.insert(textRegions, healthBar.LeftText) end
+                    if healthBar.RightText then table.insert(textRegions, healthBar.RightText) end
+                end
+                
+                if FocusFrameTextureFrame then
+                    if FocusFrameTextureFrame.HealthBarText then table.insert(textRegions, FocusFrameTextureFrame.HealthBarText) end
+                    if FocusFrameTextureFrame.HealthBarTextLeft then table.insert(textRegions, FocusFrameTextureFrame.HealthBarTextLeft) end
+                    if FocusFrameTextureFrame.HealthBarTextRight then table.insert(textRegions, FocusFrameTextureFrame.HealthBarTextRight) end
+                end
+                if #textRegions == 0 then
+                    if _G["FocusFrameTextureFrameHealthBarText"] then table.insert(textRegions, _G["FocusFrameTextureFrameHealthBarText"]) end
+                    if _G["FocusFrameTextureFrameHealthBarTextLeft"] then table.insert(textRegions, _G["FocusFrameTextureFrameHealthBarTextLeft"]) end
+                    if _G["FocusFrameTextureFrameHealthBarTextRight"] then table.insert(textRegions, _G["FocusFrameTextureFrameHealthBarTextRight"]) end
+                end
+            elseif unit == "targettarget" or unit == "focustarget" then
+                local prefix = (unit == "targettarget") and "TargetFrameToT" or "FocusFrameToT"
+                healthBar = _G[prefix .. "HealthBar"]
+                if _G[prefix .. "HealthBarText"] then table.insert(textRegions, _G[prefix .. "HealthBarText"]) end
             else
                 local unitNum = string.sub(unit, 6)
                 healthBar = _G["PartyMemberFrame" .. unitNum .. "HealthBar"]
-                -- Support Party text variations
                 local tMain = _G["PartyMemberFrame" .. unitNum .. "HealthBarText"]
                 local tLeft = _G["PartyMemberFrame" .. unitNum .. "HealthBarTextLeft"]
                 local tRight = _G["PartyMemberFrame" .. unitNum .. "HealthBarTextRight"]
+                
+                if not healthBar and PartyFrame and PartyFrame["MemberFrame" .. unitNum] then
+                    local pFrame = PartyFrame["MemberFrame" .. unitNum]
+                    healthBar = pFrame.HealthBar
+                    if healthBar then
+                        if healthBar.CenterText then tMain = healthBar.CenterText end
+                        if healthBar.LeftText then tLeft = healthBar.LeftText end
+                        if healthBar.RightText then tRight = healthBar.RightText end
+                    end
+                end
+                
                 if tMain then table.insert(textRegions, tMain) end
                 if tLeft then table.insert(textRegions, tLeft) end
                 if tRight then table.insert(textRegions, tRight) end
@@ -721,17 +751,14 @@ ManageBloodRegen = function(self)
                 
                 if isBloodMage then
                     if not bar then
-                        -- Create as a SIBLING at the SAME frame level
                         bar = CreateFrame("StatusBar", "PurityGroupBloodBar"..unit, healthBar:GetParent())
                         bar:SetAllPoints(healthBar)
                         bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                        bar:SetStatusBarColor(0.8, 0.1, 0.1) -- Blood Red
+                        bar:SetStatusBarColor(0.8, 0.1, 0.1)
                         bar:SetFrameStrata(healthBar:GetFrameStrata())
-                        bar:SetFrameLevel(healthBar:GetFrameLevel()) -- Match Glass Heart
+                        bar:SetFrameLevel(healthBar:GetFrameLevel())
                         
-                        -- Removed Black Background entirely
-                        
-                        if unit ~= "targettarget" then
+                        if unit ~= "targettarget" and unit ~= "focustarget" then
                             local tf = CreateFrame("Frame", nil, bar)
                             tf:SetAllPoints(bar)
                             tf:SetFrameLevel(bar:GetFrameLevel() + 10) 
@@ -772,14 +799,14 @@ ManageBloodRegen = function(self)
     end,
 
     UpdateGroupFrameValues = function(self)
-        if GetNumGroupMembers() == 0 and not UnitExists("target") then return end
+        local inGroup = (GetNumPartyMembers and GetNumPartyMembers() > 0) or (GetNumRaidMembers and GetNumRaidMembers() > 0) or (GetNumGroupMembers and GetNumGroupMembers() > 0)
+        if not inGroup and not UnitExists("target") and not UnitExists("focus") then return end
         
-        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
+        local units = {"target", "targettarget", "focus", "focustarget", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local bar = self.partyBloodBars[unit]
             if bar and bar:IsShown() then
                 
-                -- Force suppression of default UI visuals (Glass Heart Style)
                 if bar.originalHealthBar then
                     bar.originalHealthBar:SetAlpha(0)
                     bar.originalHealthBar:SetStatusBarTexture("")
@@ -838,6 +865,7 @@ ManageBloodRegen = function(self)
         self.groupFrameManager = CreateFrame("Frame")
         self.groupFrameManager:RegisterEvent("GROUP_ROSTER_UPDATE")
         self.groupFrameManager:RegisterEvent("PLAYER_TARGET_CHANGED")
+        self.groupFrameManager:RegisterEvent("PLAYER_FOCUS_CHANGED")
         self.groupFrameManager:RegisterEvent("UNIT_TARGET") 
         self.groupFrameManager:RegisterEvent("PLAYER_ENTERING_WORLD")
         self.groupFrameManager:SetScript("OnEvent", function() module:RefreshGroupFrames() end)
@@ -848,6 +876,10 @@ ManageBloodRegen = function(self)
         groupFrameRestorer:SetScript("OnEvent", function()
             for i = 1, 4 do
                 local healthBar = _G["PartyMemberFrame" .. i .. "HealthBar"]
+                if not healthBar and PartyFrame and PartyFrame["MemberFrame" .. i] then
+                    healthBar = PartyFrame["MemberFrame" .. i].HealthBar
+                end
+                
                 if healthBar then healthBar:Show() end
                 if module.partyBloodBars["party"..i] then module.partyBloodBars["party"..i]:Hide() end
             end
@@ -855,11 +887,12 @@ ManageBloodRegen = function(self)
         end)
         self.groupFrameManager.restorer = groupFrameRestorer
 
-        -- Helper function to create the debuff icon for any unit frame container
-        local function CreateSanguineDebuffIcon(parentName, parentFrame)
-            local debuffBtn = CreateFrame("Button", parentName, parentFrame)
-            debuffBtn:SetSize(21, 21) 
-            debuffBtn:SetFrameLevel(parentFrame:GetFrameLevel() + 10) 
+        local function CreateSanguineDebuffIcon(parentName)
+            local debuffBtn = CreateFrame("Button", parentName, UIParent)
+            debuffBtn:SetSize(18, 18) 
+            debuffBtn:SetFrameStrata("HIGH")
+            debuffBtn:SetFrameLevel(100) 
+            debuffBtn:EnableMouse(true)
             
             local icon = debuffBtn:CreateTexture(nil, "BACKGROUND")
             icon:SetAllPoints(true)
@@ -878,139 +911,209 @@ ManageBloodRegen = function(self)
             cooldown:SetHideCountdownNumbers(true)
             debuffBtn.cooldown = cooldown
             debuffBtn.lastExpires = 0
-            
-            debuffBtn:Hide()
 
-            debuffBtn:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+            debuffBtn:SetScript("OnEnter", function(frame)
+                GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
                 GameTooltip:SetText("|cffffd700Sanguine Weakness|r")
-                GameTooltip:AddLine("Your pact is weakened after healing.\nAll Blood Pool costs are doubled.", 1.0, 1.0, 1.0, true)
+                GameTooltip:AddLine("Your pact is weakened after healing.", 1.0, 1.0, 1.0, true)
+                GameTooltip:AddLine("All Blood Pool costs are doubled.", 1.0, 1.0, 1.0, true)
+                local remaining = Purity.GlobalModules.BLOOD_MAGE_BARGAIN.sanguineWeaknessExpires - GetTime()
+                if remaining > 0 then
+                    GameTooltip:AddLine(string.format("|cffffd700%d sec remaining|r", remaining), 1.0, 1.0, 1.0, true)
+                end
                 GameTooltip:Show()
             end)
             debuffBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            
+            debuffBtn:Hide()
             return debuffBtn
         end
 
-        local fakeTargetDebuff = CreateSanguineDebuffIcon("PurityTargetSanguineDebuff", TargetFrame)
-        
-        -- Create fake debuffs for all 4 party frames
+        local fakeTargetDebuff = CreateSanguineDebuffIcon("PurityTargetSanguineDebuff")
+        local fakeTargetTargetDebuff = CreateSanguineDebuffIcon("PurityTargetTargetSanguineDebuff")
+        local fakeFocusDebuff = CreateSanguineDebuffIcon("PurityFocusSanguineDebuff")
+        local fakeFocusToTDebuff = CreateSanguineDebuffIcon("PurityFocusToTSanguineDebuff")
+
         local fakePartyDebuffs = {}
         for i = 1, 4 do
-            local partyFrame = _G["PartyMemberFrame" .. i]
-            if partyFrame then
-                fakePartyDebuffs[i] = CreateSanguineDebuffIcon("PurityParty" .. i .. "SanguineDebuff", partyFrame)
-            end
+            fakePartyDebuffs[i] = CreateSanguineDebuffIcon("PurityParty" .. i .. "SanguineDebuff")
         end
 
-        -- INVISIBLE MONITOR TO HANDLE VISIBILITY & DYNAMIC POSITIONING FOR ALL FRAMES
         local debuffMonitor = CreateFrame("Frame")
         debuffMonitor:SetScript("OnUpdate", function()
-            local isFakeDebuffActive = false
-            local hasNoRealDebuffs = false
+            local module = Purity.GlobalModules.BLOOD_MAGE_BARGAIN
 
-            -- 1. Target Frame Logic (Now supports targeting yourself!)
-            if UnitExists("target") and (UnitIsPlayer("target") or UnitIsUnit("target", "player")) then
-                local targetName = UnitName("target")
-                local shortName = targetName and targetName:match("([^-]+)") or ""
+            local function UpdateAuraDebuff(fakeDebuff, unit, frameObj, prefix)
+                local isToT = (prefix == "TargetFrameToT" or prefix == "FocusFrameToT")
+                local isFocus = (prefix == "FocusFrame")
+                local isSmallFocus = isFocus and frameObj.smallSize
+                local spellBar = _G[prefix .. "SpellBar"] or (frameObj and frameObj.spellBar)
+
+                -- Hide conditions & restore cast bar if target invalid
+                if not (frameObj and frameObj:IsShown() and UnitExists(unit) and (UnitIsPlayer(unit) or UnitIsUnit(unit, "player"))) then
+                    fakeDebuff:Hide()
+                    
+                    if spellBar and spellBar.purityShiftedY then
+                        local p, rt, rp, x, y = spellBar:GetPoint()
+                        if math.abs((y or 0) - spellBar.purityShiftedY) < 1.0 then
+                            spellBar:ClearAllPoints()
+                            spellBar:SetPoint(p, rt, rp, x, spellBar.purityNativeY)
+                        end
+                        spellBar.purityShiftedY = nil
+                        spellBar.purityNativeY = nil
+                    end
+                    return
+                end
+
+                local name = UnitName(unit)
+                local shortName = name and name:match("([^-]+)") or ""
                 local rosterData
                 
-                if UnitIsUnit("target", "player") then
-                    rosterData = {
-                        challenge = "The Blood Mage's Bargain",
-                        sanguineWeaknessExpires = module.sanguineWeaknessExpires
-                    }
+                if UnitIsUnit(unit, "player") then
+                    rosterData = { challenge = "The Blood Mage's Bargain", sanguineWeaknessExpires = module.sanguineWeaknessExpires }
                 else
-                    rosterData = Purity.roster and (Purity.roster[targetName] or Purity.roster[shortName] or Purity.roster[targetName .. "-" .. GetRealmName()])
+                    rosterData = Purity.roster and (Purity.roster[name] or Purity.roster[shortName] or Purity.roster[name .. "-" .. GetRealmName()])
                 end
 
                 if rosterData and rosterData.challenge == "The Blood Mage's Bargain" and rosterData.sanguineWeaknessExpires and rosterData.sanguineWeaknessExpires > GetTime() then
-                    isFakeDebuffActive = true
                     local expires = rosterData.sanguineWeaknessExpires
-                    if fakeTargetDebuff.lastExpires ~= expires then
-                        CooldownFrame_Set(fakeTargetDebuff.cooldown, expires - 15, 15, 1)
-                        fakeTargetDebuff.lastExpires = expires
+                    if fakeDebuff.lastExpires ~= expires then
+                        CooldownFrame_Set(fakeDebuff.cooldown, expires - 15, 15, 1)
+                        fakeDebuff.lastExpires = expires
                     end
+
+                    if fakeDebuff:GetParent() ~= frameObj then
+                        fakeDebuff:SetParent(frameObj)
+                    end
+
+                    fakeDebuff:ClearAllPoints()
+                    
+                    -- FIX 1: Static Sizing (Adjusted for custom Target and Focus sizes)
+                    local frameSize = 21 
+                    
+                    if prefix == "TargetFrame" then
+                        frameSize = 17 -- Smaller target icon (default was 21)
+                    elseif prefix == "FocusFrame" then
+                        if isSmallFocus then
+                            frameSize = 20 -- Bigger icon if using the "Small" focus frame setting (default was 17)
+                        else
+                            frameSize = 26 -- Bigger standard focus icon (default was 21)
+                        end
+                    elseif isToT then
+                        frameSize = 13 -- Target of Target / Focus Target (unchanged)
+                    end
+                    
+                    fakeDebuff:SetSize(frameSize, frameSize)
 
                     local numBuffs = 0
-                    for i = 1, 40 do if select(1, UnitBuff("target", i)) then numBuffs = i else break end end
                     local numDebuffs = 0
-                    for i = 1, 40 do if select(1, UnitDebuff("target", i)) then numDebuffs = i else break end end
-
-                    hasNoRealDebuffs = (numDebuffs == 0)
-
-                    fakeTargetDebuff:ClearAllPoints()
-                    local refFrame = _G["TargetFrameDebuff1"] or _G["TargetFrameBuff1"]
-                    if refFrame and refFrame:GetWidth() > 0 then
-                        fakeTargetDebuff:SetSize(refFrame:GetWidth(), refFrame:GetHeight())
-                    else
-                        fakeTargetDebuff:SetSize(21, 21)
+                    
+                    if not isToT and not isSmallFocus then
+                        for i = 1, 40 do if select(1, UnitBuff(unit, i)) then numBuffs = i else break end end
                     end
+                    for i = 1, 40 do if select(1, UnitDebuff(unit, i)) then numDebuffs = i else break end end
 
-                    local maxPerRow = 5
+                    local maxPerRow = (isToT) and 4 or (isSmallFocus) and 3 or 5
                     local spacingX, spacingY = 3, 3
 
+                    -- Anchor Strategy
                     if numDebuffs > 0 then
                         if numDebuffs % maxPerRow == 0 then
-                            local firstInLastRow = _G["TargetFrameDebuff" .. (numDebuffs - maxPerRow + 1)]
-                            if firstInLastRow then fakeTargetDebuff:SetPoint("TOPLEFT", firstInLastRow, "BOTTOMLEFT", 0, -spacingY) end
+                            local firstInLastRow = _G[prefix .. "Debuff" .. (numDebuffs - maxPerRow + 1)]
+                            if firstInLastRow then fakeDebuff:SetPoint("TOPLEFT", firstInLastRow, "BOTTOMLEFT", 0, -spacingY) end
                         else
-                            local lastDebuff = _G["TargetFrameDebuff" .. numDebuffs]
-                            if lastDebuff then fakeTargetDebuff:SetPoint("LEFT", lastDebuff, "RIGHT", spacingX, 0) end
+                            local lastDebuffObj = _G[prefix .. "Debuff" .. numDebuffs]
+                            if lastDebuffObj then fakeDebuff:SetPoint("LEFT", lastDebuffObj, "RIGHT", spacingX, 0) end
                         end
                     elseif numBuffs > 0 then
                         local firstInLastRowIndex = numBuffs - ((numBuffs - 1) % maxPerRow)
-                        local firstBuffInLastRow = _G["TargetFrameBuff" .. firstInLastRowIndex]
-                        if firstBuffInLastRow then fakeTargetDebuff:SetPoint("TOPLEFT", firstBuffInLastRow, "BOTTOMLEFT", 0, -spacingY) end
+                        local firstBuffInLastRow = _G[prefix .. "Buff" .. firstInLastRowIndex]
+                        if firstBuffInLastRow then fakeDebuff:SetPoint("TOPLEFT", firstBuffInLastRow, "BOTTOMLEFT", 0, -spacingY) end
                     else
-                        -- Target is completely clean
-                        fakeTargetDebuff:SetPoint("TOPLEFT", TargetFrame, "BOTTOMLEFT", 5, 32)
+                        -- Empty State
+                        if isToT then
+                            fakeDebuff:SetPoint("LEFT", frameObj, "RIGHT", 5, 0)
+                        else
+                            local powerBar = _G[prefix .. "ManaBar"] or frameObj.PowerBar or frameObj.powerBar or frameObj.manabar
+                            if powerBar then
+                                fakeDebuff:SetPoint("TOPLEFT", powerBar, "BOTTOMLEFT", 2, -5)
+                            else
+                                fakeDebuff:SetPoint("TOPLEFT", frameObj, "BOTTOMLEFT", 5, -32)
+                            end
+                        end
                     end
-                    fakeTargetDebuff:Show()
-                else
-                    fakeTargetDebuff:Hide()
-                end
-            else
-                fakeTargetDebuff:Hide()
-            end
 
-            -- Cast Bar Push Logic (Target Frame)
-            if TargetFrameSpellBar and TargetFrameSpellBar:IsShown() then
-                if isFakeDebuffActive and hasNoRealDebuffs then
-                    local p, rt, rp, x, y = TargetFrameSpellBar:GetPoint()
-                    if p and y then
-                        -- Check if Blizzard (or something else) reset the Y position
-                        if not module.expectedY or math.abs(y - module.expectedY) > 0.5 then
-                            local newY = y - 24
-                            TargetFrameSpellBar:ClearAllPoints()
-                            TargetFrameSpellBar:SetPoint(p, rt, rp, x, newY)
-                            module.expectedY = newY
-                            module.castBarPushed = true
+                    fakeDebuff:Show()
+
+                    -- FIX 2: Mathematical Cast Bar Shift
+                    if spellBar then
+                        local p, rt, rp, x, currentY = spellBar:GetPoint()
+                        currentY = currentY or 0
+                        
+                        local isAlreadyShifted = spellBar.purityShiftedY and math.abs(currentY - spellBar.purityShiftedY) < 1.0
+                        local nativeY = isAlreadyShifted and spellBar.purityNativeY or currentY
+                        
+                        if not isToT then
+                            -- By using math.ceil, we check exactly if adding 1 to the current debuff count 
+                            -- spills over the maxPerRow limit, creating a brand new row.
+                            local blizzRows = math.ceil(numDebuffs / maxPerRow)
+                            local actualRows = math.ceil((numDebuffs + 1) / maxPerRow)
+                            local startsNewRow = actualRows > blizzRows
+
+                            if startsNewRow then
+                                local targetY = nativeY - (fakeDebuff:GetHeight() + spacingY)
+                                
+                                -- Only shift if we aren't already exactly there
+                                if math.abs(currentY - targetY) > 1.0 then
+                                    spellBar:ClearAllPoints()
+                                    spellBar:SetPoint(p, rt, rp, x, targetY)
+                                    spellBar.purityShiftedY = targetY
+                                    spellBar.purityNativeY = nativeY
+                                end
+                            else
+                                -- Does not start a new row, restore to native
+                                if isAlreadyShifted then
+                                    spellBar:ClearAllPoints()
+                                    spellBar:SetPoint(p, rt, rp, x, spellBar.purityNativeY)
+                                    spellBar.purityShiftedY = nil
+                                    spellBar.purityNativeY = nil
+                                end
+                            end
                         end
                     end
                 else
-                    if module.castBarPushed then
-                        module.castBarPushed = false
-                        module.expectedY = nil
-                        -- Let Blizzard reset it safely
-                        if Target_Spellbar_AdjustPosition then
-                            Target_Spellbar_AdjustPosition(TargetFrameSpellBar)
-                        elseif TargetFrame_UpdateAuras then
-                            TargetFrame_UpdateAuras(TargetFrame)
+                    fakeDebuff:Hide()
+                    
+                    -- Safe Restore when debuff expires
+                    if spellBar and spellBar.purityShiftedY then
+                        local p, rt, rp, x, y = spellBar:GetPoint()
+                        if math.abs((y or 0) - spellBar.purityShiftedY) < 1.0 then
+                            spellBar:ClearAllPoints()
+                            spellBar:SetPoint(p, rt, rp, x, spellBar.purityNativeY)
                         end
+                        spellBar.purityShiftedY = nil
+                        spellBar.purityNativeY = nil
                     end
                 end
-            elseif module.castBarPushed then
-                module.castBarPushed = false
-                module.expectedY = nil
             end
 
-            -- 2. Party Frames Logic
+            if TargetFrame then UpdateAuraDebuff(fakeTargetDebuff, "target", TargetFrame, "TargetFrame") end
+            if TargetFrameToT then UpdateAuraDebuff(fakeTargetTargetDebuff, "targettarget", TargetFrameToT, "TargetFrameToT") end
+            if FocusFrame then UpdateAuraDebuff(fakeFocusDebuff, "focus", FocusFrame, "FocusFrame") end
+            if FocusFrameToT then UpdateAuraDebuff(fakeFocusToTDebuff, "focustarget", FocusFrameToT, "FocusFrameToT") end
+
             for i = 1, 4 do
                 local pFrame = _G["PartyMemberFrame" .. i]
+                local isModern = false
+                if not pFrame and PartyFrame and PartyFrame["MemberFrame" .. i] then
+                    pFrame = PartyFrame["MemberFrame" .. i]
+                    isModern = true
+                end
+                
                 local fakeDebuff = fakePartyDebuffs[i]
                 local unit = "party" .. i
 
-                if fakeDebuff and pFrame and UnitExists(unit) and UnitIsPlayer(unit) then
+                if fakeDebuff and pFrame and pFrame:IsShown() and UnitExists(unit) and UnitIsPlayer(unit) then
                     local pName = UnitName(unit)
                     local pShort = pName and pName:match("([^-]+)") or ""
                     local pData = Purity.roster and (Purity.roster[pName] or Purity.roster[pShort] or Purity.roster[pName .. "-" .. GetRealmName()])
@@ -1022,8 +1125,29 @@ ManageBloodRegen = function(self)
                             fakeDebuff.lastExpires = expires
                         end
 
+                        if fakeDebuff:GetParent() ~= pFrame then
+                            fakeDebuff:SetParent(pFrame)
+                        end
+
                         fakeDebuff:ClearAllPoints()
-                        fakeDebuff:SetPoint("TOPLEFT", pFrame, "BOTTOMLEFT", 45, 12)
+                        fakeDebuff:SetSize(15, 15)
+
+                        local pPowerBar = _G["PartyMemberFrame" .. i .. "ManaBar"] 
+                        if not pPowerBar and pFrame then
+                            pPowerBar = pFrame.PowerBar or pFrame.powerbar or pFrame.ManaBar
+                        end
+
+                        if pPowerBar then
+                            fakeDebuff:SetPoint("TOPLEFT", pPowerBar, "BOTTOMLEFT", 2, -3)
+                        else
+                            local pHealthBar = _G["PartyMemberFrame" .. i .. "HealthBar"] or pFrame.HealthBar
+                            if pHealthBar then
+                                fakeDebuff:SetPoint("TOPLEFT", pHealthBar, "BOTTOMLEFT", 2, -16)
+                            else
+                                fakeDebuff:SetPoint("TOPLEFT", pFrame, "BOTTOMLEFT", 4, -32)
+                            end
+                        end
+                        
                         fakeDebuff:Show()
                     else
                         fakeDebuff:Hide()
@@ -1125,7 +1249,8 @@ ManageBloodRegen = function(self)
         local lastBroadcastTime = 0
         
         self.broadcasterFrame:SetScript("OnUpdate", function(frame, elapsed)
-            if GetNumGroupMembers() == 0 then return end
+            local inGroup = (GetNumPartyMembers and GetNumPartyMembers() > 0) or (GetNumRaidMembers and GetNumRaidMembers() > 0) or (GetNumGroupMembers and GetNumGroupMembers() > 0)
+            if not inGroup then return end
             
             local db = Purity:GetDB()
             if not (db and db.activeChallengeID == self.id) then return end
@@ -1142,7 +1267,8 @@ ManageBloodRegen = function(self)
                 -- Send instantly, with a 0.1s buffer ONLY to prevent multi-hit AoE crashes
                 if (now - lastBroadcastTime) >= 0.1 then
                     local data = { current = current, max = max }
-                    local channel = IsInRaid() and "RAID" or "PARTY"
+                    local isRaid = (GetNumRaidMembers and GetNumRaidMembers() > 0) or (IsInRaid and IsInRaid())
+                    local channel = isRaid and "RAID" or "PARTY"
                     C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "BLOODPOOL_UPDATE:" .. Purity:Serialize(data), channel)
                     
                     lastBroadcastedCurrent = current
@@ -1789,8 +1915,10 @@ EventHandler = function(self, event, ...)
                             self.sanguineWeaknessExpires = GetTime() + 15
                             self:LogSanguineWeakness(spellName)
 
-                            if IsInGroup() then
-                                local channel = IsInRaid() and "RAID" or "PARTY"
+                            local inGroup = (GetNumPartyMembers and GetNumPartyMembers() > 0) or (GetNumRaidMembers and GetNumRaidMembers() > 0) or (GetNumGroupMembers and GetNumGroupMembers() > 0)
+                            if inGroup then
+                                local isRaid = (GetNumRaidMembers and GetNumRaidMembers() > 0) or (IsInRaid and IsInRaid())
+                                local channel = isRaid and "RAID" or "PARTY"
                                 C_ChatInfo.SendAddonMessage(Purity.ADDON_PREFIX, "SANGUINE_WEAKNESS:", channel)
                             end
 

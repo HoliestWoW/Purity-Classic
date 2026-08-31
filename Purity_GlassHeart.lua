@@ -189,7 +189,7 @@ local GlassHeart = {
     -- [[ TARGET / PARTY FRAME HANDLING ]]
 
     RefreshGroupFrames = function(self)
-        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
+        local units = {"target", "targettarget", "focus", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local healthBar
             local textRegions = {} 
@@ -207,6 +207,26 @@ local GlassHeart = {
                     if _G["TargetFrameTextureFrameHealthBarText"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarText"]) end
                     if _G["TargetFrameTextureFrameHealthBarTextLeft"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextLeft"]) end
                     if _G["TargetFrameTextureFrameHealthBarTextRight"] then table.insert(textRegions, _G["TargetFrameTextureFrameHealthBarTextRight"]) end
+                end
+            elseif unit == "focus" then
+                healthBar = FocusFrameHealthBar
+                -- Anniversary UI Focus Frame fallback
+                if not healthBar and FocusFrame and FocusFrame.HealthBar then
+                    healthBar = FocusFrame.HealthBar
+                    if healthBar.CenterText then table.insert(textRegions, healthBar.CenterText) end
+                    if healthBar.LeftText then table.insert(textRegions, healthBar.LeftText) end
+                    if healthBar.RightText then table.insert(textRegions, healthBar.RightText) end
+                end
+                if FocusFrameTextureFrame then
+                    if FocusFrameTextureFrame.HealthBarText then table.insert(textRegions, FocusFrameTextureFrame.HealthBarText) end
+                    if FocusFrameTextureFrame.HealthBarTextLeft then table.insert(textRegions, FocusFrameTextureFrame.HealthBarTextLeft) end
+                    if FocusFrameTextureFrame.HealthBarTextRight then table.insert(textRegions, FocusFrameTextureFrame.HealthBarTextRight) end
+                end
+                -- Classic Era fallback
+                if #textRegions == 0 then
+                    if _G["FocusFrameTextureFrameHealthBarText"] then table.insert(textRegions, _G["FocusFrameTextureFrameHealthBarText"]) end
+                    if _G["FocusFrameTextureFrameHealthBarTextLeft"] then table.insert(textRegions, _G["FocusFrameTextureFrameHealthBarTextLeft"]) end
+                    if _G["FocusFrameTextureFrameHealthBarTextRight"] then table.insert(textRegions, _G["FocusFrameTextureFrameHealthBarTextRight"]) end
                 end
             elseif unit == "targettarget" then
                 healthBar = _G["TargetFrameToTHealthBar"]
@@ -316,7 +336,7 @@ local GlassHeart = {
     UpdateGroupFrameValues = function(self)
         if GetNumGroupMembers() == 0 and not UnitExists("target") then return end
         
-        local units = {"target", "targettarget", "party1", "party2", "party3", "party4"}
+        local units = {"target", "targettarget", "focus", "party1", "party2", "party3", "party4"}
         for _, unit in ipairs(units) do
             local bar = self.partyGlassBars[unit]
             if bar and bar:IsShown() then
