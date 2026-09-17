@@ -3,7 +3,7 @@
 BINDING_HEADER_PURITY = "Purity";
 BINDING_NAME_PURITY_TOGGLE = "Toggle Purity Window";
 local addonName, Purity = ...
-Purity.Version = "12.2.4"
+Purity.Version = "12.2.4a"
 if not Purity_GlobalSettings then Purity_GlobalSettings = {} end
 
 Purity.BLOODMAGE_CLASS_OVERRIDES = {
@@ -1960,7 +1960,11 @@ function Purity:BuildOptionsMenu()
             local isChecked = btn:GetChecked()
             db.bloodLogVisible = isChecked
             if isChecked then
-                Purity:LogToChatTab("Blood Log", "|cffFFFF00Purity:|r Blood Log enabled.")
+                print("|cffFFFF00Purity:|r Blood Mage Chat Logging: |cff00ff00ON|r")
+                Purity:LogToChatTab("Blood Log", "|cffFFFF00Purity:|r Blood Log enabled.", true)
+            else
+                print("|cffFFFF00Purity:|r Blood Mage Chat Logging: |cffff0000OFF|r")
+                Purity:CloseChatTab("Blood Log")
             end
         end)
         self.optionsPane.widgets.bloodLog = bloodLogCheck
@@ -1983,8 +1987,8 @@ function Purity:BuildOptionsMenu()
             end
         end)
         self.optionsPane.widgets.glassLog = glassLogCheck
-		
-		-- [Glass Heart: Custom FCT]
+
+        -- [Glass Heart: Custom FCT]
         local glassFCTCheck = CreateFrame("CheckButton", "PurityGlassFCTCheck", self.optionsPane, "UICheckButtonTemplate")
         local gfText = _G[glassFCTCheck:GetName() .. "Text"]
         if gfText then
@@ -4307,16 +4311,26 @@ SlashCmdList["PURITY"] = function(msg)
 		
 	elseif command == "bloodlog" then
         local db = Purity:GetDB()
-        db.bloodLogVisible = true
-        print("|cffFFFF00Purity:|r Blood Log enabled and focused.")
-        Purity:LogToChatTab("Blood Log", nil, true)
+        db.bloodLogVisible = not db.bloodLogVisible
+        if db.bloodLogVisible then
+            print("|cffFFFF00Purity:|r Blood Mage Chat Logging: |cff00ff00ON|r")
+            Purity:LogToChatTab("Blood Log", "|cffFFFF00Purity:|r Blood Log enabled.", true)
+        else
+            print("|cffFFFF00Purity:|r Blood Mage Chat Logging: |cffff0000OFF|r")
+            Purity:CloseChatTab("Blood Log")
+        end
+        if Purity.optionsPane and Purity.optionsPane:IsShown() and Purity.optionsPane.widgets.bloodLog then
+            Purity.optionsPane.widgets.bloodLog:SetChecked(db.bloodLogVisible)
+        end
         return
 		
 	elseif command == "glasslog" then
-        local db = Purity:GetDB()
-        db.glassLogVisible = true
-        print("|cffFFFF00Purity:|r Glass Log enabled and focused.")
-        Purity:LogToChatTab("Glass Log", nil, true)
+        if Purity.GlobalModules and Purity.GlobalModules.GLASS_HEART then
+            Purity.GlobalModules.GLASS_HEART:ToggleLog()
+            if Purity.optionsPane and Purity.optionsPane:IsShown() and Purity.optionsPane.widgets.glassLog then
+                Purity.optionsPane.widgets.glassLog:SetChecked(Purity:GetDB().glassLogVisible)
+            end
+        end
         return
 		
 	elseif command == "fishlog" then
@@ -4434,9 +4448,9 @@ local function Purity_TooltipOnUpdateHandler(self)
     local isOathBreaker = false
     local isBloodMage = false
     local isGlassHeart = false
+    local isZealot = false
     local currentVal, maxVal
 
-    -- 1. Identify Challenge Type (Self or Roster)
     if UnitIsUnit(unit, "player") then
         local db = Purity:GetDB()
         if db and (db.status == "Passing" or db.status == "Temporary Failure - Uptime") then
@@ -4453,6 +4467,10 @@ local function Purity_TooltipOnUpdateHandler(self)
                 isGlassHeart = true
                 currentVal = db.glassHeartHP
                 maxVal = UnitHealthMax("player")
+            elseif db.activeChallengeID == "PALADIN_ZEALOT" then
+                isZealot = true
+                currentVal = db.zealotHP
+                maxVal = db.zealotMaxHP or UnitHealthMax("player")
             end
         end
     else
@@ -4473,21 +4491,25 @@ local function Purity_TooltipOnUpdateHandler(self)
                 isGlassHeart = true
                 currentVal = data.glassHeartCurrent
                 maxVal = data.glassHeartMax
+            elseif data.challenge == "The Zealot's Penance" then
+                isZealot = true
+                currentVal = data.zealotCurrent
+                maxVal = data.zealotMax
             end
         end
     end
 
-    -- 2. Apply Health Bar Visuals
-    -- All three types get a custom health bar override in the tooltip
-    if isOathBreaker or isBloodMage or isGlassHeart then
+    if isOathBreaker or isBloodMage or isGlassHeart or isZealot then
         local statusBar = GameTooltipStatusBar
         if statusBar then
             if not statusBar:IsShown() then statusBar:Show() end
             
             if isOathBreaker or isBloodMage then
-                statusBar:SetStatusBarColor(0.8, 0.1, 0.1) -- Red for Blood Mages
+                statusBar:SetStatusBarColor(0.8, 0.1, 0.1) 
+            elseif isZealot then
+                statusBar:SetStatusBarColor(1.0, 0.8, 0.0) -- Gold for Zealot
             else
-                statusBar:SetStatusBarColor(0.0, 1.0, 0.0) -- Green for Glass Heart
+                statusBar:SetStatusBarColor(0.0, 1.0, 0.0) 
             end
             
             if currentVal and maxVal and maxVal > 0 then
@@ -4501,35 +4523,27 @@ local function Purity_TooltipOnUpdateHandler(self)
         end
     end
 
-    -- 3. Apply Oath Breaker Specific Text Overrides (ONLY for Paladins)
     if isOathBreaker then
-        -- Class Name -> Oath Breaker
         for i = 2, self:NumLines() do
             local line = _G[self:GetName() .. "TextLeft" .. i]
             if line then
                 local text = line:GetText()
                 if text and text:find("Paladin") then
                     local newText
-                    -- Match common Paladin pink hex codes (e.g. F58CBA or f58cba)
                     if text:match("ff[Ff][45]8[Cc][Bb][Aa]") then
-                        -- Replace the pink color wrapper with red, and Paladin with Oath Breaker
                         newText = text:gsub("(|cff[Ff][45]8[Cc][Bb][Aa])(.-Paladin.-)|r", function(prefix, inner)
                             return "|cffFF0000" .. inner:gsub("Paladin", "Oath Breaker") .. "|r"
                         end)
-                        -- Fallback just in case the regex wrapper didn't match perfectly
                         if newText == text then
                             newText = text:gsub("Paladin", "|cffFF0000Oath Breaker|r")
                         end
                     else
-                        -- Keep original color (e.g. white), just change the word
                         newText = text:gsub("Paladin", "Oath Breaker")
                     end
                     line:SetText(newText)
                 end
             end
         end
-        
-        -- Resize to fit "Oath Breaker" if necessary
         local padding = 20
         local maxWidth = 0
         for i = 1, self:NumLines() do
@@ -5437,27 +5451,32 @@ _G.Purity_UI = {
 function Purity:LogToChatTab(tabName, message, focusTab)
     local targetFrame = nil
     
-    -- 1. Find the tab if it exists
+    -- 1. Find the tab if it exists AND is actually alive
     for i = 1, NUM_CHAT_WINDOWS do
-        local name = select(1, FCF_GetChatWindowInfo(i))
-        if name == tabName then
+        local name, _, _, _, _, _, shown, _, docked = FCF_GetChatWindowInfo(i)
+        
+        -- If it has the right name but isn't shown or docked, FCF_Close killed it. We ignore it.
+        if name == tabName and (shown or docked) then
             targetFrame = _G["ChatFrame"..i]
             break
         end
     end
 
-    -- 2. Create and FORCE DOCK if it doesn't exist
+    -- 2. Create, ISOLATE, and FORCE DOCK if it doesn't exist (or needs reviving)
     if not targetFrame then
         targetFrame = FCF_OpenNewWindow(tabName)
-        -- This line fixes the "Blank Window" issue by snapping it to the General dock
-        FCF_DockFrame(targetFrame, #GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES + 1, true)
+        
+        if targetFrame then
+            ChatFrame_RemoveAllMessageGroups(targetFrame)
+            ChatFrame_RemoveAllChannels(targetFrame)
+            FCF_DockFrame(targetFrame, #GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES + 1, true)
+        end
     end
 
     -- 3. Send Message
     if message and targetFrame then
         targetFrame:AddMessage(message)
         
-        -- First-time flash logic
         if targetFrame ~= FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK) then
             if not Purity_GlobalSettings.seenLogs then Purity_GlobalSettings.seenLogs = {} end
             if not Purity_GlobalSettings.seenLogs[tabName] then
@@ -5467,9 +5486,22 @@ function Purity:LogToChatTab(tabName, message, focusTab)
         end
     end
 
-    -- 4. Handle Focus (Slash Command)
-    if focusTab and targetFrame then
+    -- 4. Handle Focus safely
+    if focusTab and targetFrame and targetFrame.isDocked then
         FCF_SelectDockFrame(targetFrame)
+    end
+end
+
+function Purity:CloseChatTab(tabName)
+    for i = 1, NUM_CHAT_WINDOWS do
+        local name = select(1, FCF_GetChatWindowInfo(i))
+        if name == tabName then
+            local targetFrame = _G["ChatFrame"..i]
+            if targetFrame then
+                FCF_Close(targetFrame)
+            end
+            break
+        end
     end
 end
 

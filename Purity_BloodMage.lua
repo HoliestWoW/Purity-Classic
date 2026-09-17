@@ -1687,8 +1687,32 @@ ManageBloodRegen = function(self)
         local db = Purity:GetDB()
         
         if delta > 0 then
-            -- Let the SERVER handle all passive/effective healing identically to real health!
-            secureBloodState.current = secureBloodState.current + delta
+            local addedAmount = delta
+            
+            -- If this natural tick caps our real health, ensure our fake bar gets a full-sized tick
+            if currentRealHP >= maxRealHP then
+                local _, spirit = UnitStat("player", 5)
+                local baseRegen = (spirit * 0.25) + 3 
+                
+                local inCombat = UnitAffectingCombat("player")
+                local _, race = UnitRace("player")
+                local isTroll = (race == "Troll")
+
+                if inCombat and isTroll then
+                    baseRegen = (baseRegen * 1.10) * 0.10
+                elseif not inCombat and isTroll then
+                    baseRegen = baseRegen * 1.10
+                elseif inCombat then
+                    baseRegen = 0
+                end
+
+                baseRegen = baseRegen + ((self.auraHPS or 0) * 2.0)
+                
+                -- Use the larger value to avoid a micro-tick
+                addedAmount = math.max(delta, baseRegen)
+            end
+            
+            secureBloodState.current = secureBloodState.current + addedAmount
         elseif delta < 0 then
             -- The player took raw damage
             local damageTaken = math.abs(delta)

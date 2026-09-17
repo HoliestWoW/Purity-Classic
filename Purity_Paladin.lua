@@ -83,7 +83,7 @@ PaladinModule.challenges.oath = {
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, sourceFlags, _, destGUID, _, destFlags, _, spellId = CombatLogGetCurrentEventInfo()
 
-            -- Stat tracking for Holy Light (reliable method)
+            -- Stat tracking for Holy Light
             if sourceGUID == UnitGUID("player") and subEvent == "SPELL_CAST_SUCCESS" then
                 local holyLightIDs = { [635]=true,[639]=true,[647]=true,[1026]=true,[1042]=true,[3472]=true,[10328]=true,[10329]=true,[25292]=true }
                 if holyLightIDs[spellId] then
@@ -91,14 +91,11 @@ PaladinModule.challenges.oath = {
                     if not db.challengeStats then db.challengeStats = {} end
                     db.challengeStats.holyLightCasts = (db.challengeStats.holyLightCasts or 0) + 1
                     if _G["PurityCharacterPanel"] and _G["PurityCharacterPanel"]:IsShown() then
-						if _G["UpdateCharacterPurity"] then
-							_G["UpdateCharacterPurity"]()
-						end
+						if _G["UpdateCharacterPurity"] then _G["UpdateCharacterPurity"]() end
 					end
                 end
             end
 
-            -- Rule validation for initiating combat
             if not (string.find(subEvent, "_DAMAGE") or string.find(subEvent, "_MISSED")) then return end
 
             if destGUID == UnitGUID("player") and sourceGUID and bit.band(sourceFlags, COMBATLOG_OBJECT_TYPE_NPC) > 0 then
@@ -173,7 +170,6 @@ PaladinModule.challenges.libram = {
                 local unitName = UnitName(unit)
                 
                 if targetGUID and unitName then
-                    -- Cache both the type and the exact name of the mob
                     secureCombatants[targetGUID] = { type = creatureType, name = unitName }
                 end
             end
@@ -183,12 +179,9 @@ PaladinModule.challenges.libram = {
             
         elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then
             local text = ...
-            -- Parse the string to grab the mob's name before the word "dies"
-            -- Example: "Rockjaw Raider dies, you gain 55 experience." -> "Rockjaw Raider"
             local slainMobName = text:match("^(.-) dies, you gain")
             
             if slainMobName then
-                -- Check our active combat cache for this name
                 for guid, data in pairs(secureCombatants) do
                     if data.name == slainMobName then
                         if data.type ~= "Undead" then
@@ -202,7 +195,6 @@ PaladinModule.challenges.libram = {
         elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
             local _, subEvent, _, sourceGUID, _, _, _, destGUID, destName, destFlags, _, spellId = CombatLogGetCurrentEventInfo()
 
-            -- Stat tracking for Exorcism
             if sourceGUID == UnitGUID("player") and subEvent == "SPELL_CAST_SUCCESS" then
                 local exorcismIDs = { [879]=true, [5614]=true, [5615]=true, [10312]=true, [10313]=true, [10314]=true }
                 if exorcismIDs[spellId] then
@@ -215,7 +207,6 @@ PaladinModule.challenges.libram = {
                 end
             end
 
-            -- Direct Killing Blows
             if subEvent == "PARTY_KILL" and sourceGUID == UnitGUID("player") and destGUID and bit.band(destFlags, COMBATLOG_OBJECT_TYPE_NPC) > 0 then
                 if secureCombatants[destGUID] then
                     if secureCombatants[destGUID].type ~= "Undead" then
@@ -225,7 +216,6 @@ PaladinModule.challenges.libram = {
                 end
             end
             
-            -- Clean up the cache when a mob dies to prevent bloat during long combat
             if subEvent == "UNIT_DIED" and destGUID then
                 if secureCombatants[destGUID] then
                     secureCombatants[destGUID] = nil

@@ -557,9 +557,25 @@ local GlassHeart = {
                                 Purity:ShowCustomCombatText(string.format("[Shield Bleed: -%.0f]", bleedThrough), 0, 1, 1)
                             end
 
-                            local sourceText = "|cffff8080" .. (self.lastSource or "Unknown") .. "'s|r"
-                            local abilityText = "|cffffffff" .. (self.lastAbility or "Hit") .. "|r"
-                            local logMsg = string.format("%s %s bleeds through your shield for |cff00ffff%.0f|r.", sourceText, abilityText, bleedThrough)
+                            local sourceName = self.lastSource or "Unknown"
+                            local abilityName = self.lastAbility or "hit"
+                            local playerName = UnitName("player")
+                            local logMsg = ""
+                            
+                            if abilityName == "Melee" then
+                                abilityName = "melee swing"
+                                logMsg = string.format("|cffCC0000%s's %s bleeds through %s's shield for |r|cffFF0000%.0f Physical.|r", 
+                                    sourceName, abilityName, playerName, bleedThrough)
+                            elseif abilityName == "Auto Shot" then
+                                abilityName = "auto shot"
+                                logMsg = string.format("|cffCC0000%s's %s bleeds through %s's shield for |r|cffFF0000%.0f Physical.|r", 
+                                    sourceName, abilityName, playerName, bleedThrough)
+                            else
+                                -- Spell format: highlights the spell name in pure red and drops the brackets
+                                logMsg = string.format("|cffCC0000%s's |r|cffFF0000%s |r|cffCC0000bleeds through %s's shield for |r|cffFF0000%.0f damage.|r", 
+                                    sourceName, abilityName, playerName, bleedThrough)
+                            end
+
                             self:AddLogLine(logMsg)
                             
                             if secureGlassHeartState.current <= 0 then
@@ -572,19 +588,29 @@ local GlassHeart = {
                     if string.find(subEvent, "_DAMAGE") then
                         self.lastSource = sourceName or "Unknown"
                         
+                        local amount = 0
                         local absorbed = 0
+                        
                         if subEvent == "SWING_DAMAGE" then
                             self.lastAbility = "Melee"
+                            self.lastSchool = 1
+                            amount = select(12, CombatLogGetCurrentEventInfo())
                             absorbed = select(17, CombatLogGetCurrentEventInfo())
                         elseif subEvent == "RANGE_DAMAGE" then
                             self.lastAbility = "Auto Shot"
+                            self.lastSchool = select(14, CombatLogGetCurrentEventInfo())
+                            amount = select(15, CombatLogGetCurrentEventInfo())
                             absorbed = select(20, CombatLogGetCurrentEventInfo())
                         elseif subEvent == "ENVIRONMENTAL_DAMAGE" then
                             self.lastAbility = select(12, CombatLogGetCurrentEventInfo())
+                            self.lastSchool = 1
+                            amount = select(13, CombatLogGetCurrentEventInfo())
                             absorbed = select(18, CombatLogGetCurrentEventInfo())
                         else
                             -- SPELL_DAMAGE and SPELL_PERIODIC_DAMAGE
                             self.lastAbility = select(13, CombatLogGetCurrentEventInfo()) or "Ability" 
+                            self.lastSchool = select(14, CombatLogGetCurrentEventInfo()) or 1
+                            amount = select(15, CombatLogGetCurrentEventInfo())
                             absorbed = select(20, CombatLogGetCurrentEventInfo())
                         end
                         self.lastDamageTime = GetTime()
@@ -742,7 +768,47 @@ local GlassHeart = {
 
         elseif delta > 0 then
             -- HEALING
-            secureGlassHeartState.current = secureGlassHeartState.current + delta
+            local addedAmount = delta
+            
+            -- If this natural tick caps our real health, ensure our fake bar gets a full-sized tick
+            if currentRealHP >= maxRealHP then
+                local _, spirit = UnitStat("player", 5)
+                local baseRegen = (spirit * 0.50) + 2 
+                local _, race = UnitRace("player")
+                local isTroll = (race == "Troll")
+                
+                if UnitAffectingCombat("player") and not isTroll then
+                    baseRegen = 0
+                else
+                    local isEating = false
+                    for i = 1, 40 do
+                        local name = UnitAura("player", i, "HELPFUL")
+                        if not name then break end
+                        if name == "Food" or name == "Eating" then 
+                            isEating = true 
+                            break 
+                        end
+                    end
+
+                    if isEating then
+                        local foodBonus = maxRealHP * 0.06
+                        baseRegen = baseRegen + foodBonus
+                    end
+
+                    if isTroll then
+                        if UnitAffectingCombat("player") then
+                            baseRegen = baseRegen * 0.10
+                        else
+                            baseRegen = baseRegen * 1.10
+                        end
+                    end
+                end
+                
+                -- Use the larger value to avoid a micro-tick
+                addedAmount = math.max(delta, baseRegen)
+            end
+            
+            secureGlassHeartState.current = secureGlassHeartState.current + addedAmount
         end
 
         if secureGlassHeartState.current > maxRealHP then secureGlassHeartState.current = maxRealHP end
@@ -767,12 +833,41 @@ local GlassHeart = {
     end,
 
     LogDamage = function(self, rawDmg, actualDmg)
-        -- Removed the frame visibility check so it always logs to chat
-        local sourceText = "|cffff8080" .. (self.lastSource or "Unknown") .. "'s|r"
-        local abilityText = "|cffffffff" .. (self.lastAbility or "Hit") .. "|r"
+        local sourceName = self.lastSource or "Unknown"
+        local abilityName = self.lastAbility or "hit"
+        local playerName = UnitName("player")
+        
+        -- Translate the bitmask into the Blizzard damage school
+        local damageType = "damage."
+        if self.lastSchool then
+            local schoolName = "Physical"
+            if bit.band(self.lastSchool, 64) > 0 then schoolName = "Arcane"
+            elseif bit.band(self.lastSchool, 32) > 0 then schoolName = "Shadow"
+            elseif bit.band(self.lastSchool, 16) > 0 then schoolName = "Frost"
+            elseif bit.band(self.lastSchool, 8) > 0 then schoolName = "Nature"
+            elseif bit.band(self.lastSchool, 4) > 0 then schoolName = "Fire"
+            elseif bit.band(self.lastSchool, 2) > 0 then schoolName = "Holy"
+            end
+            damageType = schoolName .. "."
+        end
 
-        local msg = string.format("%s %s hits you for |cffff0000%.0f|r |cff888888(Base: %.0f)|r", 
-            sourceText, abilityText, actualDmg, rawDmg)
+        local msg = ""
+
+        if abilityName == "Melee" then
+            abilityName = "melee swing"
+            damageType = "Physical."
+            msg = string.format("|cffCC0000%s's %s hits %s for |r|cffFF0000%.0f %s|r", 
+                sourceName, abilityName, playerName, actualDmg, damageType)
+        elseif abilityName == "Auto Shot" then
+            abilityName = "auto shot"
+            damageType = "Physical."
+            msg = string.format("|cffCC0000%s's %s hits %s for |r|cffFF0000%.0f %s|r", 
+                sourceName, abilityName, playerName, actualDmg, damageType)
+        else
+            -- Spell format
+            msg = string.format("|cffCC0000%s's |r|cffFF0000%s |r|cffCC0000hits %s for |r|cffFF0000%.0f %s|r", 
+                sourceName, abilityName, playerName, actualDmg, damageType)
+        end
 
         self:AddLogLine(msg)
     end,
@@ -781,7 +876,6 @@ local GlassHeart = {
         local db = Purity:GetDB()
         if not db.glassLogVisible then return end
 
-        -- Send to the dynamic chat tab
         Purity:LogToChatTab("Glass Log", msg)
     end,
 
@@ -904,13 +998,14 @@ local GlassHeart = {
         
         if db.glassLogVisible then
             print("|cffFFFF00Purity:|r Glass Heart Chat Logging: |cff00ff00ON|r")
-            Purity:LogToChatTab("Glass Log", "|cffFFFF00Purity:|r Glass Heart Damage Log enabled.")
+            Purity:LogToChatTab("Glass Log", "|cffFFFF00Purity:|r Glass Heart Damage Log enabled.", true)
         else
             print("|cffFFFF00Purity:|r Glass Heart Chat Logging: |cffff0000OFF|r")
+            Purity:CloseChatTab("Glass Log")
         end
     end,
     
-    EventHandler = function(self, event, ...) 
+    EventHandler = function(self, event, ...)
         if event == "PLAYER_LOGOUT" then
             local db = Purity:GetDB()
             db.glassHeartHP = secureGlassHeartState.current
